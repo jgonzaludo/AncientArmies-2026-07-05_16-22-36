@@ -57,6 +57,11 @@ public class Soldier : MonoBehaviour
     private void FixedUpdate()
     {
         if (!Alive) return;
+        if (BattleSetup.Instance == null || BattleSetup.Instance.Phase != BattlePhase.Active)
+        {
+            rb.linearVelocity = Vector3.zero;   // hold position until the battle starts
+            return;
+        }
 
         Vector3 pos = transform.position;
         float w = formation.GetSlotWeight(this);
@@ -111,6 +116,8 @@ public class Soldier : MonoBehaviour
     private void Update()
     {
         if (!Alive) return;
+        if (BattleSetup.Instance == null || BattleSetup.Instance.Phase != BattlePhase.Active)
+            return;   // no targeting or attacks before Start / after battle end
 
         retargetTimer -= Time.deltaTime;
         if (retargetTimer <= 0f)

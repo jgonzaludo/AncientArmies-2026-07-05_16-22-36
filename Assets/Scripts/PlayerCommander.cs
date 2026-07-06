@@ -170,8 +170,12 @@ public class PlayerCommander : MonoBehaviour
 
     // ---------------- taps ----------------
 
+    private static bool BattleActive =>
+        BattleSetup.Instance != null && BattleSetup.Instance.Phase == BattlePhase.Active;
+
     private void HandleTap(Vector2 pos)
     {
+        if (!BattleActive) return;   // pre-battle / ended: camera only
         var f = HitFormation(pos);
         if (f == null)
         {
@@ -232,7 +236,7 @@ public class PlayerCommander : MonoBehaviour
 
     private void BeginDrag(Vector2 startPos)
     {
-        var f = HitFormation(startPos);
+        var f = BattleActive ? HitFormation(startPos) : null;
         if (f != null && f.team == Team.Blue && selection.Contains(f))
         {
             mode = PointerMode.CommandDrag;

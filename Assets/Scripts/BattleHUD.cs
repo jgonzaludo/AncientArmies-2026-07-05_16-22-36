@@ -27,6 +27,10 @@ public class BattleHUD : MonoBehaviour
     private Button reformButton;
     private Button rotateButton;
 
+    private GameObject startRoot;
+    private GameObject endRoot;
+    private Text resultText;
+
     // ---------------- lifecycle ----------------
 
     private void Start()
@@ -42,6 +46,28 @@ public class BattleHUD : MonoBehaviour
     private void Update()
     {
         if (commander == null || panelGO == null) return;
+
+        BattlePhase phase = BattleSetup.Instance != null ? BattleSetup.Instance.Phase
+                                                         : BattlePhase.Pre;
+        if (startRoot != null) startRoot.SetActive(phase == BattlePhase.Pre);
+        if (endRoot != null)
+        {
+            endRoot.SetActive(phase == BattlePhase.Ended);
+            if (phase == BattlePhase.Ended && resultText != null)
+            {
+                string r = BattleSetup.Instance.ResultText;
+                resultText.text = r;
+                resultText.color = r == "BLUE WINS" ? new Color(0.5f, 0.75f, 1f)
+                                 : r == "RED WINS" ? new Color(1f, 0.5f, 0.45f)
+                                 : Color.white;
+            }
+        }
+        if (hintText != null) hintText.gameObject.SetActive(phase == BattlePhase.Active);
+        if (phase != BattlePhase.Active)
+        {
+            panelGO.SetActive(false);
+            return;
+        }
 
         Formation enemy = commander.InspectedEnemy;
         if (enemy != null)
@@ -242,6 +268,66 @@ public class BattleHUD : MonoBehaviour
         hintRT.sizeDelta = new Vector2(1000f, 50f);
 
         BuildBottomPanel(canvasT);
+        BuildStartAndEndUI(canvasT);
+    }
+
+    // Lightweight battle entry/exit UI: a START button before the battle and a
+    // result banner + RESTART button after it. No menus, no modals.
+    private void BuildStartAndEndUI(Transform canvasT)
+    {
+        startRoot = new GameObject("StartUI");
+        startRoot.transform.SetParent(canvasT, false);
+        var startRT = startRoot.AddComponent<RectTransform>();
+        startRT.anchorMin = startRT.anchorMax = new Vector2(0.5f, 0f);
+        startRT.pivot = new Vector2(0.5f, 0f);
+        startRT.anchoredPosition = new Vector2(0f, 70f);
+        startRT.sizeDelta = new Vector2(360f, 120f);
+
+        Button startBtn = MakeButton(startRoot.transform, "StartButton", "START", Vector2.zero);
+        var sbRT = startBtn.GetComponent<RectTransform>();
+        sbRT.anchorMin = Vector2.zero;
+        sbRT.anchorMax = Vector2.one;
+        sbRT.pivot = new Vector2(0.5f, 0.5f);
+        sbRT.offsetMin = Vector2.zero;
+        sbRT.offsetMax = Vector2.zero;
+        var startLabel = startBtn.GetComponentInChildren<Text>();
+        if (startLabel != null) startLabel.fontSize = 44;
+        startBtn.onClick.AddListener(() =>
+        {
+            if (BattleSetup.Instance != null) BattleSetup.Instance.StartBattle();
+        });
+
+        endRoot = new GameObject("EndUI");
+        endRoot.transform.SetParent(canvasT, false);
+        var endRT = endRoot.AddComponent<RectTransform>();
+        endRT.anchorMin = endRT.anchorMax = new Vector2(0.5f, 0.5f);
+        endRT.pivot = new Vector2(0.5f, 0.5f);
+        endRT.anchoredPosition = Vector2.zero;
+        endRT.sizeDelta = new Vector2(900f, 320f);
+
+        resultText = MakeText(endRoot.transform, "ResultText", 84, TextAnchor.MiddleCenter, Color.white);
+        var resRT = resultText.rectTransform;
+        resRT.anchorMin = new Vector2(0.5f, 0.5f);
+        resRT.anchorMax = new Vector2(0.5f, 0.5f);
+        resRT.pivot = new Vector2(0.5f, 0.5f);
+        resRT.anchoredPosition = new Vector2(0f, 90f);
+        resRT.sizeDelta = new Vector2(900f, 130f);
+
+        Button restartBtn = MakeButton(endRoot.transform, "RestartButton", "RESTART", Vector2.zero);
+        var rbRT = restartBtn.GetComponent<RectTransform>();
+        rbRT.anchorMin = rbRT.anchorMax = new Vector2(0.5f, 0.5f);
+        rbRT.pivot = new Vector2(0.5f, 0.5f);
+        rbRT.anchoredPosition = new Vector2(0f, -60f);
+        rbRT.sizeDelta = new Vector2(360f, 110f);
+        var restartLabel = restartBtn.GetComponentInChildren<Text>();
+        if (restartLabel != null) restartLabel.fontSize = 40;
+        restartBtn.onClick.AddListener(() =>
+        {
+            if (BattleSetup.Instance != null) BattleSetup.Instance.RestartBattle();
+        });
+
+        startRoot.SetActive(true);
+        endRoot.SetActive(false);
     }
 
     private void BuildBottomPanel(Transform canvasT)
