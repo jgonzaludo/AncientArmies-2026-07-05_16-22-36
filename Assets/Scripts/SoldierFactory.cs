@@ -64,13 +64,16 @@ public static class SoldierFactory
         }
         weapon.GetComponent<Renderer>().sharedMaterial = weaponMat;
 
+        // clean white selection circle, flat on the ground beneath the soldier
         var disc = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
         Object.Destroy(disc.GetComponent<Collider>());
         disc.name = "SelectionDisc";
         disc.transform.SetParent(root.transform, false);
-        disc.transform.localPosition = new Vector3(0f, 0.06f, 0f);
-        disc.transform.localScale = new Vector3(1.15f, 0.02f, 1.15f);
-        disc.GetComponent<Renderer>().sharedMaterial = discMat;
+        disc.transform.localPosition = new Vector3(0f, 0.05f, 0f);
+        disc.transform.localScale = new Vector3(1.05f, 0.012f, 1.05f);
+        var discR = disc.GetComponent<Renderer>();
+        discR.sharedMaterial = discMat;
+        discR.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
         disc.SetActive(false);
 
         var s = root.AddComponent<Soldier>();
@@ -87,7 +90,7 @@ public static class SoldierFactory
         blueArcherMat = Lit(BlueArcher);
         redArcherMat = Lit(RedArcher);
         weaponMat = Lit(new Color(0.2f, 0.2f, 0.22f));
-        discMat = Unlit(new Color(1f, 0.9f, 0.2f));
+        discMat = BattleVisuals.TransparentUnlit(new Color(1f, 1f, 1f, 0.62f));
         slipMat = new PhysicsMaterial("SoldierSlip")
         {
             dynamicFriction = 0.05f,

@@ -44,6 +44,7 @@ public class BattleSetup : MonoBehaviour
     private void Awake()
     {
         Instance = this;
+        Application.runInBackground = true;
         EnsureEnvironment();
         SpawnSide(Team.Blue, -lineZ, 0f, false);
         SpawnSide(Team.Red, lineZ, 180f, true);
@@ -80,6 +81,7 @@ public class BattleSetup : MonoBehaviour
             Register(s);
         }
         go.AddComponent<FormationLabel>();
+        go.AddComponent<FormationArrow>();
         formations.Add(f);
         return f;
     }

@@ -39,10 +39,34 @@ public class Formation : MonoBehaviour
     public Vector3 AnchorPos { get; private set; }
     public Quaternion AnchorRot { get; private set; } = Quaternion.identity;
     public Vector3 AnchorForward => AnchorRot * Vector3.forward;
+    public float BoundingRadius { get; private set; } = 4f;
+
+    // travel direction when the formation has somewhere to go, otherwise its facing
+    public Vector3 CurrentHeading
+    {
+        get
+        {
+            if (hasDestination)
+            {
+                Vector3 to = destination - AnchorPos;
+                to.y = 0f;
+                if (to.sqrMagnitude > 0.04f) return to.normalized;
+            }
+            return AnchorForward;
+        }
+    }
+
+    public float TotalHealth
+    {
+        get { float h = 0f; foreach (var s in soldiers) h += s.Health; return h; }
+    }
+
+    public float TotalMaxHealth => soldiers.Count * stats.maxHealth;
 
     private Vector3[] slotOffsets = new Vector3[0];
     private Vector3 destination;
     private bool hasDestination;
+    private Quaternion? pendingFacing;
     private float engageTimer;
     private float noContactTime;
     private float reformTimer;
@@ -75,6 +99,7 @@ public class Formation : MonoBehaviour
     {
         int rows = Mathf.CeilToInt(count / (float)columns);
         slotOffsets = new Vector3[count];
+        float maxSq = 0f;
         for (int i = 0; i < count; i++)
         {
             int row = i / columns;
@@ -83,7 +108,22 @@ public class Formation : MonoBehaviour
             float x = (col - (inThisRow - 1) * 0.5f) * spacing;
             float z = ((rows - 1) * 0.5f - row) * spacing;   // row 0 is the front rank
             slotOffsets[i] = new Vector3(x, 0f, z);
+            maxSq = Mathf.Max(maxSq, slotOffsets[i].sqrMagnitude);
         }
+        BoundingRadius = Mathf.Sqrt(maxSq) + spacing;
+    }
+
+    // smallest XZ distance from a battlefield point to any living soldier
+    public float DistanceToNearestSoldier(Vector3 point)
+    {
+        float best = float.MaxValue;
+        foreach (var s in soldiers)
+        {
+            Vector3 d = s.transform.position - point;
+            d.y = 0f;
+            best = Mathf.Min(best, d.sqrMagnitude);
+        }
+        return best == float.MaxValue ? float.MaxValue : Mathf.Sqrt(best);
     }
 
     public Vector3 GetSlotWorldPos(int slot)
@@ -110,6 +150,7 @@ public class Formation : MonoBehaviour
         }
         destination = dest;
         hasDestination = true;
+        pendingFacing = null;
     }
 
     public void IssueAttack(Formation target)
@@ -119,6 +160,16 @@ public class Formation : MonoBehaviour
         if (State != FormationState.BrokenRanks)
             State = FormationState.Attacking;
         hasDestination = true;
+        pendingFacing = null;
+    }
+
+    // wheel in place toward a new facing (Ordered formations only)
+    public void IssueFace(Vector3 direction)
+    {
+        direction.y = 0f;
+        if (direction.sqrMagnitude < 0.01f) return;
+        if (State != FormationState.Ordered) return;
+        pendingFacing = Quaternion.LookRotation(direction.normalized, Vector3.up);
     }
 
     public void IssueBreakRanks()
@@ -240,6 +291,14 @@ public class Formation : MonoBehaviour
         bool canMove = State == FormationState.Ordered ||
                        State == FormationState.Withdrawing || chasing;
         if (!canMove) return;
+
+        if (State == FormationState.Ordered && !hasDestination && pendingFacing.HasValue)
+        {
+            AnchorRot = Quaternion.RotateTowards(AnchorRot, pendingFacing.Value,
+                                                 rotateSpeedDeg * Time.deltaTime);
+            if (Quaternion.Angle(AnchorRot, pendingFacing.Value) < 0.5f) pendingFacing = null;
+            return;
+        }
 
         if (chasing)
         {
