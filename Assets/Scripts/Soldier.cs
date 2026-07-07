@@ -137,11 +137,14 @@ public class Soldier : MonoBehaviour
             if (d <= reach && attackTimer <= 0f)
             {
                 attackTimer = S.attackCooldown * Random.Range(0.9f, 1.15f);
+                // formation-level tactical truth: front 1x, flank 1.5x, rear 2x
+                float dirMult = BattleSetup.Instance.GetDirectionalMultiplier(
+                    formation, target.formation);
                 if (shoot)
                     Projectile.Spawn(transform.position + Vector3.up * 1.3f, target,
-                                     S.attackDamage * skill, S.projectileSpeed);
+                                     S.attackDamage * skill * dirMult, S.projectileSpeed);
                 else
-                    target.TakeDamage(S.attackDamage * skill * (S.isRanged ? 0.4f : 1f));
+                    target.TakeDamage(S.attackDamage * skill * dirMult * (S.isRanged ? 0.4f : 1f));
                 if (weapon != null) StartCoroutine(LungeAnim());
             }
         }

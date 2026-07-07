@@ -41,10 +41,23 @@ public class BattleSetup : MonoBehaviour
     };
 
     [Header("Battle layout")]
-    public int meleeCount = 18;
-    public int archerCount = 12;
+    public int meleeCount = 50;
+    public int archerCount = 40;
+    public int formationColumns = 10;
     public float lineZ = 14f;
     public float lineSpacingX = 14f;
+
+    [Header("Directional combat (front / flank / rear)")]
+    [Tooltip("Damage multiplier when attacking a formation from its front arc")]
+    public float frontDamageMultiplier = 1f;
+    [Tooltip("Damage multiplier when attacking a formation from either side")]
+    public float flankDamageMultiplier = 1.5f;
+    [Tooltip("Damage multiplier when attacking a formation from behind")]
+    public float rearDamageMultiplier = 2f;
+    [Tooltip("Attacks within this many degrees of the defender's forward count as frontal")]
+    public float frontArcHalfAngleDeg = 60f;
+    [Tooltip("Attacks within this many degrees of the defender's rear count as rear attacks")]
+    public float rearArcHalfAngleDeg = 60f;
 
     private readonly List<Soldier> blue = new List<Soldier>();
     private readonly List<Soldier> red = new List<Soldier>();
@@ -57,6 +70,8 @@ public class BattleSetup : MonoBehaviour
         EnsureEnvironment();
         SpawnSide(Team.Blue, -lineZ, 0f, false);
         SpawnSide(Team.Red, lineZ, 180f, true);
+        if (GetComponent<EnemyCommander>() == null)
+            gameObject.AddComponent<EnemyCommander>();
     }
 
     private void OnDestroy()
@@ -97,13 +112,28 @@ public class BattleSetup : MonoBehaviour
     private void SpawnSide(Team team, float z, float yaw, bool auto)
     {
         string p = team == Team.Blue ? "Blue" : "Red";
-        CreateFormation($"{p} Swords A", team, meleeStats, meleeCount, 6,
+        CreateFormation($"{p} Swords A", team, meleeStats, meleeCount, formationColumns,
                         new Vector3(-lineSpacingX, 0f, z), yaw, auto);
-        CreateFormation($"{p} Swords B", team, meleeStats, meleeCount, 6,
+        CreateFormation($"{p} Swords B", team, meleeStats, meleeCount, formationColumns,
                         new Vector3(lineSpacingX, 0f, z), yaw, auto);
         float archerZ = z + (team == Team.Blue ? -6f : 6f);
-        CreateFormation($"{p} Archers", team, archerStats, archerCount, 6,
+        CreateFormation($"{p} Archers", team, archerStats, archerCount, formationColumns,
                         new Vector3(0f, 0f, archerZ), yaw, auto);
+    }
+
+    // Formation-level directional damage: where is the attacker relative to the
+    // defender's canonical forward? Deterministic, anchor-based, tunable above.
+    public float GetDirectionalMultiplier(Formation attacker, Formation defender)
+    {
+        if (attacker == null || defender == null || attacker == defender)
+            return frontDamageMultiplier;
+        Vector3 toAttacker = attacker.AnchorPos - defender.AnchorPos;
+        toAttacker.y = 0f;
+        if (toAttacker.sqrMagnitude < 0.04f) return frontDamageMultiplier;
+        float angle = Vector3.Angle(defender.AnchorForward, toAttacker);
+        if (angle <= frontArcHalfAngleDeg) return frontDamageMultiplier;
+        if (angle >= 180f - rearArcHalfAngleDeg) return rearDamageMultiplier;
+        return flankDamageMultiplier;
     }
 
     public Formation CreateFormation(string name, Team team, UnitStats stats, int count,
@@ -137,8 +167,9 @@ public class BattleSetup : MonoBehaviour
             ground.name = "Ground";
             ground.transform.position = Vector3.zero;
             ground.transform.localScale = new Vector3(10f, 1f, 6f);
-            ground.GetComponent<Renderer>().sharedMaterial =
-                SoldierFactory.Lit(new Color(0.19f, 0.25f, 0.16f));
+            var grass = SoldierFactory.Lit(new Color(0.45f, 0.56f, 0.34f));
+            grass.SetFloat("_Smoothness", 0.12f);   // matte, no specular glare
+            ground.GetComponent<Renderer>().sharedMaterial = grass;
         }
 
         var cam = Camera.main;
@@ -149,9 +180,11 @@ public class BattleSetup : MonoBehaviour
             cam.transform.position = new Vector3(0f, 42f, -30f);
             cam.transform.rotation = Quaternion.Euler(55f, 0f, 0f);
             cam.clearFlags = CameraClearFlags.SolidColor;
-            cam.backgroundColor = new Color(0.07f, 0.08f, 0.1f);
+            cam.backgroundColor = new Color(0.12f, 0.14f, 0.17f);
             cam.nearClipPlane = 0.3f;
             cam.farClipPlane = 200f;
+            if (cam.GetComponent<BattleCamera>() == null)
+                cam.gameObject.AddComponent<BattleCamera>();
         }
     }
 }

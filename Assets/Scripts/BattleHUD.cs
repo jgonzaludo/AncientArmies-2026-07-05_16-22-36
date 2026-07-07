@@ -11,9 +11,14 @@ using UnityEngine.InputSystem.UI;
 public class BattleHUD : MonoBehaviour
 {
     private const float ButtonWidth = 215f;
-    private const float ButtonHeight = 76f;
+    private const float ButtonHeight = 84f;
+    private const float ButtonGap = 14f;
     private static readonly Color EnemyTint = new Color(1f, 0.45f, 0.45f);
     private static readonly Color ReasonColor = new Color(1f, 0.55f, 0.5f);
+    private static readonly Color ButtonColor = new Color(0.21f, 0.23f, 0.31f);
+    private static readonly Color AccentColor = new Color(0.18f, 0.42f, 0.8f);
+
+    private static Sprite roundedSprite;   // shared 9-sliced rounded rect
 
     private PlayerCommander commander;
     private Font font;
@@ -244,6 +249,7 @@ public class BattleHUD : MonoBehaviour
         var scaler = canvasGO.AddComponent<CanvasScaler>();
         scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
         scaler.referenceResolution = new Vector2(1920f, 1080f);
+        scaler.matchWidthOrHeight = 1f;   // scale by height: stable landscape sizing
 
         canvasGO.AddComponent<GraphicRaycaster>();
 
@@ -255,10 +261,15 @@ public class BattleHUD : MonoBehaviour
             esGO.AddComponent<InputSystemUIInputModule>();
         }
 
-        Transform canvasT = canvasGO.transform;
+        // ---- Safe area root: all HUD content stays clear of notches ----
+        var safeGO = new GameObject("SafeArea");
+        safeGO.transform.SetParent(canvasGO.transform, false);
+        safeGO.AddComponent<RectTransform>();
+        safeGO.AddComponent<SafeAreaFitter>();
+        Transform canvasT = safeGO.transform;
 
         // ---- Hint text (top-left) ----
-        hintText = MakeText(canvasT, "HintText", 22, TextAnchor.UpperLeft, new Color(1f, 1f, 1f, 0.7f));
+        hintText = MakeText(canvasT, "HintText", 24, TextAnchor.UpperLeft, new Color(1f, 1f, 1f, 0.7f));
         hintText.text = "Tap: select formation · Drag from selection: move / attack · Drag ground: pan · Scroll or pinch: zoom";
         RectTransform hintRT = hintText.rectTransform;
         hintRT.anchorMin = new Vector2(0f, 1f);
@@ -283,7 +294,7 @@ public class BattleHUD : MonoBehaviour
         startRT.anchoredPosition = new Vector2(0f, 70f);
         startRT.sizeDelta = new Vector2(360f, 120f);
 
-        Button startBtn = MakeButton(startRoot.transform, "StartButton", "START", Vector2.zero);
+        Button startBtn = MakeButton(startRoot.transform, "StartButton", "START", Vector2.zero, accent: true);
         var sbRT = startBtn.GetComponent<RectTransform>();
         sbRT.anchorMin = Vector2.zero;
         sbRT.anchorMax = Vector2.one;
@@ -313,7 +324,7 @@ public class BattleHUD : MonoBehaviour
         resRT.anchoredPosition = new Vector2(0f, 90f);
         resRT.sizeDelta = new Vector2(900f, 130f);
 
-        Button restartBtn = MakeButton(endRoot.transform, "RestartButton", "RESTART", Vector2.zero);
+        Button restartBtn = MakeButton(endRoot.transform, "RestartButton", "RESTART", Vector2.zero, accent: true);
         var rbRT = restartBtn.GetComponent<RectTransform>();
         rbRT.anchorMin = rbRT.anchorMax = new Vector2(0.5f, 0.5f);
         rbRT.pivot = new Vector2(0.5f, 0.5f);
@@ -343,12 +354,12 @@ public class BattleHUD : MonoBehaviour
         panelRT.sizeDelta = new Vector2(0f, 170f);
 
         var panelImage = panelGO.AddComponent<Image>();
-        panelImage.color = new Color(0.08f, 0.08f, 0.11f, 0.92f);
+        panelImage.color = new Color(0.09f, 0.1f, 0.14f, 0.94f);
 
         Transform panelT = panelGO.transform;
 
         // ---- Info text (left-middle) ----
-        infoText = MakeText(panelT, "InfoText", 30, TextAnchor.MiddleLeft, Color.white);
+        infoText = MakeText(panelT, "InfoText", 32, TextAnchor.MiddleLeft, Color.white);
         RectTransform infoRT = infoText.rectTransform;
         infoRT.anchorMin = new Vector2(0f, 0.5f);
         infoRT.anchorMax = new Vector2(0f, 0.5f);
@@ -356,24 +367,31 @@ public class BattleHUD : MonoBehaviour
         infoRT.anchoredPosition = new Vector2(30f, 0f);
         infoRT.sizeDelta = new Vector2(700f, 150f);
 
-        // ---- Command buttons (right) ----
-        breakButton = MakeButton(panelT, "BreakRanksButton", "BREAK RANKS", new Vector2(-690f, 47f));
+        // ---- Command buttons: a right-aligned row with uniform spacing ----
+        const float margin = 25f;
+        float buttonY = (170f - ButtonHeight) * 0.5f;
+        float step = ButtonWidth + ButtonGap;
+
+        breakButton = MakeButton(panelT, "BreakRanksButton", "BREAK RANKS",
+                                 new Vector2(-margin - 2f * step, buttonY));
         breakButton.onClick.AddListener(OnBreakRanksClicked);
 
-        reformButton = MakeButton(panelT, "ReformButton", "REFORM", new Vector2(-460f, 47f));
+        reformButton = MakeButton(panelT, "ReformButton", "REFORM",
+                                  new Vector2(-margin - step, buttonY));
         reformButton.onClick.AddListener(OnReformClicked);
 
-        rotateButton = MakeButton(panelT, "RotateButton", "ROTATE", new Vector2(-230f, 47f));
+        rotateButton = MakeButton(panelT, "RotateButton", "ROTATE",
+                                  new Vector2(-margin, buttonY));
         rotateButton.onClick.AddListener(OnRotateClicked);
 
         // ---- Reason text (just above Reform) ----
-        reasonText = MakeText(panelT, "ReasonText", 20, TextAnchor.MiddleCenter, ReasonColor, false);
+        reasonText = MakeText(panelT, "ReasonText", 22, TextAnchor.MiddleCenter, ReasonColor, false);
         reasonText.text = "";
         RectTransform reasonRT = reasonText.rectTransform;
         reasonRT.anchorMin = new Vector2(1f, 0f);
         reasonRT.anchorMax = new Vector2(1f, 0f);
         reasonRT.pivot = new Vector2(1f, 0f);
-        reasonRT.anchoredPosition = new Vector2(-460f, 47f + ButtonHeight + 3f);
+        reasonRT.anchoredPosition = new Vector2(-margin - step, buttonY + ButtonHeight + 3f);
         reasonRT.sizeDelta = new Vector2(ButtonWidth, 28f);
 
         panelGO.SetActive(false);
@@ -403,7 +421,8 @@ public class BattleHUD : MonoBehaviour
         return text;
     }
 
-    private Button MakeButton(Transform parent, string name, string label, Vector2 anchoredPos)
+    private Button MakeButton(Transform parent, string name, string label, Vector2 anchoredPos,
+                              bool accent = false)
     {
         var go = new GameObject(name);
         go.transform.SetParent(parent, false);
@@ -416,25 +435,88 @@ public class BattleHUD : MonoBehaviour
         rt.sizeDelta = new Vector2(ButtonWidth, ButtonHeight);
 
         var image = go.AddComponent<Image>();
-        image.color = new Color(0.16f, 0.16f, 0.22f, 1f);
+        image.sprite = RoundedSprite();
+        image.type = Image.Type.Sliced;
+        Color baseColor = accent ? AccentColor : ButtonColor;
+        image.color = baseColor;
 
         var button = go.AddComponent<Button>();
         button.targetGraphic = image;
 
         ColorBlock colors = button.colors;
-        colors.normalColor = image.color;
-        colors.highlightedColor = new Color(0.22f, 0.22f, 0.3f, 1f);
-        colors.disabledColor = new Color(0.3f, 0.3f, 0.3f, 0.5f);
+        colors.normalColor = baseColor;
+        colors.highlightedColor = Color.Lerp(baseColor, Color.white, 0.15f);
+        colors.pressedColor = Color.Lerp(baseColor, Color.black, 0.3f);
+        colors.disabledColor = new Color(baseColor.r, baseColor.g, baseColor.b, 0.35f);
         button.colors = colors;
 
-        Text labelText = MakeText(go.transform, "Label", 26, TextAnchor.MiddleCenter, Color.white, false);
+        Text labelText = MakeText(go.transform, "Label", 28, TextAnchor.MiddleCenter, Color.white, false);
         labelText.text = label;
         RectTransform labelRT = labelText.rectTransform;
         labelRT.anchorMin = Vector2.zero;
         labelRT.anchorMax = Vector2.one;
-        labelRT.offsetMin = Vector2.zero;
-        labelRT.offsetMax = Vector2.zero;
+        labelRT.offsetMin = new Vector2(10f, 6f);
+        labelRT.offsetMax = new Vector2(-10f, -6f);
 
         return button;
+    }
+
+    // Shared 9-sliced rounded-rectangle sprite so every button reads as one
+    // intentional family instead of raw quads. Generated once, tinted per use.
+    private static Sprite RoundedSprite()
+    {
+        if (roundedSprite != null) return roundedSprite;
+        const int size = 64;
+        const int radius = 18;
+        var tex = new Texture2D(size, size, TextureFormat.RGBA32, false);
+        for (int y = 0; y < size; y++)
+        {
+            for (int x = 0; x < size; x++)
+            {
+                float dx = Mathf.Max(0f, Mathf.Max(radius - x, x - (size - 1 - radius)));
+                float dy = Mathf.Max(0f, Mathf.Max(radius - y, y - (size - 1 - radius)));
+                float d = Mathf.Sqrt(dx * dx + dy * dy);
+                float a = Mathf.Clamp01(radius - d + 0.5f);   // 1 inside, soft 1px edge
+                tex.SetPixel(x, y, new Color(1f, 1f, 1f, a));
+            }
+        }
+        tex.wrapMode = TextureWrapMode.Clamp;
+        tex.Apply();
+        roundedSprite = Sprite.Create(tex, new Rect(0f, 0f, size, size),
+                                      new Vector2(0.5f, 0.5f), 1f, 0,
+                                      SpriteMeshType.FullRect,
+                                      new Vector4(radius + 2, radius + 2, radius + 2, radius + 2));
+        return roundedSprite;
+    }
+}
+
+// Keeps a full-canvas RectTransform inside Screen.safeArea (phone notches,
+// rounded corners). Applied once on creation and re-applied if the safe area
+// changes (orientation, foldables).
+public class SafeAreaFitter : MonoBehaviour
+{
+    private Rect applied = new Rect(-1f, -1f, -1f, -1f);
+
+    private void Awake() => Apply();
+
+    private void Update()
+    {
+        if (Screen.safeArea != applied) Apply();
+    }
+
+    private void Apply()
+    {
+        applied = Screen.safeArea;
+        var rt = (RectTransform)transform;
+        Vector2 min = applied.position;
+        Vector2 max = applied.position + applied.size;
+        min.x /= Screen.width;
+        min.y /= Screen.height;
+        max.x /= Screen.width;
+        max.y /= Screen.height;
+        rt.anchorMin = min;
+        rt.anchorMax = max;
+        rt.offsetMin = Vector2.zero;
+        rt.offsetMax = Vector2.zero;
     }
 }

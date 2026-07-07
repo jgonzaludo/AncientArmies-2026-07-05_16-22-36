@@ -9,9 +9,10 @@ The player commands formations of individually simulated ancient soldiers.
 Read:
 
 * `docs/GAME_VISION.md`
-* `docs/V0_PROTOTYPE.md`
+* `docs/V0_PROTOTYPE.md` (historical V0 contract)
+* `docs/V1_RELEASE.md` (current release contract and manual test suite)
 
-Do not expand the project beyond the current V0 requirements without explicit approval.
+Do not expand the project beyond the current release requirements without explicit approval.
 
 ## Core Invariants
 
@@ -25,15 +26,11 @@ Do not expand the project beyond the current V0 requirements without explicit ap
 * Dead soldiers are removed and survivors close ranks when reforming.
 * Tactical outcomes should be understandable rather than dominated by invisible randomness.
 
-## Current Prototype Priorities
+## Current State
 
-1. Ordered formation movement
-2. Individual melee combat and death
-3. Local disorder during engagement
-4. Break ranks
-5. Disengagement
-6. Reforming survivors
-7. Ranged combat only after the complete melee loop works
+V0 (formation systems sandbox) and V1 (first real battle vs. an autonomous enemy:
+larger formations, enemy AI, archer preferred range, directional combat) are complete.
+See `docs/V1_RELEASE.md` for the shipped V1 scope and its manual test suite.
 
 ## Technical Direction
 
@@ -50,7 +47,7 @@ Do not expand the project beyond the current V0 requirements without explicit ap
 * Prototype before polish.
 * Prefer the smallest implementation that proves the gameplay thesis.
 * Do not introduce systems solely for hypothetical future needs.
-* Do not add morale, terrain, progression, multiplayer, or enemy strategy in V0.
+* Do not add morale, terrain, progression, multiplayer, or advanced enemy tactics without approval.
 * Inspect the current project before proposing architecture.
 * Make changes in runnable checkpoints.
 * Verify behavior in Unity rather than assuming code works.

@@ -293,8 +293,9 @@ MonoBehaviour:
     rangedRange: 14
     rangedMinRange: 2.5
     projectileSpeed: 13
-  meleeCount: 18
-  archerCount: 12
+  meleeCount: 50
+  archerCount: 40
+  formationColumns: 10
   lineZ: 14
   lineSpacingX: 14
 --- !u!4 &737620417

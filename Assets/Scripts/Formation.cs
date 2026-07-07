@@ -27,6 +27,7 @@ public class Formation : MonoBehaviour
     public float acquireRadiusBroken = 28f;
     public float disengageRadius = 9f;         // no enemy within this of any soldier => can reform
     public float brokenLeash = 26f;
+    public float meleeChaseStopDist = 3.5f;    // anchor-to-anchor stop distance when charging
 
     [Header("Rank replacement (ordered melee)")]
     public float promoteInterval = 0.6f;       // how often vacancies are scanned
@@ -371,9 +372,19 @@ public class Formation : MonoBehaviour
         Vector3 to = destination - AnchorPos;
         to.y = 0f;
         float dist = to.magnitude;
-        float stopDist = chasing ? 3.5f : 0.2f;
+        // Ranged formations hold their preferred firing distance instead of
+        // marching into melee range; melee closes to contact.
+        float stopDist = chasing
+            ? (stats.isRanged ? stats.rangedPreferredRange : meleeChaseStopDist)
+            : 0.2f;
         if (dist <= stopDist)
         {
+            if (chasing && dist > 0.5f)
+            {
+                // hold position but wheel to face the target (archer firing line)
+                Quaternion face = Quaternion.LookRotation(to / dist, Vector3.up);
+                AnchorRot = Quaternion.RotateTowards(AnchorRot, face, rotateSpeedDeg * Time.deltaTime);
+            }
             if (!chasing) hasDestination = false;
             return;
         }
@@ -474,9 +485,10 @@ public class Formation : MonoBehaviour
                 break;
         }
 
-        // red side tidies itself up once combat has moved away
+        // red side tidies itself up, but only while genuinely idle — never
+        // mid-march toward an AI-issued attack target
         if (autoPilot && CanReform && dirtySinceReform && autoReformCooldown <= 0f &&
-            State != FormationState.Reforming && soldiers.Count > 0)
+            State == FormationState.Ordered && attackTarget == null && soldiers.Count > 0)
         {
             IssueReform();
         }

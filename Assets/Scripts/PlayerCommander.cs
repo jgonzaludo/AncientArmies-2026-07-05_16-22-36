@@ -21,9 +21,10 @@ public class PlayerCommander : MonoBehaviour
 
     private readonly List<Formation> selection = new List<Formation>();
     private Camera cam;
+    private BattleCamera camRig;
     private PointerMode mode;
     private Vector2 pressScreenPos;
-    private Vector3 panGrabWorld;          // battlefield point grabbed at pan start
+    private Vector2 lastPanScreen;         // previous pointer position while panning
     private Formation dragOrigin;          // selected formation a command drag started from
     private Formation dragEnemyTarget;     // enemy currently under the command drag
 
@@ -33,20 +34,33 @@ public class PlayerCommander : MonoBehaviour
     private Transform rotatePreviewArrow;
     private float lastPinchDist = -1f;
 
-    private const float TapMaxPixels = 22f;
-    private const float FormationTapRadius = 1.8f;   // forgiveness around soldiers
-    private const float ZoomMin = 8f, ZoomMax = 30f;
+    private const float FormationTapRadius = 1.8f;   // forgiveness around soldiers (taps)
     private const float FieldX = 46f, FieldZ = 27f;  // order destination clamp
+
+    // Touch slop: small finger movement after touch-down must not instantly
+    // commit the gesture to a drag. ~1.5mm on a real screen, 22px fallback
+    // where dpi is unavailable (editor).
+    private float TouchSlopPixels => Mathf.Max(22f, Screen.dpi * 0.06f);
+
+    // World units covered by one screen pixel at the current zoom.
+    private float WorldPerPixel => cam.orthographicSize * 2f / Screen.height;
+
+    // Command drags may begin this far (world units) outside a selected
+    // formation's soldiers and still count as commanding it. Zoom-aware so the
+    // forgiveness stays finger-sized on screen, never smaller than 3m.
+    private float CommandGrabTolerance => Mathf.Max(3f, WorldPerPixel * 70f);
 
     private void Start()
     {
         cam = Camera.main;
+        if (cam != null) camRig = cam.GetComponent<BattleCamera>();
     }
 
     private void Update()
     {
         PruneSelection();
         if (cam == null) { cam = Camera.main; if (cam == null) return; }
+        if (camRig == null) camRig = cam.GetComponent<BattleCamera>();
 
         HandleZoom();
         if (HandlePinch()) return;   // two fingers down: zoom only, no tap/drag
@@ -68,7 +82,7 @@ public class PlayerCommander : MonoBehaviour
         }
 
         if (mode == PointerMode.Pending && held &&
-            (pos - pressScreenPos).magnitude > TapMaxPixels)
+            (pos - pressScreenPos).magnitude > TouchSlopPixels)
         {
             BeginDrag(pressScreenPos);
         }
@@ -88,6 +102,7 @@ public class PlayerCommander : MonoBehaviour
             switch (mode)
             {
                 case PointerMode.Pending: HandleTap(pos); break;
+                case PointerMode.CameraPan: if (camRig != null) camRig.EndPan(); break;
                 case PointerMode.CommandDrag: EndCommandDrag(pos); break;
                 case PointerMode.RotateDrag: EndRotateDrag(pos); break;
             }
@@ -236,8 +251,8 @@ public class PlayerCommander : MonoBehaviour
 
     private void BeginDrag(Vector2 startPos)
     {
-        var f = BattleActive ? HitFormation(startPos) : null;
-        if (f != null && f.team == Team.Blue && selection.Contains(f))
+        Formation f = BattleActive ? FindCommandGrabFormation(startPos) : null;
+        if (f != null)
         {
             mode = PointerMode.CommandDrag;
             dragOrigin = f;
@@ -250,19 +265,54 @@ public class PlayerCommander : MonoBehaviour
         else
         {
             mode = PointerMode.CameraPan;
-            GroundPoint(startPos, out panGrabWorld);
+            lastPanScreen = startPos;
+            if (camRig != null) camRig.BeginPan();
         }
+    }
+
+    // A command drag wins when it starts on a selected formation's soldiers OR
+    // anywhere within a forgiving, zoom-aware ring around a selected formation.
+    // Camera pan only happens when the drag clearly begins on empty ground.
+    private Formation FindCommandGrabFormation(Vector2 screenPos)
+    {
+        var direct = HitFormation(screenPos);
+        if (direct != null && direct.team == Team.Blue && selection.Contains(direct))
+            return direct;
+
+        if (selection.Count == 0 || !GroundPoint(screenPos, out Vector3 pt)) return null;
+        Formation best = null;
+        float bestD = CommandGrabTolerance;
+        foreach (var s in selection)
+        {
+            if (s == null || s.soldiers.Count == 0) continue;
+            float d = s.DistanceToNearestSoldier(pt);
+            if (d < bestD) { bestD = d; best = s; }
+        }
+        return best;
     }
 
     private void UpdateCameraPan(Vector2 pos)
     {
-        if (!GroundPoint(pos, out Vector3 now)) return;
-        Vector3 delta = panGrabWorld - now;
-        delta.y = 0f;
-        Vector3 p = cam.transform.position + delta;
-        p.x = Mathf.Clamp(p.x, -34f, 34f);
-        p.z = Mathf.Clamp(p.z, -56f, -4f);
-        cam.transform.position = p;
+        Vector2 screenDelta = pos - lastPanScreen;
+        lastPanScreen = pos;
+        if (camRig == null || screenDelta == Vector2.zero) return;
+        camRig.PanBy(-ScreenDeltaToGroundDelta(screenDelta));
+    }
+
+    // Ground-plane displacement that keeps the grabbed battlefield point under
+    // the moving finger, for the fixed-angle orthographic camera. Screen-space
+    // math so it stays exact while the camera itself is still easing.
+    private Vector3 ScreenDeltaToGroundDelta(Vector2 screenDelta)
+    {
+        float wpp = WorldPerPixel;
+        Vector3 right = cam.transform.right;
+        right.y = 0f;
+        right.Normalize();
+        Vector3 upGround = cam.transform.up;
+        upGround.y = 0f;
+        float upScale = Mathf.Max(0.2f, upGround.magnitude);   // sin(camera tilt)
+        upGround /= upScale;
+        return right * (screenDelta.x * wpp) + upGround * (screenDelta.y * wpp / upScale);
     }
 
     private void UpdateCommandDrag(Vector2 pos)
@@ -393,12 +443,11 @@ public class PlayerCommander : MonoBehaviour
     private void HandleZoom()
     {
         var m = Mouse.current;
-        if (m == null) return;
+        if (m == null || camRig == null) return;
         float scroll = m.scroll.ReadValue().y;
         if (Mathf.Abs(scroll) < 0.01f) return;
         float step = Mathf.Clamp(scroll, -3f, 3f);
-        cam.orthographicSize = Mathf.Clamp(cam.orthographicSize * (1f - step * 0.045f),
-                                           ZoomMin, ZoomMax);
+        camRig.ZoomBy(1f - step * 0.06f);   // eased toward the target by the rig
     }
 
     private bool HandlePinch()
@@ -410,14 +459,14 @@ public class PlayerCommander : MonoBehaviour
         if (!t0.press.isPressed || !t1.press.isPressed) { lastPinchDist = -1f; return false; }
 
         float dist = Vector2.Distance(t0.position.ReadValue(), t1.position.ReadValue());
-        if (lastPinchDist > 0f && dist > 1f)
+        if (lastPinchDist > 0f && dist > 1f && camRig != null)
         {
-            cam.orthographicSize = Mathf.Clamp(cam.orthographicSize * (lastPinchDist / dist),
-                                               ZoomMin, ZoomMax);
+            camRig.ZoomBy(lastPinchDist / dist);
         }
         lastPinchDist = dist;
         mode = PointerMode.Idle;
         CancelCommandDrag();
+        if (camRig != null) camRig.CancelPan();   // a pinch never leaves glide behind
         return true;
     }
 
