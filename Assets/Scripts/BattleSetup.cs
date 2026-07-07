@@ -1,11 +1,20 @@
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 
-// Spawns the 3v3 battlefield at runtime and keeps the per-team soldier registries
-// used for brute-force local combat queries (fine at V0 scale).
+public enum BattlePhase { Pre, Active, Ended }
+
+// Spawns the 3v3 battlefield at runtime, owns the battle lifecycle
+// (Start -> Active -> Ended -> Restart), and keeps the per-team soldier
+// registries used for brute-force local combat queries (fine at V0 scale).
 public class BattleSetup : MonoBehaviour
 {
     public static BattleSetup Instance { get; private set; }
+
+    public BattlePhase Phase { get; private set; } = BattlePhase.Pre;
+    public string ResultText { get; private set; } = "";
+
+    private float endCheckTimer;
 
     [Header("Unit stats (data-driven tuning)")]
     public UnitStats meleeStats = new UnitStats
@@ -53,6 +62,36 @@ public class BattleSetup : MonoBehaviour
     private void OnDestroy()
     {
         if (Instance == this) Instance = null;
+    }
+
+    private void Update()
+    {
+        if (Phase != BattlePhase.Active) return;
+        endCheckTimer -= Time.deltaTime;
+        if (endCheckTimer > 0f) return;
+        endCheckTimer = 0.5f;
+
+        bool blueAlive = blue.Count > 0;
+        bool redAlive = red.Count > 0;
+        if (blueAlive && redAlive) return;
+
+        Phase = BattlePhase.Ended;
+        ResultText = !blueAlive && !redAlive ? "DRAW"
+                   : blueAlive ? "BLUE WINS" : "RED WINS";
+
+        var commander = GetComponent<PlayerCommander>();
+        if (commander != null) commander.DeselectAll();
+    }
+
+    public void StartBattle()
+    {
+        if (Phase == BattlePhase.Pre) Phase = BattlePhase.Active;
+    }
+
+    // Scene reload is the simplest reliable full reset back to the Pre state.
+    public void RestartBattle()
+    {
+        SceneManager.LoadScene(gameObject.scene.name);
     }
 
     private void SpawnSide(Team team, float z, float yaw, bool auto)

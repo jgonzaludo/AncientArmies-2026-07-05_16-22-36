@@ -45,7 +45,9 @@ public class Projectile : MonoBehaviour
         t += Time.deltaTime / flightTime;
         if (t >= 1f)
         {
-            if (target != null && target.Alive &&
+            bool battleActive = BattleSetup.Instance != null &&
+                                BattleSetup.Instance.Phase == BattlePhase.Active;
+            if (battleActive && target != null && target.Alive &&
                 (target.transform.position - impact).sqrMagnitude < 1.1f)
             {
                 target.TakeDamage(damage);

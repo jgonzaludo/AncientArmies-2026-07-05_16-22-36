@@ -28,6 +28,11 @@ public class Formation : MonoBehaviour
     public float disengageRadius = 9f;         // no enemy within this of any soldier => can reform
     public float brokenLeash = 26f;
 
+    [Header("Rank replacement (ordered melee)")]
+    public float promoteInterval = 0.6f;       // how often vacancies are scanned
+    public float promoteVacancyDist = 1.6f;    // slot counts as open when its fighter strays this far
+    public float promoteCoherenceDist = 2.2f;  // only soldiers still near their own slot advance
+
     public FormationState State { get; private set; } = FormationState.Ordered;
     public bool CanReform { get; private set; }
     public bool IsSelected { get; private set; }
@@ -70,6 +75,7 @@ public class Formation : MonoBehaviour
     private float engageTimer;
     private float noContactTime;
     private float reformTimer;
+    private float promoteTimer;
     private int engagedCount;
     private bool dirtySinceReform;
     private float autoReformCooldown;
@@ -276,12 +282,60 @@ public class Formation : MonoBehaviour
 
     private void Update()
     {
+        if (BattleSetup.Instance == null || BattleSetup.Instance.Phase != BattlePhase.Active)
+            return;
+
         UpdateAnchorMovement();
         UpdateEngagement();
         UpdateStateMachine();
+        UpdateRankReplacement();
         transform.position = AnchorPos;
         transform.rotation = AnchorRot;
         if (autoReformCooldown > 0f) autoReformCooldown -= Time.deltaTime;
+    }
+
+    // During ordered melee, depth must matter: when a front slot's fighter surges
+    // into combat or dies, the coherent soldier one row behind is promoted into
+    // that slot. Front-to-back cascading compresses each column forward one step
+    // per pass, feeding soldiers into the fight progressively while the rest of
+    // the formation stays structured. Break Ranks stays a separate, wilder mode.
+    private void UpdateRankReplacement()
+    {
+        if (State != FormationState.Engaged) return;
+        promoteTimer -= Time.deltaTime;
+        if (promoteTimer > 0f) return;
+        promoteTimer = promoteInterval;
+
+        if (slotOffsets.Length == 0 || columns <= 0 || soldiers.Count == 0) return;
+
+        var owner = new Soldier[slotOffsets.Length];
+        foreach (var s in soldiers)
+            if (s.slotIndex >= 0 && s.slotIndex < owner.Length) owner[s.slotIndex] = s;
+
+        float vac2 = promoteVacancyDist * promoteVacancyDist;
+        float coh2 = promoteCoherenceDist * promoteCoherenceDist;
+
+        for (int slot = 0; slot < slotOffsets.Length; slot++)
+        {
+            var holder = owner[slot];
+            bool vacant = holder == null ||
+                          (holder.IsEngaged &&
+                           (holder.transform.position - GetSlotWorldPos(slot)).sqrMagnitude > vac2);
+            if (!vacant) continue;
+
+            int behind = slot + columns;   // same column, one row back
+            if (behind >= slotOffsets.Length) continue;
+            var candidate = owner[behind];
+            if (candidate == null || candidate.IsEngaged) continue;
+            if ((candidate.transform.position - GetSlotWorldPos(behind)).sqrMagnitude > coh2) continue;
+
+            // advance the rear soldier; the displaced fighter rejoins at the rear
+            // slot once it disengages, which naturally rotates tired ranks back
+            candidate.slotIndex = slot;
+            if (holder != null) holder.slotIndex = behind;
+            owner[slot] = candidate;
+            owner[behind] = holder;        // null lets the next row cascade forward
+        }
     }
 
     private void UpdateAnchorMovement()
