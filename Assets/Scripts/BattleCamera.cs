@@ -18,11 +18,11 @@ public class BattleCamera : MonoBehaviour
     [Header("Zoom feel")]
     public float zoomSmoothTime = 0.12f;
     public float zoomMin = 8f;
-    public float zoomMax = 30f;
+    public float zoomMax = 36f;
 
     [Header("Battlefield bounds (camera position)")]
-    public float minX = -34f, maxX = 34f;
-    public float minZ = -56f, maxZ = -4f;
+    public float minX = -40f, maxX = 40f;
+    public float minZ = -66f, maxZ = 8f;
 
     public bool IsPanning { get; private set; }
 

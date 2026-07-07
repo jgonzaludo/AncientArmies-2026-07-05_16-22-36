@@ -35,7 +35,7 @@ public class PlayerCommander : MonoBehaviour
     private float lastPinchDist = -1f;
 
     private const float FormationTapRadius = 1.8f;   // forgiveness around soldiers (taps)
-    private const float FieldX = 46f, FieldZ = 27f;  // order destination clamp
+    private const float FieldX = 54f, FieldZ = 36f;  // order destination clamp
 
     // Touch slop: small finger movement after touch-down must not instantly
     // commit the gesture to a drag. ~1.5mm on a real screen, 22px fallback

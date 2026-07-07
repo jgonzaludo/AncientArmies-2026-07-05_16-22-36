@@ -4,9 +4,10 @@ using UnityEngine.SceneManagement;
 
 public enum BattlePhase { Pre, Active, Ended }
 
-// Spawns the 3v3 battlefield at runtime, owns the battle lifecycle
-// (Start -> Active -> Ended -> Restart), and keeps the per-team soldier
-// registries used for brute-force local combat queries (fine at V0 scale).
+// Spawns the battlefield at runtime (5v5 by default, random unit mix per
+// battle), owns the battle lifecycle (Start -> Active -> Ended -> Restart),
+// and keeps the per-team soldier registries used for brute-force local
+// combat queries.
 public class BattleSetup : MonoBehaviour
 {
     public static BattleSetup Instance { get; private set; }
@@ -44,8 +45,12 @@ public class BattleSetup : MonoBehaviour
     public int meleeCount = 50;
     public int archerCount = 40;
     public int formationColumns = 10;
-    public float lineZ = 14f;
-    public float lineSpacingX = 14f;
+    public int formationsPerSide = 5;
+    [Range(0f, 1f)]
+    [Tooltip("Chance each formation slot rolls Archers instead of Swordsmen (re-rolled every battle)")]
+    public float archerChance = 0.5f;
+    public float lineZ = 24f;
+    public float lineSpacingX = 16f;
 
     [Header("Directional combat (front / flank / rear)")]
     [Tooltip("Damage multiplier when attacking a formation from its front arc")]
@@ -109,16 +114,26 @@ public class BattleSetup : MonoBehaviour
         SceneManager.LoadScene(gameObject.scene.name);
     }
 
+    // One line of formationsPerSide formations per army; each slot randomly
+    // rolls Swordsmen or Archers, so every battle (and every Restart, which
+    // reloads the scene) fields a different army composition. Archer slots sit
+    // slightly behind the line, away from the enemy.
     private void SpawnSide(Team team, float z, float yaw, bool auto)
     {
         string p = team == Team.Blue ? "Blue" : "Red";
-        CreateFormation($"{p} Swords A", team, meleeStats, meleeCount, formationColumns,
-                        new Vector3(-lineSpacingX, 0f, z), yaw, auto);
-        CreateFormation($"{p} Swords B", team, meleeStats, meleeCount, formationColumns,
-                        new Vector3(lineSpacingX, 0f, z), yaw, auto);
-        float archerZ = z + (team == Team.Blue ? -6f : 6f);
-        CreateFormation($"{p} Archers", team, archerStats, archerCount, formationColumns,
-                        new Vector3(0f, 0f, archerZ), yaw, auto);
+        int swordIdx = 0, archerIdx = 0;
+        for (int i = 0; i < formationsPerSide; i++)
+        {
+            float x = (i - (formationsPerSide - 1) * 0.5f) * lineSpacingX;
+            bool ranged = Random.value < archerChance;
+            UnitStats stats = ranged ? archerStats : meleeStats;
+            int count = ranged ? archerCount : meleeCount;
+            float zPos = z + (ranged ? (team == Team.Blue ? -6f : 6f) : 0f);
+            string label = ranged ? $"{p} Archers {++archerIdx}"
+                                  : $"{p} Swords {++swordIdx}";
+            CreateFormation(label, team, stats, count, formationColumns,
+                            new Vector3(x, 0f, zPos), yaw, auto);
+        }
     }
 
     // Formation-level directional damage: where is the attacker relative to the
@@ -166,7 +181,7 @@ public class BattleSetup : MonoBehaviour
             var ground = GameObject.CreatePrimitive(PrimitiveType.Plane);
             ground.name = "Ground";
             ground.transform.position = Vector3.zero;
-            ground.transform.localScale = new Vector3(10f, 1f, 6f);
+            ground.transform.localScale = new Vector3(12f, 1f, 8f);   // 120 x 80 field
             var grass = SoldierFactory.Lit(new Color(0.45f, 0.56f, 0.34f));
             grass.SetFloat("_Smoothness", 0.12f);   // matte, no specular glare
             ground.GetComponent<Renderer>().sharedMaterial = grass;
@@ -176,7 +191,7 @@ public class BattleSetup : MonoBehaviour
         if (cam != null)
         {
             cam.orthographic = true;
-            cam.orthographicSize = 20f;
+            cam.orthographicSize = 26f;   // wide default framing for the 5v5 line
             cam.transform.position = new Vector3(0f, 42f, -30f);
             cam.transform.rotation = Quaternion.Euler(55f, 0f, 0f);
             cam.clearFlags = CameraClearFlags.SolidColor;

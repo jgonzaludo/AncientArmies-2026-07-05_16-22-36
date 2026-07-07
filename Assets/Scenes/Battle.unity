@@ -296,8 +296,10 @@ MonoBehaviour:
   meleeCount: 50
   archerCount: 40
   formationColumns: 10
-  lineZ: 14
-  lineSpacingX: 14
+  formationsPerSide: 5
+  archerChance: 0.5
+  lineZ: 24
+  lineSpacingX: 16
 --- !u!4 &737620417
 Transform:
   m_ObjectHideFlags: 0

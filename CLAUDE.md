@@ -28,9 +28,12 @@ Do not expand the project beyond the current release requirements without explic
 
 ## Current State
 
-V0 (formation systems sandbox) and V1 (first real battle vs. an autonomous enemy:
-larger formations, enemy AI, archer preferred range, directional combat) are complete.
-See `docs/V1_RELEASE.md` for the shipped V1 scope and its manual test suite.
+V0 (formation systems sandbox), V1 (first real battle vs. an autonomous enemy:
+larger formations, enemy AI, archer preferred range, directional combat), and
+V1.1 (coordinated commander AI with target scoring; 5v5 battles with a random
+melee/archer mix each round; wider battlefield) are complete.
+See `docs/V1_RELEASE.md` and `docs/V1_1_CHANGES.md` for shipped scope and
+manual test suites.
 
 ## Technical Direction
 
