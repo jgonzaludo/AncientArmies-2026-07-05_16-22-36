@@ -34,6 +34,13 @@ public class Formation : MonoBehaviour
     public float promoteVacancyDist = 1.6f;    // slot counts as open when its fighter strays this far
     public float promoteCoherenceDist = 2.2f;  // only soldiers still near their own slot advance
 
+    [Header("Auto-close (ordered formations compress over losses)")]
+    public float autoCloseInterval = 2f;       // how often structural gaps are scanned
+    public int autoCloseDeficit = 2;           // casualties since last rebuild that trigger compaction
+
+    [Header("Edge engagement (local freedom near the fight)")]
+    public float edgeEngageRadius = 6f;        // unengaged soldiers this close to an enemy loosen up
+
     public FormationState State { get; private set; } = FormationState.Ordered;
     public bool CanReform { get; private set; }
     public bool IsSelected { get; private set; }
@@ -46,6 +53,7 @@ public class Formation : MonoBehaviour
     public Quaternion AnchorRot { get; private set; } = Quaternion.identity;
     public Vector3 AnchorForward => AnchorRot * Vector3.forward;
     public float BoundingRadius { get; private set; } = 4f;
+    public Vector2 FootprintHalfExtents { get; private set; } = new Vector2(4f, 4f);
 
     // travel direction when the formation has somewhere to go, otherwise its facing
     public Vector3 CurrentHeading
@@ -72,11 +80,12 @@ public class Formation : MonoBehaviour
     private Vector3[] slotOffsets = new Vector3[0];
     private Vector3 destination;
     private bool hasDestination;
-    private Quaternion? pendingFacing;
     private float engageTimer;
     private float noContactTime;
     private float reformTimer;
     private float promoteTimer;
+    private float autoCloseTimer;
+    private int lostSinceSlotRebuild;
     private int engagedCount;
     private bool dirtySinceReform;
     private float autoReformCooldown;
@@ -106,7 +115,7 @@ public class Formation : MonoBehaviour
     {
         int rows = Mathf.CeilToInt(count / (float)columns);
         slotOffsets = new Vector3[count];
-        float maxSq = 0f;
+        float maxSq = 0f, maxX = 0f, maxZ = 0f;
         for (int i = 0; i < count; i++)
         {
             int row = i / columns;
@@ -116,8 +125,12 @@ public class Formation : MonoBehaviour
             float z = ((rows - 1) * 0.5f - row) * spacing;   // row 0 is the front rank
             slotOffsets[i] = new Vector3(x, 0f, z);
             maxSq = Mathf.Max(maxSq, slotOffsets[i].sqrMagnitude);
+            maxX = Mathf.Max(maxX, Mathf.Abs(x));
+            maxZ = Mathf.Max(maxZ, Mathf.Abs(z));
         }
         BoundingRadius = Mathf.Sqrt(maxSq) + spacing;
+        FootprintHalfExtents = new Vector2(maxX + spacing * 0.5f, maxZ + spacing * 0.5f);
+        lostSinceSlotRebuild = 0;
     }
 
     // smallest XZ distance from a battlefield point to any living soldier
@@ -131,6 +144,24 @@ public class Formation : MonoBehaviour
             best = Mathf.Min(best, d.sqrMagnitude);
         }
         return best == float.MaxValue ? float.MaxValue : Mathf.Sqrt(best);
+    }
+
+    // XZ distance from a battlefield point to the formation's oriented
+    // rectangular footprint (0 when the point is inside it)
+    public float DistanceToFootprint(Vector3 point)
+    {
+        Vector3 local = Quaternion.Inverse(AnchorRot) * (point - AnchorPos);
+        float dx = Mathf.Max(0f, Mathf.Abs(local.x) - FootprintHalfExtents.x);
+        float dz = Mathf.Max(0f, Mathf.Abs(local.z) - FootprintHalfExtents.y);
+        return Mathf.Sqrt(dx * dx + dz * dz);
+    }
+
+    // The formation-level touch target: soldiers or the footprint rectangle,
+    // whichever the point is closest to. Combat scatter and the ordered block
+    // both stay grabbable this way.
+    public float InteractionDistance(Vector3 point)
+    {
+        return Mathf.Min(DistanceToNearestSoldier(point), DistanceToFootprint(point));
     }
 
     public Vector3 GetSlotWorldPos(int slot)
@@ -157,7 +188,6 @@ public class Formation : MonoBehaviour
         }
         destination = dest;
         hasDestination = true;
-        pendingFacing = null;
     }
 
     public void IssueAttack(Formation target)
@@ -167,16 +197,19 @@ public class Formation : MonoBehaviour
         if (State != FormationState.BrokenRanks)
             State = FormationState.Attacking;
         hasDestination = true;
-        pendingFacing = null;
     }
 
-    // wheel in place toward a new facing (Ordered formations only)
+    // Rotate = face direction, not a wheel maneuver: the canonical facing snaps
+    // to the new direction and every soldier is reassigned the new-frame slot
+    // nearest to where it already stands, so each soldier pivots roughly in
+    // place instead of the whole footprint orbiting the anchor. (Ordered only.)
     public void IssueFace(Vector3 direction)
     {
         direction.y = 0f;
         if (direction.sqrMagnitude < 0.01f) return;
         if (State != FormationState.Ordered) return;
-        pendingFacing = Quaternion.LookRotation(direction.normalized, Vector3.up);
+        AnchorRot = Quaternion.LookRotation(direction.normalized, Vector3.up);
+        AssignNearestSlots();
     }
 
     public void IssueBreakRanks()
@@ -231,6 +264,7 @@ public class Formation : MonoBehaviour
     {
         soldiers.Remove(s);
         dirtySinceReform = true;
+        lostSinceSlotRebuild++;
     }
 
     public void SetSelected(bool sel)
@@ -241,13 +275,21 @@ public class Formation : MonoBehaviour
 
     // ---------------- per-soldier behavior knobs ----------------
 
+    // Local engagement allowance: the closer a soldier stands to the active
+    // fight, the more slot freedom and target reach it gets; soldiers far from
+    // contact stay strongly constrained. This lets uneven melee edges bend and
+    // wrap slightly without the whole formation dissolving into a mob.
+    private bool NearCombat(Soldier s) => s.NearestEnemyDist <= edgeEngageRadius;
+
     public float GetSlotWeight(Soldier s)
     {
         switch (State)
         {
             case FormationState.Ordered: return 1f;
             case FormationState.Attacking: return 0.95f;
-            case FormationState.Engaged: return s.IsEngaged ? 0.12f : 0.7f;
+            case FormationState.Engaged:
+                if (s.IsEngaged) return 0.12f;
+                return NearCombat(s) ? 0.35f : 0.75f;
             case FormationState.BrokenRanks: return 0.05f;
             case FormationState.Withdrawing: return 1f;
             case FormationState.Reforming: return 1f;
@@ -264,7 +306,8 @@ public class Formation : MonoBehaviour
             case FormationState.Attacking:
                 r = acquireRadiusOrdered; break;
             case FormationState.Engaged:
-                r = s.IsEngaged ? acquireRadiusEngaged : personalEngageRadius; break;
+                r = s.IsEngaged || NearCombat(s) ? acquireRadiusEngaged
+                                                 : personalEngageRadius; break;
             case FormationState.BrokenRanks:
                 r = acquireRadiusBroken; break;
             default:
@@ -286,13 +329,46 @@ public class Formation : MonoBehaviour
         if (BattleSetup.Instance == null || BattleSetup.Instance.Phase != BattlePhase.Active)
             return;
 
+        // A destroyed formation is inert: its anchor must never keep chasing a
+        // target, or its "Defeated" label follows the survivor around the map.
+        if (soldiers.Count == 0)
+        {
+            attackTarget = null;
+            hasDestination = false;
+            return;
+        }
+
         UpdateAnchorMovement();
         UpdateEngagement();
         UpdateStateMachine();
         UpdateRankReplacement();
+        UpdateAutoClose();
         transform.position = AnchorPos;
         transform.rotation = AnchorRot;
         if (autoReformCooldown > 0f) autoReformCooldown -= Time.deltaTime;
+    }
+
+    // Auto-close: baseline competence of a formation trying to stay ordered.
+    // Casualties leave permanently empty slots behind; once enough accumulate,
+    // rebuild the slot grid for the surviving headcount (same anchor, same
+    // facing, same frontage) and let everyone walk to their nearest new slot.
+    // Rear soldiers flow forward and lateral holes squeeze shut over a few
+    // seconds — no Reform needed for ordinary attrition. Engaged fighters keep
+    // fighting (their slot pull is tiny), so combat still deforms the unit;
+    // this only stops the grid from preserving empty historical positions.
+    private void UpdateAutoClose()
+    {
+        if (State != FormationState.Ordered && State != FormationState.Attacking &&
+            State != FormationState.Engaged) return;
+        autoCloseTimer -= Time.deltaTime;
+        if (autoCloseTimer > 0f) return;
+        autoCloseTimer = autoCloseInterval;
+
+        if (lostSinceSlotRebuild < autoCloseDeficit || soldiers.Count == 0) return;
+        if (soldiers.Count >= slotOffsets.Length) return;
+        columns = Mathf.Clamp(columns, 1, soldiers.Count);
+        BuildSlots(soldiers.Count);
+        AssignNearestSlots();
     }
 
     // During ordered melee, depth must matter: when a front slot's fighter surges
@@ -346,14 +422,6 @@ public class Formation : MonoBehaviour
         bool canMove = State == FormationState.Ordered ||
                        State == FormationState.Withdrawing || chasing;
         if (!canMove) return;
-
-        if (State == FormationState.Ordered && !hasDestination && pendingFacing.HasValue)
-        {
-            AnchorRot = Quaternion.RotateTowards(AnchorRot, pendingFacing.Value,
-                                                 rotateSpeedDeg * Time.deltaTime);
-            if (Quaternion.Angle(AnchorRot, pendingFacing.Value) < 0.5f) pendingFacing = null;
-            return;
-        }
 
         if (chasing)
         {
@@ -421,14 +489,17 @@ public class Formation : MonoBehaviour
         foreach (var s in soldiers)
         {
             bool engaged = false;
+            float best2 = float.MaxValue;
             Vector3 p = s.transform.position;
             foreach (var e in enemies)
             {
                 float d2 = (e.transform.position - p).sqrMagnitude;
+                if (d2 < best2) best2 = d2;
                 if (d2 < er2) { engaged = true; anyWithinDisengage = true; break; }
                 if (d2 < dr2) anyWithinDisengage = true;
             }
             s.IsEngaged = engaged;
+            s.NearestEnemyDist = best2 == float.MaxValue ? float.MaxValue : Mathf.Sqrt(best2);
             if (engaged) engagedCount++;
         }
 
@@ -461,7 +532,7 @@ public class Formation : MonoBehaviour
                         }
                         else
                         {
-                            State = FormationState.Ordered;     // ragged: gaps stay until Reform
+                            State = FormationState.Ordered;     // auto-close compacts the stragglers
                             attackTarget = null;
                             hasDestination = false;
                         }

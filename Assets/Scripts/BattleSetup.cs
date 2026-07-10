@@ -36,7 +36,8 @@ public class BattleSetup : MonoBehaviour
         attackDamage = 10f,
         attackCooldown = 3f,
         strikeRange = 1.6f,
-        rangedRange = 14f,
+        rangedRange = 20f,
+        rangedPreferredRange = 16f,   // ~80% of max range: a visible second line
         rangedMinRange = 2.5f,
         projectileSpeed = 13f
     };
@@ -45,6 +46,10 @@ public class BattleSetup : MonoBehaviour
     public int meleeCount = 50;
     public int archerCount = 40;
     public int formationColumns = 10;
+    [Tooltip("Distance between melee soldiers — near shoulder-to-shoulder for a dense, continuous front")]
+    public float meleeSpacing = 0.95f;
+    [Tooltip("Distance between archers — visibly looser than melee")]
+    public float archerSpacing = 1.7f;
     public int formationsPerSide = 5;
     [Range(0f, 1f)]
     [Tooltip("Chance each formation slot rolls Archers instead of Swordsmen (re-rolled every battle)")]
@@ -157,6 +162,8 @@ public class BattleSetup : MonoBehaviour
         var go = new GameObject($"Formation_{name.Replace(' ', '_')}");
         var f = go.AddComponent<Formation>();
         f.Init(team, name, stats, pos, yaw, columns, auto);
+        // melee packs tight for a continuous front; archers stay visibly looser
+        f.spacing = stats.isRanged ? archerSpacing : meleeSpacing;
         f.BuildSlots(count);
         for (int i = 0; i < count; i++)
         {

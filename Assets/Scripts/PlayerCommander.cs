@@ -3,10 +3,12 @@ using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.InputSystem;
 
-// Mobile-first control grammar (docs/MOBILE_CONTROLS.md):
-//   tap = select / inspect        drag = issue orders
+// Mobile-first control grammar (docs/MOBILE_CONTROLS.md, V1.2 selection rules):
+//   tap friendly = select that formation EXCLUSIVELY (any prior selection drops)
+//   tap empty ground = clear all selection
+//   drag from the selected formation = command drag (move or attack), then the
+//   formation auto-deselects — issuing an order ends the interaction
 //   drag on empty ground = camera pan       pinch / scroll = zoom
-//   drag from a SELECTED formation = command drag (move or attack)
 // Mouse input in the editor mirrors the touch model 1:1 (click = tap, etc.).
 public class PlayerCommander : MonoBehaviour
 {
@@ -34,7 +36,6 @@ public class PlayerCommander : MonoBehaviour
     private Transform rotatePreviewArrow;
     private float lastPinchDist = -1f;
 
-    private const float FormationTapRadius = 1.8f;   // forgiveness around soldiers (taps)
     private const float FieldX = 54f, FieldZ = 36f;  // order destination clamp
 
     // Touch slop: small finger movement after touch-down must not instantly
@@ -45,10 +46,15 @@ public class PlayerCommander : MonoBehaviour
     // World units covered by one screen pixel at the current zoom.
     private float WorldPerPixel => cam.orthographicSize * 2f / Screen.height;
 
-    // Command drags may begin this far (world units) outside a selected
-    // formation's soldiers and still count as commanding it. Zoom-aware so the
-    // forgiveness stays finger-sized on screen, never smaller than 3m.
-    private float CommandGrabTolerance => Mathf.Max(3f, WorldPerPixel * 70f);
+    // Tap forgiveness beyond a formation's footprint/soldiers. Zoom-aware so
+    // the padding stays finger-sized on screen; never smaller than 2.5m.
+    private float FormationTapPadding => Mathf.Max(2.5f, WorldPerPixel * 60f);
+
+    // Command drags may begin this far (world units) outside the selected
+    // formation's footprint and still count as commanding it. More generous
+    // than tap selection: once a formation is selected, grabbing it should be
+    // nearly impossible to miss.
+    private float CommandGrabTolerance => Mathf.Max(4f, WorldPerPixel * 100f);
 
     private void Start()
     {
@@ -155,8 +161,12 @@ public class PlayerCommander : MonoBehaviour
         return false;
     }
 
-    // Formation-level hit test: a direct soldier hit, or any formation whose soldiers
-    // are within the forgiveness radius of the tapped battlefield point.
+    // Formation-level hit test: a direct soldier hit, or the closest formation
+    // whose interaction footprint (soldiers + oriented rectangle + generous
+    // padding) contains the tapped battlefield point. A formation of 40-50
+    // soldiers is one big touch target — taps between soldiers, on the block's
+    // edge, or slightly outside it all resolve to that formation. Overlapping
+    // footprints resolve to the closest formation, never a random one.
     private Formation HitFormation(Vector2 screenPos)
     {
         Ray ray = cam.ScreenPointToRay(screenPos);
@@ -173,11 +183,11 @@ public class PlayerCommander : MonoBehaviour
 
         if (!GroundPoint(screenPos, out Vector3 pt) || BattleSetup.Instance == null) return null;
         Formation best = null;
-        float bestD = FormationTapRadius;
+        float bestD = FormationTapPadding;
         foreach (var f in BattleSetup.Instance.formations)
         {
             if (f.soldiers.Count == 0) continue;
-            float d = f.DistanceToNearestSoldier(pt);
+            float d = f.InteractionDistance(pt);
             if (d < bestD) { bestD = d; best = f; }
         }
         return best;
@@ -194,12 +204,12 @@ public class PlayerCommander : MonoBehaviour
         var f = HitFormation(pos);
         if (f == null)
         {
-            DeselectAll();
+            DeselectAll();   // tap on empty battlefield clears everything
             return;
         }
         if (f.team == Team.Blue)
         {
-            ToggleSelect(f);
+            SelectOnly(f);
         }
         else
         {
@@ -207,20 +217,20 @@ public class PlayerCommander : MonoBehaviour
         }
     }
 
-    public void ToggleSelect(Formation f)
+    // V1.2 selection model: tapping a friendly formation selects it EXCLUSIVELY.
+    // Any previously selected formation is dropped — selections never accumulate
+    // by accident. (The selection list stays a list so a deliberate multi-select
+    // mode can be added later without rearchitecting.)
+    public void SelectOnly(Formation f)
     {
         InspectedEnemy = null;
-        if (selection.Contains(f))
-        {
-            f.SetSelected(false);
-            selection.Remove(f);
-        }
-        else
-        {
-            selection.Add(f);
-            f.SetSelected(true);
-        }
-        if (RotateMode && selection.Count != 1) ExitRotateMode();
+        if (selection.Count == 1 && selection[0] == f) return;   // already sole selection
+        foreach (var s in selection)
+            if (s != null) s.SetSelected(false);
+        selection.Clear();
+        selection.Add(f);
+        f.SetSelected(true);
+        if (RotateMode) ExitRotateMode();
     }
 
     public void DeselectAll()
@@ -271,8 +281,9 @@ public class PlayerCommander : MonoBehaviour
     }
 
     // A command drag wins when it starts on a selected formation's soldiers OR
-    // anywhere within a forgiving, zoom-aware ring around a selected formation.
-    // Camera pan only happens when the drag clearly begins on empty ground.
+    // anywhere within a forgiving, zoom-aware region around the selected
+    // formation's footprint. Camera pan only happens when the drag clearly
+    // begins on empty ground away from the selection.
     private Formation FindCommandGrabFormation(Vector2 screenPos)
     {
         var direct = HitFormation(screenPos);
@@ -285,7 +296,7 @@ public class PlayerCommander : MonoBehaviour
         foreach (var s in selection)
         {
             if (s == null || s.soldiers.Count == 0) continue;
-            float d = s.DistanceToNearestSoldier(pt);
+            float d = s.InteractionDistance(pt);
             if (d < bestD) { bestD = d; best = s; }
         }
         return best;
@@ -359,7 +370,7 @@ public class PlayerCommander : MonoBehaviour
         if (origin == null || origin.soldiers.Count == 0 || !hasPoint) return;
 
         // dragging back onto the origin formation cancels the command
-        if (enemy == null && origin.DistanceToNearestSoldier(pt) < FormationTapRadius) return;
+        if (enemy == null && origin.InteractionDistance(pt) < 1.2f) return;
 
         if (enemy != null && enemy.soldiers.Count > 0)
         {
@@ -378,6 +389,10 @@ public class PlayerCommander : MonoBehaviour
             }
             BattleVisuals.SpawnPulse(pt, false);
         }
+
+        // V1.2: issuing an order ends the interaction — auto-deselect so the
+        // next tap starts clean and selections never linger unnoticed
+        DeselectAll();
     }
 
     private void CancelCommandDrag()

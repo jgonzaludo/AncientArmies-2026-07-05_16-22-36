@@ -3,10 +3,14 @@ using UnityEngine;
 // Floating world-space label above each formation: name, state, and living soldier count.
 public class FormationLabel : MonoBehaviour
 {
+    private const float DefeatedHoldSeconds = 2.5f;   // full visibility after the wipe
+    private const float DefeatedFadeSeconds = 3f;     // then fade to nothing
+
     private Formation f;
     private TextMesh tm;
     private Transform label;
     private Transform cam;
+    private float defeatedAt = -1f;
 
     private void Start()
     {
@@ -32,8 +36,19 @@ public class FormationLabel : MonoBehaviour
 
         if (f.soldiers.Count == 0)
         {
-            tm.text = $"{f.displayName}\nDestroyed";
-            tm.color = new Color(0.5f, 0.5f, 0.5f);
+            // The formation anchor freezes on defeat (Formation.Update), so this
+            // label stays at the final battlefield position and fades out — it
+            // must never travel with the surviving attacker.
+            if (defeatedAt < 0f) defeatedAt = Time.time;
+            float alpha = 1f - Mathf.Clamp01((Time.time - defeatedAt - DefeatedHoldSeconds)
+                                             / DefeatedFadeSeconds);
+            if (alpha <= 0f)
+            {
+                if (label.gameObject.activeSelf) label.gameObject.SetActive(false);
+                return;
+            }
+            tm.text = $"{f.displayName}\nDefeated";
+            tm.color = new Color(0.6f, 0.6f, 0.6f, alpha);
         }
         else
         {

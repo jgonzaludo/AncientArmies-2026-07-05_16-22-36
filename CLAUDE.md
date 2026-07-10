@@ -10,9 +10,26 @@ Read:
 
 * `docs/GAME_VISION.md`
 * `docs/V0_PROTOTYPE.md` (historical V0 contract)
-* `docs/V1_RELEASE.md` (current release contract and manual test suite)
+* `docs/V1_RELEASE.md` (V1 contract and manual test suite)
+* `docs/V1_2_COMBAT_CONTROL.md` (current release contract and manual test suite)
+* `docs/NEXT_RELEASE.md` (deferred future scope — do not implement without approval)
 
 Do not expand the project beyond the current release requirements without explicit approval.
+
+## Codebase Knowledge Graph (RAG)
+
+`graphify-out/` (project root, local-only, not committed) holds a prebuilt
+knowledge graph of this codebase and its docs. When searching for how systems
+relate, what calls what, or where a concept lives, query it before grepping
+broadly:
+
+* `graphify query "<question>"` — traversal answer from the graph
+* `graphify-out/graph.json` — raw nodes/edges (GraphRAG-ready)
+* `graphify-out/GRAPH_REPORT.md` — communities, god nodes, audit trail
+* `graphify-out/graph.html` — interactive visualization (open in a browser)
+* `graphify-out/obsidian/` — Obsidian vault of the same graph
+
+After substantial code changes, refresh it with `/graphify . --update`.
 
 ## Core Invariants
 
@@ -29,11 +46,15 @@ Do not expand the project beyond the current release requirements without explic
 ## Current State
 
 V0 (formation systems sandbox), V1 (first real battle vs. an autonomous enemy:
-larger formations, enemy AI, archer preferred range, directional combat), and
+larger formations, enemy AI, archer preferred range, directional combat),
 V1.1 (coordinated commander AI with target scoring; 5v5 battles with a random
-melee/archer mix each round; wider battlefield) are complete.
-See `docs/V1_RELEASE.md` and `docs/V1_1_CHANGES.md` for shipped scope and
-manual test suites.
+melee/archer mix each round; wider battlefield), and V1.2 (exclusive tap
+selection with auto-deselect after orders; forgiving formation touch targets;
+dense melee spacing; auto-close and rear-rank pressure; edge engagement;
+pivot-in-place rotation; farther archer range; defeated-label fix; mid-match
+restart; UI tidy-up) are complete.
+See `docs/V1_RELEASE.md`, `docs/V1_1_CHANGES.md`, and
+`docs/V1_2_COMBAT_CONTROL.md` for shipped scope and manual test suites.
 
 ## Technical Direction
 

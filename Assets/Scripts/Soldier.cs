@@ -11,6 +11,7 @@ public class Soldier : MonoBehaviour
 
     public bool Alive { get; private set; } = true;
     public bool IsEngaged;                    // maintained by the formation's engagement scan
+    public float NearestEnemyDist = float.MaxValue;   // also from the engagement scan
     public float Health { get; private set; }
 
     public Vector3 Velocity => rb != null && !rb.isKinematic ? rb.linearVelocity : Vector3.zero;
@@ -160,23 +161,31 @@ public class Soldier : MonoBehaviour
         if (target != null && target.Alive)
         {
             float d = (target.transform.position - transform.position).magnitude;
+            // committed melee: never swap opponents while one is at sword's reach
+            if (!S.isRanged && d <= S.strikeRange * 1.2f) return;
             if (d < radius * 1.25f) return;   // hysteresis: keep current fight
         }
         target = null;
 
         if (BattleSetup.Instance == null) return;
         var enemies = BattleSetup.Instance.GetSoldiers(team == Team.Blue ? Team.Red : Team.Blue);
-        float best = radius * radius;
+        float max2 = radius * radius;
+        float bestScore = float.MaxValue;
         float leash2 = formation.brokenLeash * formation.brokenLeash;
         Vector3 p = transform.position;
+        Vector3 fwd = transform.forward;
         foreach (var e in enemies)
         {
             if (!e.Alive) continue;
-            float d2 = (e.transform.position - p).sqrMagnitude;
-            if (d2 >= best) continue;
+            Vector3 to = e.transform.position - p;
+            float d2 = to.sqrMagnitude;
+            if (d2 >= max2) continue;
             if ((e.transform.position - formation.AnchorPos).sqrMagnitude > leash2) continue;
-            best = d2;
-            target = e;
+            // mild preference for enemies roughly ahead: a soldier should not
+            // spin away from the local fight for a marginally closer enemy at
+            // its back, but a lone rear threat is still acquired
+            float score = Vector3.Dot(fwd, to) < 0f ? d2 * 1.6f : d2;
+            if (score < bestScore) { bestScore = score; target = e; }
         }
     }
 

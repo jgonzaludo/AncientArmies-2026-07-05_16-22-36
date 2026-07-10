@@ -109,3 +109,12 @@ InitTestScene*.unity*
 # MCP screenshot output
 /[Aa]ssets/Screenshots/
 /[Aa]ssets/Screenshots.meta
+
+# OS / IDE / local tooling
+.DS_Store
+.vscode/
+.claude/
+*.slnx
+
+# Generated codebase knowledge graph (local RAG - see CLAUDE.md)
+graphify-out/

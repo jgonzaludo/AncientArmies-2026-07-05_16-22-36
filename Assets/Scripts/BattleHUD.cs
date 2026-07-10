@@ -31,6 +31,7 @@ public class BattleHUD : MonoBehaviour
     private Button breakButton;
     private Button reformButton;
     private Button rotateButton;
+    private Button restartMiniButton;   // persistent: restart before/during a battle
 
     private GameObject startRoot;
     private GameObject endRoot;
@@ -41,7 +42,7 @@ public class BattleHUD : MonoBehaviour
     private void Start()
     {
         commander = GetComponent<PlayerCommander>();
-        if (commander == null) commander = FindFirstObjectByType<PlayerCommander>();
+        if (commander == null) commander = FindAnyObjectByType<PlayerCommander>();
 
         font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
 
@@ -55,6 +56,10 @@ public class BattleHUD : MonoBehaviour
         BattlePhase phase = BattleSetup.Instance != null ? BattleSetup.Instance.Phase
                                                          : BattlePhase.Pre;
         if (startRoot != null) startRoot.SetActive(phase == BattlePhase.Pre);
+        // the small corner restart hides after battle end — the banner already
+        // carries the primary RESTART button there
+        if (restartMiniButton != null)
+            restartMiniButton.gameObject.SetActive(phase != BattlePhase.Ended);
         if (endRoot != null)
         {
             endRoot.SetActive(phase == BattlePhase.Ended);
@@ -175,8 +180,8 @@ public class BattleHUD : MonoBehaviour
                 anyBlockingState = true;
         }
 
-        breakButton.interactable = breakInteractable;
-        reformButton.interactable = anyCanReform;
+        SetButtonEnabled(breakButton, breakInteractable);
+        SetButtonEnabled(reformButton, anyCanReform);
         reasonText.text = (considered > 0 && !anyCanReform && anyBlockingState) ? "Too close to enemy" : "";
     }
 
@@ -184,7 +189,17 @@ public class BattleHUD : MonoBehaviour
     {
         Text label = rotateButton.GetComponentInChildren<Text>();
         if (label != null) label.text = commander.RotateMode ? "CANCEL" : "ROTATE";
-        rotateButton.interactable = commander.CanEnterRotateMode || commander.RotateMode;
+        SetButtonEnabled(rotateButton, commander.CanEnterRotateMode || commander.RotateMode);
+    }
+
+    // Disabled buttons must read as disabled: dim the label along with the
+    // background instead of leaving bright text on a faded button.
+    private static void SetButtonEnabled(Button b, bool on)
+    {
+        b.interactable = on;
+        Text label = b.GetComponentInChildren<Text>();
+        if (label != null)
+            label.color = new Color(1f, 1f, 1f, on ? 1f : 0.4f);
     }
 
     private void SetCommandButtonsVisible(bool visible)
@@ -270,13 +285,28 @@ public class BattleHUD : MonoBehaviour
 
         // ---- Hint text (top-left) ----
         hintText = MakeText(canvasT, "HintText", 24, TextAnchor.UpperLeft, new Color(1f, 1f, 1f, 0.7f));
-        hintText.text = "Tap: select formation · Drag from selection: move / attack · Drag ground: pan · Scroll or pinch: zoom";
+        hintText.text = "Tap: select unit · Drag from unit: move / attack (then deselects) · Drag ground: pan · Pinch: zoom";
         RectTransform hintRT = hintText.rectTransform;
         hintRT.anchorMin = new Vector2(0f, 1f);
         hintRT.anchorMax = new Vector2(0f, 1f);
         hintRT.pivot = new Vector2(0f, 1f);
         hintRT.anchoredPosition = new Vector2(25f, -20f);
         hintRT.sizeDelta = new Vector2(1000f, 50f);
+
+        // ---- Persistent restart (top-right): available before Start and
+        // mid-battle; the end banner has its own primary RESTART ----
+        restartMiniButton = MakeButton(canvasT, "RestartMiniButton", "RESTART", Vector2.zero);
+        var rmRT = restartMiniButton.GetComponent<RectTransform>();
+        rmRT.anchorMin = rmRT.anchorMax = new Vector2(1f, 1f);
+        rmRT.pivot = new Vector2(1f, 1f);
+        rmRT.anchoredPosition = new Vector2(-25f, -20f);
+        rmRT.sizeDelta = new Vector2(170f, 64f);
+        var rmLabel = restartMiniButton.GetComponentInChildren<Text>();
+        if (rmLabel != null) rmLabel.fontSize = 24;
+        restartMiniButton.onClick.AddListener(() =>
+        {
+            if (BattleSetup.Instance != null) BattleSetup.Instance.RestartBattle();
+        });
 
         BuildBottomPanel(canvasT);
         BuildStartAndEndUI(canvasT);
@@ -360,6 +390,7 @@ public class BattleHUD : MonoBehaviour
 
         // ---- Info text (left-middle) ----
         infoText = MakeText(panelT, "InfoText", 32, TextAnchor.MiddleLeft, Color.white);
+        infoText.lineSpacing = 1.15f;   // breathing room between the three info lines
         RectTransform infoRT = infoText.rectTransform;
         infoRT.anchorMin = new Vector2(0f, 0.5f);
         infoRT.anchorMax = new Vector2(0f, 0.5f);
