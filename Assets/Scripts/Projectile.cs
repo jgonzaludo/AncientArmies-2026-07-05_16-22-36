@@ -1,7 +1,9 @@
 using UnityEngine;
 
-// Individual arrow: flies a fixed ballistic arc to where the target was heading at launch.
-// If the target moved away or died, the shot misses — no hidden dice.
+// Individual arrow: flies a ballistic arc that tracks its target, so a shot
+// validated at fire time always lands for its full damage regardless of range
+// or target movement — no hidden dice. Only the target dying mid-flight
+// cancels the hit (the arrow falls where they fell).
 public class Projectile : MonoBehaviour
 {
     private Vector3 start;
@@ -62,7 +64,7 @@ public class Projectile : MonoBehaviour
         Vector3 aim = target.transform.position;
         float dist = (aim - from).magnitude;
         p.flightTime = Mathf.Clamp(dist / Mathf.Max(speed, 1f), 0.35f, 2.4f);
-        p.impact = aim + target.Velocity * (p.flightTime * 0.5f);
+        p.impact = aim;   // tracked onto the live target every frame in Update
         p.impact.y = 0f;
         p.arcHeight = Mathf.Clamp(dist * 0.15f, 1.2f, 7f);
         go.transform.position = from;
@@ -79,15 +81,22 @@ public class Projectile : MonoBehaviour
     private void Update()
     {
         t += Time.deltaTime / flightTime;
+        // Track the live target so the arc bends onto them: the half-flight-time
+        // lead guess used before let advancing melee outrun the fixed impact
+        // point and eat silent misses at long range, while stationary archers
+        // took every hit. A dead target freezes the impact where they fell.
+        bool alive = target != null && target.Alive;
+        if (alive)
+        {
+            impact = target.transform.position;
+            impact.y = 0f;
+        }
         if (t >= 1f)
         {
             bool battleActive = BattleSetup.Instance != null &&
                                 BattleSetup.Instance.Phase == BattlePhase.Active;
-            if (battleActive && target != null && target.Alive &&
-                (target.transform.position - impact).sqrMagnitude < 1.1f)
-            {
+            if (battleActive && alive)
                 target.TakeDamage(damage);
-            }
             Destroy(gameObject);
             return;
         }

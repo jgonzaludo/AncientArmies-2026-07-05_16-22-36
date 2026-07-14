@@ -149,6 +149,18 @@ All planned changes landed. Highlights and deviations:
 - Runtime gameplay NOT verified in Play Mode (per constraints) — see
   `SPACING_PROJECTILE_RANGE_TERRAIN_MANUAL_TESTS.md`.
 
+## v1.3.2 hotfix: arrow damage reliability
+
+Playtest found arrows dealing no damage to melee units until close range,
+while hitting enemy archers fine. Cause: `Projectile.Spawn` led the target by
+only half the flight time and `Update` required the target to be within
+~1 m of that fixed guess at landing. Advancing melee (~3 m/s over a 2.4 s
+flight) drifted ~3.6 m past the prediction — silent miss; stationary archers
+sat exactly on it — hit. Fix: the arc now tracks the live target every frame
+and the landing always applies the full fire-time damage; only the target
+dying mid-flight cancels the hit (the arrow falls where they fell). Damage
+per shot is unchanged and range-independent, as designed.
+
 ### Repo policy note
 `ArtSource/` (1.7 GB, individual files >100 MB) added to .gitignore as
 local-only; exported game-ready assets live in `Assets/Art/`. `.agents/` and
