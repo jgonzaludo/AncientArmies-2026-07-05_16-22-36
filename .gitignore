@@ -118,3 +118,9 @@ InitTestScene*.unity*
 
 # Generated codebase knowledge graph (local RAG - see CLAUDE.md)
 graphify-out/
+.env
+
+# Local-only art source (multi-hundred-MB .blend files and raw Meshy
+# downloads exceed GitHub's 100 MB file limit; exported FBX/PNG assets
+# live in Assets/Art which IS committed)
+/ArtSource/

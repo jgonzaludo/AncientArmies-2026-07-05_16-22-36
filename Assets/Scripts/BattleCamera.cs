@@ -17,7 +17,7 @@ public class BattleCamera : MonoBehaviour
 
     [Header("Zoom feel")]
     public float zoomSmoothTime = 0.12f;
-    public float zoomMin = 8f;
+    public float zoomMin = 5.5f;
     public float zoomMax = 36f;
 
     [Header("Battlefield bounds (camera position)")]
