@@ -42,6 +42,8 @@ public class Formation : MonoBehaviour
     public float edgeEngageRadius = 6f;        // unengaged soldiers this close to an enemy loosen up
 
     public FormationState State { get; private set; } = FormationState.Ordered;
+    public bool HasMoveDestination => hasDestination;      // read-only, for visuals
+    public event System.Action OnFacingSnapped;            // Rotate command executed (visual hook)
     public bool CanReform { get; private set; }
     public bool IsSelected { get; private set; }
     public Formation attackTarget;
@@ -109,6 +111,16 @@ public class Formation : MonoBehaviour
     {
         soldiers.Add(s);
         TotalSpawned++;
+    }
+
+    // Closed form of the front-row half-width that BuildSlots bakes into
+    // FootprintHalfExtents.x — lets BattleSetup space a line of formations by
+    // real footprints before any of them exist. ValidateLineGaps cross-checks
+    // the spawned footprints against this, so the two can't silently drift.
+    public static float LineHalfWidth(int count, int columns, float spacing)
+    {
+        int inFrontRow = Mathf.Min(count, Mathf.Max(1, columns));
+        return (inFrontRow - 1) * 0.5f * spacing + spacing * 0.5f;
     }
 
     public void BuildSlots(int count)
@@ -210,6 +222,7 @@ public class Formation : MonoBehaviour
         if (State != FormationState.Ordered) return;
         AnchorRot = Quaternion.LookRotation(direction.normalized, Vector3.up);
         AssignNearestSlots();
+        OnFacingSnapped?.Invoke();
     }
 
     public void IssueBreakRanks()

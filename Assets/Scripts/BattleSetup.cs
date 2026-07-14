@@ -36,10 +36,10 @@ public class BattleSetup : MonoBehaviour
         attackDamage = 10f,
         attackCooldown = 3f,
         strikeRange = 1.6f,
-        rangedRange = 20f,
-        rangedPreferredRange = 16f,   // ~80% of max range: a visible second line
+        rangedRange = 48f,            // capped at the melee-line spawn separation (2 x lineZ)
+        rangedPreferredRange = 40.8f, // 85% of max range: a visible second line
         rangedMinRange = 2.5f,
-        projectileSpeed = 13f
+        projectileSpeed = 20f         // keeps a 48 m extreme shot readable (~2.4 s flight)
     };
 
     [Header("Battle layout")]
@@ -47,9 +47,11 @@ public class BattleSetup : MonoBehaviour
     public int archerCount = 40;
     public int formationColumns = 10;
     [Tooltip("Distance between melee soldiers — near shoulder-to-shoulder for a dense, continuous front")]
-    public float meleeSpacing = 0.95f;
+    public float meleeSpacing = 1.15f;
     [Tooltip("Distance between archers — visibly looser than melee")]
-    public float archerSpacing = 1.7f;
+    public float archerSpacing = 1.75f;
+    [Tooltip("Guaranteed edge-to-edge gap between neighboring formations, in multiples of the larger of the two intra-formation spacings")]
+    public float formationGapFactor = 1.1f;
     public int formationsPerSide = 5;
     [Range(0f, 1f)]
     [Tooltip("Chance each formation slot rolls Archers instead of Swordsmen (re-rolled every battle)")]
@@ -126,18 +128,62 @@ public class BattleSetup : MonoBehaviour
     private void SpawnSide(Team team, float z, float yaw, bool auto)
     {
         string p = team == Team.Blue ? "Blue" : "Red";
-        int swordIdx = 0, archerIdx = 0;
-        for (int i = 0; i < formationsPerSide; i++)
+        int n = formationsPerSide;
+
+        // Roll the whole line first so it can be spaced by real footprints:
+        // fixed center pitch alone let two archer formations (wider than
+        // lineSpacingX) spawn overlapping.
+        var ranged = new bool[n];
+        var halfW = new float[n];
+        for (int i = 0; i < n; i++)
         {
-            float x = (i - (formationsPerSide - 1) * 0.5f) * lineSpacingX;
-            bool ranged = Random.value < archerChance;
-            UnitStats stats = ranged ? archerStats : meleeStats;
-            int count = ranged ? archerCount : meleeCount;
-            float zPos = z + (ranged ? (team == Team.Blue ? -6f : 6f) : 0f);
-            string label = ranged ? $"{p} Archers {++archerIdx}"
-                                  : $"{p} Swords {++swordIdx}";
+            ranged[i] = Random.value < archerChance;
+            float sp = ranged[i] ? archerSpacing : meleeSpacing;
+            halfW[i] = Formation.LineHalfWidth(ranged[i] ? archerCount : meleeCount,
+                                               formationColumns, sp);
+        }
+
+        // Neighbor centers sit at least lineSpacingX apart, and never closer
+        // than footprints + a guaranteed edge gap; then recenter on x = 0.
+        var xs = new float[n];
+        for (int i = 1; i < n; i++)
+        {
+            float spA = ranged[i - 1] ? archerSpacing : meleeSpacing;
+            float spB = ranged[i] ? archerSpacing : meleeSpacing;
+            float gap = formationGapFactor * Mathf.Max(spA, spB);
+            xs[i] = xs[i - 1] + Mathf.Max(lineSpacingX, halfW[i - 1] + gap + halfW[i]);
+        }
+        float center = xs[n - 1] * 0.5f;
+
+        int swordIdx = 0, archerIdx = 0;
+        int firstIdx = formations.Count;
+        for (int i = 0; i < n; i++)
+        {
+            UnitStats stats = ranged[i] ? archerStats : meleeStats;
+            int count = ranged[i] ? archerCount : meleeCount;
+            float zPos = z + (ranged[i] ? (team == Team.Blue ? -6f : 6f) : 0f);
+            string label = ranged[i] ? $"{p} Archers {++archerIdx}"
+                                     : $"{p} Swords {++swordIdx}";
             CreateFormation(label, team, stats, count, formationColumns,
-                            new Vector3(x, 0f, zPos), yaw, auto);
+                            new Vector3(xs[i] - center, 0f, zPos), yaw, auto);
+        }
+        ValidateLineGaps(formations, firstIdx, formationGapFactor);
+    }
+
+    // Layout guard: cross-checks the spawned formations' actual footprints
+    // against the guaranteed edge gap, catching any drift between
+    // Formation.LineHalfWidth and what BuildSlots really produced.
+    public static void ValidateLineGaps(List<Formation> all, int firstIdx, float gapFactor)
+    {
+        for (int i = firstIdx + 1; i < all.Count; i++)
+        {
+            Formation a = all[i - 1], b = all[i];
+            float edge = Mathf.Abs(b.AnchorPos.x - a.AnchorPos.x)
+                       - a.FootprintHalfExtents.x - b.FootprintHalfExtents.x;
+            float need = gapFactor * Mathf.Max(a.spacing, b.spacing) - 0.001f;
+            if (edge < need)
+                Debug.LogWarning($"Formation gap violation: {a.displayName} <-> " +
+                                 $"{b.displayName} edge {edge:F2} < required {need:F2}");
         }
     }
 
@@ -189,9 +235,7 @@ public class BattleSetup : MonoBehaviour
             ground.name = "Ground";
             ground.transform.position = Vector3.zero;
             ground.transform.localScale = new Vector3(12f, 1f, 8f);   // 120 x 80 field
-            var grass = SoldierFactory.Lit(new Color(0.45f, 0.56f, 0.34f));
-            grass.SetFloat("_Smoothness", 0.12f);   // matte, no specular glare
-            ground.GetComponent<Renderer>().sharedMaterial = grass;
+            BattlefieldDecor.Decorate(ground);      // light tiled grass albedo
         }
 
         var cam = Camera.main;

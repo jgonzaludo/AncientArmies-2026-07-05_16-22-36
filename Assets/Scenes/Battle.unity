@@ -305,7 +305,7 @@ MonoBehaviour:
     unitName: Swordsmen
     isRanged: 0
     maxHealth: 35
-    moveSpeed: 3.2
+    moveSpeed: 2.7
     attackDamage: 12
     attackCooldown: 1.4
     strikeRange: 1.7
@@ -321,13 +321,16 @@ MonoBehaviour:
     attackDamage: 10
     attackCooldown: 3
     strikeRange: 1.6
-    rangedRange: 20
-    rangedPreferredRange: 16
+    rangedRange: 48
+    rangedPreferredRange: 40.8
     rangedMinRange: 2.5
-    projectileSpeed: 13
+    projectileSpeed: 20
   meleeCount: 50
   archerCount: 40
   formationColumns: 10
+  meleeSpacing: 1.15
+  archerSpacing: 1.75
+  formationGapFactor: 1.1
   formationsPerSide: 5
   archerChance: 0.5
   lineZ: 24

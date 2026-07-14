@@ -16,6 +16,21 @@ public class Soldier : MonoBehaviour
 
     public Vector3 Velocity => rb != null && !rb.isKinematic ? rb.linearVelocity : Vector3.zero;
 
+    // Visual hooks (presentation only; gameplay stays authoritative).
+    public event System.Action OnAttack;
+    public event System.Action OnHurt;
+    public event System.Action OnDeath;
+    [System.NonSerialized] public bool suppressFallRotation;   // set by animated visuals
+    [System.NonSerialized] public bool suppressTint;            // visual controller owns all tinting
+    // Animated archers defer the projectile spawn to the firing clip's release
+    // frame. The shot is validated, damaged, and cooldown-charged at attack
+    // time as always; only the spawn moment moves. Capsule archers (flag off)
+    // keep the immediate spawn.
+    [System.NonSerialized] public bool deferRangedRelease;
+
+    private Soldier pendingShotTarget;
+    private float pendingShotDamage;
+
     private UnitStats S => formation.stats;
 
     private Rigidbody rb;
@@ -31,7 +46,14 @@ public class Soldier : MonoBehaviour
     private float skill = 1f;                 // fixed per-soldier variation, not hidden dice
     private Coroutine flashRoutine;
 
+    private Vector3 sepVel;                   // cached friendly-separation push
+    private int sepTick;                      // staggered so a quarter of soldiers recompute per tick
+    private static int sepStagger;
+
     private const float Accel = 25f;
+    private const float SepMaxPush = 1.2f;            // m/s cap: separation biases, never flings
+    private const float SepFractionOrdered = 0.85f;   // of formation spacing
+    private const float SepFractionPacked = 0.65f;    // melee crowds may pack tighter
     private static readonly int BaseColorId = Shader.PropertyToID("_BaseColor");
 
     public void Init(Formation f, int slot, Rigidbody rb, Renderer body, Transform weapon,
@@ -50,6 +72,7 @@ public class Soldier : MonoBehaviour
         mpb = new MaterialPropertyBlock();
         retargetTimer = Random.value * 0.3f;
         attackTimer = Random.value * 0.5f;
+        sepTick = sepStagger++;               // spread separation recomputes across ticks
         RefreshTint();
     }
 
@@ -99,6 +122,11 @@ public class Soldier : MonoBehaviour
         if (fromAnchor.magnitude > formation.brokenLeash)
             desired = -fromAnchor.normalized * S.moveSpeed;
 
+        // soft same-team separation: recomputed every 4th tick (staggered),
+        // cached in between; biases the desired velocity, never overpowers it
+        if ((sepTick++ & 3) == 0) RecomputeSeparation(pos);
+        desired += sepVel;
+
         Vector3 vel = rb.linearVelocity;
         vel.y = 0f;
         rb.linearVelocity = Vector3.MoveTowards(vel, desired, Accel * Time.fixedDeltaTime);
@@ -110,6 +138,42 @@ public class Soldier : MonoBehaviour
         if (dist < 0.05f) return Vector3.zero;
         float speed = Mathf.Min(maxSpeed, dist * 3f);
         return offset / dist * speed;
+    }
+
+    // Friendly anti-clumping: a capped push away from same-team soldiers closer
+    // than a fraction of formation spacing (looser while packed into melee).
+    // Enemies are never pushed, so combat contact is untouched. Linear ramp with
+    // penetration depth; a deterministic tiebreak keeps coincident soldiers from
+    // jittering. Allocation-free brute force over the team registry, affordable
+    // because each soldier only recomputes every 4th tick.
+    private void RecomputeSeparation(Vector3 pos)
+    {
+        FormationState st = formation.State;
+        bool packed = st == FormationState.BrokenRanks || st == FormationState.Engaged;
+        float sepDist = formation.spacing * (packed ? SepFractionPacked : SepFractionOrdered);
+        float sep2 = sepDist * sepDist;
+
+        var friends = BattleSetup.Instance.GetSoldiers(team);
+        Vector3 push = Vector3.zero;
+        for (int i = 0; i < friends.Count; i++)
+        {
+            Soldier f = friends[i];
+            if (f == this || !f.Alive) continue;   // registry holds only the living, but be safe
+            Vector3 away = pos - f.transform.position;
+            away.y = 0f;
+            float d2 = away.sqrMagnitude;
+            if (d2 >= sep2) continue;
+            if (d2 < 0.0001f)
+            {
+                // nearly coincident: no direction to push along, so break the tie
+                // by entity ID — stable across frames, never Random
+                push += GetEntityId().CompareTo(f.GetEntityId()) < 0 ? Vector3.right : Vector3.left;
+                continue;
+            }
+            float d = Mathf.Sqrt(d2);
+            push += away * ((sepDist - d) / (sepDist * d));   // unit dir * penetration 0..1
+        }
+        sepVel = Vector3.ClampMagnitude(push * SepMaxPush, SepMaxPush);
     }
 
     // ---------------- combat ----------------
@@ -142,10 +206,23 @@ public class Soldier : MonoBehaviour
                 float dirMult = BattleSetup.Instance.GetDirectionalMultiplier(
                     formation, target.formation);
                 if (shoot)
-                    Projectile.Spawn(transform.position + Vector3.up * 1.3f, target,
-                                     S.attackDamage * skill * dirMult, S.projectileSpeed);
+                {
+                    float dmg = S.attackDamage * skill * dirMult;
+                    if (deferRangedRelease)
+                    {
+                        ReleasePendingShot();   // an unreleased previous shot flies now
+                        pendingShotTarget = target;
+                        pendingShotDamage = dmg;
+                    }
+                    else
+                    {
+                        Projectile.Spawn(transform.position + Vector3.up * 1.3f, target,
+                                         dmg, S.projectileSpeed);
+                    }
+                }
                 else
                     target.TakeDamage(S.attackDamage * skill * dirMult * (S.isRanged ? 0.4f : 1f));
+                OnAttack?.Invoke();
                 if (weapon != null) StartCoroutine(LungeAnim());
             }
         }
@@ -171,7 +248,11 @@ public class Soldier : MonoBehaviour
         var enemies = BattleSetup.Instance.GetSoldiers(team == Team.Blue ? Team.Red : Team.Blue);
         float max2 = radius * radius;
         float bestScore = float.MaxValue;
-        float leash2 = formation.brokenLeash * formation.brokenLeash;
+        // ranged units must be able to acquire anything inside their own range,
+        // even when it stands beyond the broken-ranks leash around the anchor
+        float leash = formation.brokenLeash;
+        if (S.isRanged) leash = Mathf.Max(leash, S.rangedRange + 2f);
+        float leash2 = leash * leash;
         Vector3 p = transform.position;
         Vector3 fwd = transform.forward;
         foreach (var e in enemies)
@@ -188,6 +269,20 @@ public class Soldier : MonoBehaviour
             if (score < bestScore) { bestScore = score; target = e; }
         }
     }
+
+    // Called by the visual controller at the firing clip's release frame (or
+    // immediately on interrupt). Spawns the shot validated at attack time.
+    public void ReleasePendingShot()
+    {
+        if (pendingShotTarget == null) return;
+        var t = pendingShotTarget;
+        pendingShotTarget = null;
+        if (!Alive || !t.Alive) return;
+        Projectile.Spawn(transform.position + Vector3.up * 1.3f, t,
+                         pendingShotDamage, S.projectileSpeed);
+    }
+
+    public void CancelPendingShot() { pendingShotTarget = null; }
 
     private void UpdateFacing()
     {
@@ -214,6 +309,7 @@ public class Soldier : MonoBehaviour
             Die();
             return;
         }
+        OnHurt?.Invoke();
         if (flashRoutine != null) StopCoroutine(flashRoutine);
         flashRoutine = StartCoroutine(HitFlash());
     }
@@ -227,6 +323,7 @@ public class Soldier : MonoBehaviour
         if (col != null) col.enabled = false;
         rb.isKinematic = true;
         if (selectionDisc != null) selectionDisc.SetActive(false);
+        OnDeath?.Invoke();
         StopAllCoroutines();
         StartCoroutine(DeathAnim());
     }
@@ -234,15 +331,23 @@ public class Soldier : MonoBehaviour
     private IEnumerator DeathAnim()
     {
         SetTint(Color.Lerp(baseColor, Color.black, 0.55f));
-        Quaternion start = transform.rotation;
-        Quaternion fallen = start * Quaternion.Euler(90f, 0f, 0f);
-        for (float t = 0f; t < 1f; t += Time.deltaTime / 0.35f)
+        if (!suppressFallRotation)
         {
-            transform.rotation = Quaternion.Slerp(start, fallen, t);
-            yield return null;
+            Quaternion start = transform.rotation;
+            Quaternion fallen = start * Quaternion.Euler(90f, 0f, 0f);
+            for (float t = 0f; t < 1f; t += Time.deltaTime / 0.35f)
+            {
+                transform.rotation = Quaternion.Slerp(start, fallen, t);
+                yield return null;
+            }
+            transform.rotation = fallen;
+            yield return new WaitForSeconds(1.2f);
         }
-        transform.rotation = fallen;
-        yield return new WaitForSeconds(1.2f);
+        else
+        {
+            // animated visual plays its own death clip (~2.4 s); keep overall timing
+            yield return new WaitForSeconds(1.55f);
+        }
         for (float t = 0f; t < 1f; t += Time.deltaTime / 0.8f)
         {
             transform.position += Vector3.down * (1.6f * Time.deltaTime);
@@ -269,6 +374,9 @@ public class Soldier : MonoBehaviour
 
     private void SetTint(Color c)
     {
+        // A renderer-level MPB overrides _BaseColor on EVERY material slot of a
+        // multi-material renderer; the Roman visual controller tints per slot instead.
+        if (suppressTint) return;
         if (bodyRenderer == null) return;
         bodyRenderer.GetPropertyBlock(mpb);
         mpb.SetColor(BaseColorId, c);
