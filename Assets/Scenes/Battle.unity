@@ -326,13 +326,13 @@ MonoBehaviour:
     rangedMinRange: 2.5
     projectileSpeed: 20
   meleeCount: 50
-  archerCount: 40
+  archerCount: 30
   formationColumns: 10
   meleeSpacing: 1.15
   archerSpacing: 1.75
   formationGapFactor: 1.1
   formationsPerSide: 5
-  archerChance: 0.5
+  archerChance: 0.33333334
   lineZ: 24
   lineSpacingX: 16
   frontDamageMultiplier: 1

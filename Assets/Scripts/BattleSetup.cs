@@ -44,7 +44,7 @@ public class BattleSetup : MonoBehaviour
 
     [Header("Battle layout")]
     public int meleeCount = 50;
-    public int archerCount = 40;
+    public int archerCount = 30;
     public int formationColumns = 10;
     [Tooltip("Distance between melee soldiers — near shoulder-to-shoulder for a dense, continuous front")]
     public float meleeSpacing = 1.15f;
@@ -55,7 +55,7 @@ public class BattleSetup : MonoBehaviour
     public int formationsPerSide = 5;
     [Range(0f, 1f)]
     [Tooltip("Chance each formation slot rolls Archers instead of Swordsmen (re-rolled every battle)")]
-    public float archerChance = 0.5f;
+    public float archerChance = 1f / 3f;   // archers rarer for now: 1 in 3 slots
     public float lineZ = 24f;
     public float lineSpacingX = 16f;
 
