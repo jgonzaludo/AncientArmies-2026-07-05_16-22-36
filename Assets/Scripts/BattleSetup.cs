@@ -217,7 +217,7 @@ public class BattleSetup : MonoBehaviour
             f.AddSoldier(s);
             Register(s);
         }
-        go.AddComponent<FormationLabel>();
+        go.AddComponent<FormationBanner>();
         go.AddComponent<FormationArrow>();
         formations.Add(f);
         return f;
