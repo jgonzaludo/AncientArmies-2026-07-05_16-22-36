@@ -63,6 +63,14 @@ public class Formation : MonoBehaviour
     [Header("Edge engagement (local freedom near the fight)")]
     public float edgeEngageRadius = 6f;        // unengaged soldiers this close to an enemy loosen up
 
+    [Header("Dominant group (banner tracking + reform rally)")]
+    [Tooltip("Soldiers closer than this multiple of formation spacing belong to the same local group")]
+    public float clusterLinkFactor = 2.5f;
+    [Tooltip("Seconds between dominant-group recomputes (the banner interpolates in between)")]
+    public float clusterInterval = 0.4f;
+    [Tooltip("A rival group must outnumber the current dominant group by this factor to take the banner")]
+    public float clusterSwitchFactor = 1.3f;
+
     public FormationState State { get; private set; } = FormationState.Ordered;
     public bool HasMoveDestination => hasDestination;      // read-only, for visuals
     public event System.Action OnFacingSnapped;            // Rotate command executed (visual hook)
@@ -121,6 +129,15 @@ public class Formation : MonoBehaviour
     private Vector3 engagedCentroid;   // mean position of own engaged soldiers (the contact surface)
     private bool dirtySinceReform;
     private float autoReformCooldown;
+
+    // dominant-group state (banner + reform rally)
+    public Vector3 DominantGroupCenter { get; private set; }
+    public int DominantGroupCount { get; private set; }
+    private float clusterTimer;
+    private bool hasDominantCenter;
+    private static readonly List<Vector3> clusterScratch = new List<Vector3>(64);
+    private static int[] clusterParent = new int[64];
+    private static int[] clusterSize = new int[64];
 
     // wheel maneuver state: one formation-level progress, no per-soldier data
     private Quaternion maneuverTargetRot;
@@ -379,6 +396,105 @@ public class Formation : MonoBehaviour
         return (float)near / soldiers.Count;
     }
 
+    // ---------------- dominant group ----------------
+
+    // Connected components over the soldier proximity graph (union-find).
+    // Returns the centroid of the winning cluster. Hysteresis: the cluster
+    // nearest prevCenter (the incumbent) keeps ownership unless a rival is
+    // switchFactor times larger, so a 26/24 split never flip-flops while a
+    // 40/10 split clearly resolves. Static and list-driven so editor
+    // validation can exercise the exact shipped code path (like WheelStep).
+    // Cost: <= n^2/2 sqr-distance checks per recompute, n <= ~50 per
+    // formation, on a several-per-second interval — no allocations beyond the
+    // grow-only scratch arrays.
+    public static Vector3 ComputeDominantGroup(List<Vector3> positions, float linkDist,
+                                               Vector3 prevCenter, bool hasPrev,
+                                               float switchFactor, out int count)
+    {
+        int n = positions.Count;
+        count = 0;
+        if (n == 0) return prevCenter;
+        if (clusterParent.Length < n)
+        {
+            clusterParent = new int[Mathf.NextPowerOfTwo(n)];
+            clusterSize = new int[Mathf.NextPowerOfTwo(n)];
+        }
+        for (int i = 0; i < n; i++) clusterParent[i] = i;
+        float link2 = linkDist * linkDist;
+        for (int i = 0; i < n; i++)
+            for (int j = i + 1; j < n; j++)
+            {
+                Vector3 d = positions[i] - positions[j];
+                d.y = 0f;
+                if (d.sqrMagnitude <= link2) Union(i, j);
+            }
+        for (int i = 0; i < n; i++) clusterSize[i] = 0;
+        for (int i = 0; i < n; i++) clusterSize[Find(i)]++;
+
+        // incumbent: the cluster of the member nearest the previous center,
+        // if any member is still within two link distances of it
+        int incumbentRoot = -1;
+        if (hasPrev)
+        {
+            float best = link2 * 4f;
+            for (int i = 0; i < n; i++)
+            {
+                Vector3 d = positions[i] - prevCenter;
+                d.y = 0f;
+                float d2 = d.sqrMagnitude;
+                if (d2 < best) { best = d2; incumbentRoot = Find(i); }
+            }
+        }
+        int largestRoot = Find(0);
+        for (int i = 1; i < n; i++)
+        {
+            int r = Find(i);
+            if (clusterSize[r] > clusterSize[largestRoot]) largestRoot = r;
+        }
+
+        int winner = largestRoot;
+        if (incumbentRoot >= 0 && incumbentRoot != largestRoot &&
+            clusterSize[largestRoot] < clusterSize[incumbentRoot] * switchFactor)
+            winner = incumbentRoot;
+
+        Vector3 c = Vector3.zero;
+        for (int i = 0; i < n; i++)
+            if (Find(i) == winner) { c += positions[i]; count++; }
+        c /= Mathf.Max(1, count);
+        c.y = 0f;
+        return c;
+
+        int Find(int x)
+        {
+            while (clusterParent[x] != x)
+            {
+                clusterParent[x] = clusterParent[clusterParent[x]];
+                x = clusterParent[x];
+            }
+            return x;
+        }
+        void Union(int a, int b)
+        {
+            a = Find(a); b = Find(b);
+            if (a != b) clusterParent[b] = a;
+        }
+    }
+
+    private void UpdateDominantGroup(bool force = false)
+    {
+        clusterTimer -= Time.deltaTime;
+        if (!force && clusterTimer > 0f) return;
+        clusterTimer = clusterInterval;
+        if (soldiers.Count == 0) { DominantGroupCount = 0; hasDominantCenter = false; return; }
+        clusterScratch.Clear();
+        foreach (var s in soldiers) clusterScratch.Add(s.transform.position);
+        DominantGroupCenter = ComputeDominantGroup(
+            clusterScratch, spacing * clusterLinkFactor,
+            DominantGroupCenter, hasDominantCenter, clusterSwitchFactor, out int c);
+        DominantGroupCount = c;
+        hasDominantCenter = c > 0;
+    }
+
     public void IssueBreakRanks()
     {
         if (soldiers.Count == 0) return;
@@ -389,11 +505,12 @@ public class Formation : MonoBehaviour
     {
         if (!CanReform || soldiers.Count == 0) return;
 
-        Vector3 c = Vector3.zero;
-        foreach (var s in soldiers) c += s.transform.position;
-        c /= soldiers.Count;
-        c.y = 0f;
-        AnchorPos = c;
+        // Rally on the dominant living group, not the mean of every survivor:
+        // a 40/10 split reforms around the 40 and recalls the 10, instead of
+        // dragging everyone to the empty midpoint. Computed once here — the
+        // rally anchor stays stable for the whole reform.
+        UpdateDominantGroup(force: true);
+        AnchorPos = DominantGroupCenter;
 
         // best practical smaller rectangle, roughly 2:1 wide
         int n = soldiers.Count;
@@ -508,6 +625,7 @@ public class Formation : MonoBehaviour
         UpdateManeuver();
         UpdateAnchorMovement();
         UpdateEngagement();
+        UpdateDominantGroup();
         UpdateEngagedFacing();
         UpdateStateMachine();
         UpdateRankReplacement();
