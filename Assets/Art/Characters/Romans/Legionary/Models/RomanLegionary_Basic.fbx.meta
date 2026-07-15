@@ -75,7 +75,7 @@ ModelImporter:
       takeName: RIG_RomanLegionary|ANIM_Roman_Attack_OverShield
       internalID: -4040867004567277642
       firstFrame: 0
-      lastFrame: 26
+      lastFrame: 21
       wrapMode: 0
       orientationOffsetY: 0
       level: 0
@@ -104,7 +104,7 @@ ModelImporter:
       takeName: RIG_RomanLegionary|ANIM_Roman_Attack_Thrust
       internalID: 1471683934665552814
       firstFrame: 0
-      lastFrame: 20
+      lastFrame: 19
       wrapMode: 0
       orientationOffsetY: 0
       level: 0
