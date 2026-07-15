@@ -33,6 +33,7 @@ public class BattleHUD : MonoBehaviour
     private Button reformButton;
     private Button rotateButton;
     private Button restartMiniButton;   // persistent: restart before/during a battle
+    private Button bannerModeButton;    // cycles the formation-banner visibility mode
 
     private GameObject startRoot;
     private GameObject endRoot;
@@ -315,9 +316,38 @@ public class BattleHUD : MonoBehaviour
             if (BattleSetup.Instance != null) BattleSetup.Instance.RestartBattle();
         });
 
+        // ---- Banner visibility mode cycle (top-left, under the hint) ----
+        bannerModeButton = MakeButton(canvasT, "BannerModeButton", "BANNERS", Vector2.zero);
+        var bmRT = bannerModeButton.GetComponent<RectTransform>();
+        bmRT.anchorMin = bmRT.anchorMax = new Vector2(0f, 1f);
+        bmRT.pivot = new Vector2(0f, 1f);
+        bmRT.anchoredPosition = new Vector2(25f, -74f);
+        bmRT.sizeDelta = new Vector2(300f, 56f);
+        var bmLabel = bannerModeButton.GetComponentInChildren<Text>();
+        if (bmLabel != null) bmLabel.fontSize = 22;
+        bannerModeButton.onClick.AddListener(() =>
+        {
+            if (FormationBannerManager.Instance != null)
+                FormationBannerManager.Instance.CycleMode();
+            RefreshBannerModeLabel();
+        });
+        RefreshBannerModeLabel();
+
         BuildBottomPanel(canvasT);
         BuildStartAndEndUI(canvasT);
         BuildSceneSwitcher(canvasT);
+    }
+
+    private void RefreshBannerModeLabel()
+    {
+        var label = bannerModeButton != null ? bannerModeButton.GetComponentInChildren<Text>() : null;
+        if (label == null || FormationBannerManager.Instance == null) return;
+        switch (FormationBannerManager.Instance.Mode)
+        {
+            case FormationBannerVisibilityMode.AlwaysVisible: label.text = "BANNERS: ALWAYS"; break;
+            case FormationBannerVisibilityMode.SelectedOnly: label.text = "BANNERS: SELECTED"; break;
+            default: label.text = "BANNERS: ADAPTIVE"; break;
+        }
     }
 
     // Top-center SCENES button expanding a row of scene buttons; the current

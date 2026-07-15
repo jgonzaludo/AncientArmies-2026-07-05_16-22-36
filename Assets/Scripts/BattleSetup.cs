@@ -84,6 +84,8 @@ public class BattleSetup : MonoBehaviour
         SpawnSide(Team.Red, lineZ, 180f, true);
         if (GetComponent<EnemyCommander>() == null)
             gameObject.AddComponent<EnemyCommander>();
+        if (GetComponent<FormationBannerManager>() == null)
+            gameObject.AddComponent<FormationBannerManager>();
     }
 
     private void OnDestroy()
@@ -217,7 +219,7 @@ public class BattleSetup : MonoBehaviour
             f.AddSoldier(s);
             Register(s);
         }
-        go.AddComponent<FormationBanner>();
+        go.AddComponent<FormationBannerController>();
         go.AddComponent<FormationArrow>();
         formations.Add(f);
         return f;

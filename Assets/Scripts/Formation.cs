@@ -74,6 +74,7 @@ public class Formation : MonoBehaviour
     public FormationState State { get; private set; } = FormationState.Ordered;
     public bool HasMoveDestination => hasDestination;      // read-only, for visuals
     public event System.Action OnFacingSnapped;            // Rotate command executed (visual hook)
+    public event System.Action OnOrderIssued;               // any successful player/AI order (visual hook)
     public bool CanReform { get; private set; }
     public bool IsSelected { get; private set; }
     public Formation attackTarget;
@@ -255,6 +256,7 @@ public class Formation : MonoBehaviour
         }
         destination = dest;
         hasDestination = true;
+        OnOrderIssued?.Invoke();
     }
 
     public void IssueAttack(Formation target)
@@ -264,6 +266,7 @@ public class Formation : MonoBehaviour
         if (State != FormationState.BrokenRanks)
             State = FormationState.Attacking;
         hasDestination = true;
+        OnOrderIssued?.Invoke();
     }
 
     // Rotate command, classified by the shortest signed yaw delta (Patch 4):
@@ -302,6 +305,7 @@ public class Formation : MonoBehaviour
             BeginWheel(want, signed);
             // no pivot animation: soldiers physically walk the wheel arcs
         }
+        OnOrderIssued?.Invoke();
     }
 
     private void BeginRedress(FormationManeuverState kind)
@@ -499,6 +503,7 @@ public class Formation : MonoBehaviour
     {
         if (soldiers.Count == 0) return;
         State = FormationState.BrokenRanks;
+        OnOrderIssued?.Invoke();
     }
 
     public void IssueReform()
@@ -524,6 +529,7 @@ public class Formation : MonoBehaviour
         dirtySinceReform = false;
         autoReformCooldown = 4f;
         State = FormationState.Reforming;
+        OnOrderIssued?.Invoke();
     }
 
     private void AssignNearestSlots()
