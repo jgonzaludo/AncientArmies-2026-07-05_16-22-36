@@ -243,13 +243,13 @@ public class BattleSetup : MonoBehaviour
         {
             cam.orthographic = true;
             cam.orthographicSize = 26f;   // wide default framing for the 5v5 line
-            // Pitch 45 degrees (user request; was 42 in Patch 5, 55 before).
+            // Pitch 40 degrees (user request; was 42 in Patch 5, 55 before).
             // The center-screen ground focus is preserved: the historical ray
             // hit the ground at z = -0.59; position = focus - forward *
             // (height / sin(pitch)) with height 42, so the same point stays
-            // centered at the same orthographic size: z = -0.59 - 42/tan45.
-            cam.transform.position = new Vector3(0f, 42f, -42.59f);
-            cam.transform.rotation = Quaternion.Euler(45f, 0f, 0f);
+            // centered at the same orthographic size: z = -0.59 - 42/tan40.
+            cam.transform.position = new Vector3(0f, 42f, -50.64f);
+            cam.transform.rotation = Quaternion.Euler(40f, 0f, 0f);
             cam.clearFlags = CameraClearFlags.SolidColor;
             cam.backgroundColor = new Color(0.12f, 0.14f, 0.17f);
             cam.nearClipPlane = 0.3f;
