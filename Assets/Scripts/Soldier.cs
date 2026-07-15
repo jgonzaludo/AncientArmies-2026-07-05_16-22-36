@@ -28,6 +28,28 @@ public class Soldier : MonoBehaviour
     // keep the immediate spawn.
     [System.NonSerialized] public bool deferRangedRelease;
 
+    // Animated legionaries defer the melee damage to each attack clip's
+    // authored contact frame (same philosophy as deferRangedRelease): the hit
+    // is validated, variant-chosen, and cooldown-charged at attack time; only
+    // the damage moment moves. Capsule melee (flag off) keeps instant damage.
+    [System.NonSerialized] public bool deferMeleeImpact;
+
+    // 0 thrust / 1 over-shield / 2 diagonal slash — chosen by gameplay so the
+    // damage timing and the displayed clip can never disagree.
+    public int MeleeAttackVariant { get; private set; }
+
+    [Tooltip("Relative weights: thrust / over-shield / diagonal slash")]
+    [SerializeField] private Vector3 meleeVariantWeights = new Vector3(0.5f, 0.25f, 0.25f);
+
+    // Seconds from attack commit to the authored contact frame, per variant
+    // (thrust f9/30fps, over-shield f12, diagonal f13 — trued to the clips).
+    private static readonly float[] MeleeImpactDelay = { 0.30f, 0.40f, 0.43f };
+
+    private Soldier pendingMeleeTarget;
+    private float pendingMeleeDamage;
+    private float pendingMeleeTimer;
+    private int lastVariant = -1, prevVariant = -1;
+
     private Soldier pendingShotTarget;
     private float pendingShotDamage;
 
@@ -237,6 +259,13 @@ public class Soldier : MonoBehaviour
             return;
         }
 
+        // deferred melee hit: land on the authored contact frame
+        if (pendingMeleeTarget != null)
+        {
+            pendingMeleeTimer -= Time.deltaTime;
+            if (pendingMeleeTimer <= 0f) LandPendingMeleeHit();
+        }
+
         retargetTimer -= Time.deltaTime;
         if (retargetTimer <= 0f)
         {
@@ -277,9 +306,24 @@ public class Soldier : MonoBehaviour
                 }
                 else
                 {
-                    target.TakeDamage(S.attackDamage * skill * dirMult * (S.isRanged ? 0.4f : 1f));
-                    actionLockTimer = Mathf.Max(actionLockTimer,
-                        S.isRanged ? KnifeLockSeconds : MeleeAttackLockSeconds);
+                    float dmg = S.attackDamage * skill * dirMult * (S.isRanged ? 0.4f : 1f);
+                    if (deferMeleeImpact && !S.isRanged)
+                    {
+                        // damage lands on the clip's contact frame; everything
+                        // else (validation, cooldown, lock) charges now
+                        MeleeAttackVariant = PickMeleeVariant();
+                        LandPendingMeleeHit();   // an unlanded previous hit resolves now
+                        pendingMeleeTarget = target;
+                        pendingMeleeDamage = dmg;
+                        pendingMeleeTimer = MeleeImpactDelay[MeleeAttackVariant];
+                        actionLockTimer = Mathf.Max(actionLockTimer, MeleeAttackLockSeconds);
+                    }
+                    else
+                    {
+                        target.TakeDamage(dmg);
+                        actionLockTimer = Mathf.Max(actionLockTimer,
+                            S.isRanged ? KnifeLockSeconds : MeleeAttackLockSeconds);
+                    }
                 }
                 OnAttack?.Invoke();
                 if (weapon != null) StartCoroutine(LungeAnim());
@@ -343,6 +387,39 @@ public class Soldier : MonoBehaviour
     }
 
     public void CancelPendingShot() { pendingShotTarget = null; }
+
+    // Resolve the staged melee hit (contact frame reached, or a new attack is
+    // committing before the previous one landed). Damage was computed at
+    // commit time; the target just has to still be there to receive it.
+    private void LandPendingMeleeHit()
+    {
+        if (pendingMeleeTarget == null) return;
+        var t = pendingMeleeTarget;
+        pendingMeleeTarget = null;
+        if (!Alive || !t.Alive) return;
+        t.TakeDamage(pendingMeleeDamage);
+    }
+
+    // Weighted pick over the three attack clips; one re-roll if the choice
+    // would make three identical strikes in a row. Visual variety only —
+    // damage, cooldown, and reach are identical across variants.
+    private int PickMeleeVariant()
+    {
+        int v = RollMeleeVariant();
+        if (v == lastVariant && v == prevVariant) v = RollMeleeVariant();
+        prevVariant = lastVariant;
+        lastVariant = v;
+        return v;
+    }
+
+    private int RollMeleeVariant()
+    {
+        float total = meleeVariantWeights.x + meleeVariantWeights.y + meleeVariantWeights.z;
+        if (total <= 0f) return 0;
+        float r = Random.value * total;
+        if (r < meleeVariantWeights.x) return 0;
+        return r < meleeVariantWeights.x + meleeVariantWeights.y ? 1 : 2;
+    }
 
     // Facing resolver, in priority order: pending shot > active combat >
     // meaningful movement > formation facing. The gameplay root is the single
@@ -431,6 +508,7 @@ public class Soldier : MonoBehaviour
     private void Die()
     {
         Alive = false;
+        pendingMeleeTarget = null;   // a dead soldier never finishes a swing
         formation.NotifyDeath(this);
         if (BattleSetup.Instance != null) BattleSetup.Instance.Unregister(this);
         var col = GetComponent<Collider>();

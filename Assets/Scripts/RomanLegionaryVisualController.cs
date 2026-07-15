@@ -94,6 +94,7 @@ public class RomanLegionaryVisualController : MonoBehaviour
         if (formation != null) formation.OnFacingSnapped += OnPivot;
         soldier.suppressFallRotation = true;   // animator owns the death pose
         soldier.suppressTint = true;           // this controller owns all tinting
+        soldier.deferMeleeImpact = true;       // damage lands on the clip contact frame
 
         InitPalette();
         ApplyPalette(1f, 0f);
@@ -186,9 +187,9 @@ public class RomanLegionaryVisualController : MonoBehaviour
     private void OnAttack()
     {
         if (dead || !soldier.Alive) return;
-        // Thrust is the workhorse (~60%), over-shield the accent (~40%).
-        // Lightweight selection, no allocation; never affects gameplay damage.
-        animator.SetInteger(AttackVariantId, Random.value < 0.6f ? 0 : 1);
+        // Gameplay picks the variant (weighted thrust/over-shield/diagonal)
+        // so the displayed clip and the deferred damage frame always agree.
+        animator.SetInteger(AttackVariantId, soldier.MeleeAttackVariant);
         animator.SetTrigger(AttackId);
     }
 
