@@ -5,7 +5,7 @@ using UnityEngine;
 // The banner marks where the formation *is*: it follows the anchor while the
 // unit holds its slots, and the dominant living soldier cluster while engaged
 // or broken (Formation.DominantGroupCenter — the same point Reform rallies
-// on). Presentation only: no colliders, so it can never steal taps.
+// on). Presentation only: no colliders anywhere, so it can never steal taps.
 public class FormationBanner : MonoBehaviour
 {
     private const float HoverHeight = 5.2f;      // world height above the troops
