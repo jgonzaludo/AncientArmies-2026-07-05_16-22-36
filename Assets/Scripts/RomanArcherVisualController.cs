@@ -38,6 +38,8 @@ public class RomanArcherVisualController : MonoBehaviour
     [SerializeField] private float nockNormalizedTime = 0.2f;
     [Tooltip("Shots at more than this fraction of rangedRange use the high-arc clip")]
     [SerializeField] private float highArcRangeFraction = 0.6f;
+    [Tooltip("Normalized time of the KnifeDraw clip at which the dagger visually leaves the sheath and appears in the hand")]
+    [SerializeField] private float drawHandoffNormalizedTime = 0.45f;
 
     // Locomotion calibration (see RomanLegionaryVisualController): reference
     // speeds are the measured stance-foot ground speeds of each clip at 1x
@@ -53,10 +55,11 @@ public class RomanArcherVisualController : MonoBehaviour
     private Soldier soldier;
     private Formation formation;
     private Animator animator;
-    private SkinnedMeshRenderer smr;
+    private SkinnedMeshRenderer[] smrs;   // body + stowed dagger share the palette
     private MaterialPropertyBlock mpb;
-    private Color[] slotBase;
+    private Color[][] slotBase;           // per renderer, per material slot
     private GameObject handArrow;          // PROP_Archer_Arrow_Hand child, may be null
+    private EquipmentVisualSlot dagger;    // sheathed belt dagger <-> hand pugio, may be null
     private Coroutine flashRoutine;
     private bool isMoving;
     private bool dead;
@@ -68,7 +71,7 @@ public class RomanArcherVisualController : MonoBehaviour
         animator = GetComponent<Animator>();
         animator.applyRootMotion = false;
         animator.cullingMode = AnimatorCullingMode.CullUpdateTransforms;
-        smr = GetComponentInChildren<SkinnedMeshRenderer>();
+        smrs = GetComponentsInChildren<SkinnedMeshRenderer>(true);
         mpb = new MaterialPropertyBlock();
         var t = transform.Find("PROP_Archer_Arrow_Hand");
         if (t == null)
@@ -78,6 +81,7 @@ public class RomanArcherVisualController : MonoBehaviour
         }
         handArrow = t != null ? t.gameObject : null;
         if (handArrow != null) handArrow.SetActive(false);
+        dagger = GetComponent<EquipmentVisualSlot>();
     }
 
     private void Start()
@@ -126,6 +130,40 @@ public class RomanArcherVisualController : MonoBehaviour
         animator.SetFloat(LocoScaleId, LocoPlayback(loco, speed));
 
         if (shotPendingVisual) UpdateReleaseFrame();
+        UpdateDaggerState(loco);
+    }
+
+    // Dagger visual state resolver. Gameplay decides melee mode (via the loco
+    // role and the sidearm attack); this only times the sheath <-> hand
+    // handoff so the two dagger representations are never both visible.
+    // Self-correcting on interruptions: a hit or a target change mid-draw
+    // resolves to Active while melee persists and back to Stowed the moment
+    // the archer returns to bow work. Death freezes the state (dead guard in
+    // Update). There is no return clip yet, so re-sheathing is an instant
+    // handoff — documented in the patch notes.
+    private void UpdateDaggerState(int loco)
+    {
+        if (dagger == null) return;
+        var info = animator.GetCurrentAnimatorStateInfo(0);
+        bool meleeNow = loco == LocoKnifeGuard || info.IsTag("Melee");
+        if (meleeNow)
+        {
+            if (dagger.State == EquipmentVisualState.Stowed)
+                dagger.SetState(EquipmentVisualState.Drawing);
+            if (dagger.State == EquipmentVisualState.Drawing)
+            {
+                // handoff mid-draw, or immediately on arrival in a fighting
+                // state (direct stab / guard without a completed draw)
+                bool handoff =
+                    (info.IsName("KnifeDraw") && info.normalizedTime >= drawHandoffNormalizedTime) ||
+                    info.IsName("KnifeGuard") || info.IsName("KnifeStab");
+                if (handoff) dagger.SetState(EquipmentVisualState.Active);
+            }
+        }
+        else if (dagger.State != EquipmentVisualState.Stowed)
+        {
+            dagger.SetState(EquipmentVisualState.Stowed);
+        }
     }
 
     // Stride matching against the clip's own measured reference speed.
@@ -264,41 +302,47 @@ public class RomanArcherVisualController : MonoBehaviour
 
     private void InitPalette()
     {
-        if (smr == null) return;
-        var mats = smr.sharedMaterials;
-        slotBase = new Color[mats.Length];
-        for (int i = 0; i < mats.Length; i++)
+        if (smrs == null) return;
+        slotBase = new Color[smrs.Length][];
+        for (int r = 0; r < smrs.Length; r++)
         {
-            if (mats[i] == null) { slotBase[i] = Color.white; continue; }
-            Color c = mats[i].HasProperty(BaseColorId)
-                ? mats[i].GetColor(BaseColorId) : Color.white;
-            if (mats[i].name.StartsWith("MAT_Roman_ClothRed") && soldier.team == Team.Blue)
-                c = BlueFactionCloth;
-            slotBase[i] = c;
+            var mats = smrs[r].sharedMaterials;
+            slotBase[r] = new Color[mats.Length];
+            for (int i = 0; i < mats.Length; i++)
+            {
+                if (mats[i] == null) { slotBase[r][i] = Color.white; continue; }
+                Color c = mats[i].HasProperty(BaseColorId)
+                    ? mats[i].GetColor(BaseColorId) : Color.white;
+                if (mats[i].name.StartsWith("MAT_Roman_ClothRed") && soldier.team == Team.Blue)
+                    c = BlueFactionCloth;
+                slotBase[r][i] = c;
+            }
+            smrs[r].SetPropertyBlock(null);
         }
-        smr.SetPropertyBlock(null);
     }
 
     private void ApplyPalette(float hp01, float flash01)
     {
-        if (smr == null || slotBase == null) return;
-        for (int i = 0; i < slotBase.Length; i++)
-        {
-            Color c = Color.Lerp(Color.Lerp(slotBase[i], Color.black, 0.6f), slotBase[i], hp01);
-            if (flash01 > 0f) c = Color.Lerp(c, Color.white, flash01);
-            mpb.SetColor(BaseColorId, c);
-            smr.SetPropertyBlock(mpb, i);
-        }
+        if (smrs == null || slotBase == null) return;
+        for (int r = 0; r < smrs.Length; r++)
+            for (int i = 0; i < slotBase[r].Length; i++)
+            {
+                Color c = Color.Lerp(Color.Lerp(slotBase[r][i], Color.black, 0.6f), slotBase[r][i], hp01);
+                if (flash01 > 0f) c = Color.Lerp(c, Color.white, flash01);
+                mpb.SetColor(BaseColorId, c);
+                smrs[r].SetPropertyBlock(mpb, i);
+            }
     }
 
     private void ApplyDeathTint()
     {
-        if (smr == null || slotBase == null) return;
-        for (int i = 0; i < slotBase.Length; i++)
-        {
-            mpb.SetColor(BaseColorId, Color.Lerp(slotBase[i], Color.black, 0.55f));
-            smr.SetPropertyBlock(mpb, i);
-        }
+        if (smrs == null || slotBase == null) return;
+        for (int r = 0; r < smrs.Length; r++)
+            for (int i = 0; i < slotBase[r].Length; i++)
+            {
+                mpb.SetColor(BaseColorId, Color.Lerp(slotBase[r][i], Color.black, 0.55f));
+                smrs[r].SetPropertyBlock(mpb, i);
+            }
     }
 
     private float Health01()

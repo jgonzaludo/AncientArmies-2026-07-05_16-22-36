@@ -707,6 +707,15 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 542f4ebb105f94611a42f27140de5991, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::RomanLegionaryVisualController
+  guardRange: 12
+  marchReferenceSpeed: 0.76
+  advanceReferenceSpeed: 0.55
+  shuffleReferenceSpeed: 0.43
+  runReferenceSpeed: 2.54
+  minLocoPlayback: 0.6
+  maxLocoPlayback: 2.4
+  maxShufflePlayback: 2.2
+  maxRunPlayback: 1.6
 --- !u!1 &6273613081537246941
 GameObject:
   m_ObjectHideFlags: 0
@@ -825,8 +834,8 @@ SkinnedMeshRenderer:
   m_BlendShapeWeights: []
   m_RootBone: {fileID: 2031829478497425398}
   m_AABB:
-    m_Center: {x: -26.098866, y: 0.03834915, z: 4.406666}
-    m_Extent: {x: 88.09924, y: 109.31186, z: 103.02382}
+    m_Center: {x: -22.3555, y: 20.018059, z: 2.2969093}
+    m_Extent: {x: 94.35709, y: 108.07026, z: 104.96953}
   m_DirtyAABB: 0
 --- !u!1 &6323754891554017644
 GameObject:
