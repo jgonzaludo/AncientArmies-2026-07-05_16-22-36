@@ -19,6 +19,8 @@ public class Formation : MonoBehaviour
     [Header("Movement")]
     public float moveSpeed = 2.6f;
     public float rotateSpeedDeg = 70f;
+    [Tooltip("How fast an engaged formation wheels its canonical facing toward the melee contact (deg/s). Directional flank/rear bonuses persist while it turns, then fade — an ill-timed Rotate can no longer leave a unit permanently rear-facing its attackers")]
+    public float engagedReorientSpeedDeg = 25f;
 
     [Header("Engagement")]
     public float personalEngageRadius = 3f;    // enemy this close => soldier is "engaged"
@@ -89,6 +91,7 @@ public class Formation : MonoBehaviour
     private float autoCloseTimer;
     private int lostSinceSlotRebuild;
     private int engagedCount;
+    private Vector3 engagedCentroid;   // mean position of own engaged soldiers (the contact surface)
     private bool dirtySinceReform;
     private float autoReformCooldown;
 
@@ -353,6 +356,7 @@ public class Formation : MonoBehaviour
 
         UpdateAnchorMovement();
         UpdateEngagement();
+        UpdateEngagedFacing();
         UpdateStateMachine();
         UpdateRankReplacement();
         UpdateAutoClose();
@@ -499,6 +503,7 @@ public class Formation : MonoBehaviour
         float er2 = personalEngageRadius * personalEngageRadius;
         float dr2 = disengageRadius * disengageRadius;
 
+        Vector3 engagedSum = Vector3.zero;
         foreach (var s in soldiers)
         {
             bool engaged = false;
@@ -513,10 +518,30 @@ public class Formation : MonoBehaviour
             }
             s.IsEngaged = engaged;
             s.NearestEnemyDist = best2 == float.MaxValue ? float.MaxValue : Mathf.Sqrt(best2);
-            if (engaged) engagedCount++;
+            if (engaged) { engagedCount++; engagedSum += p; }
         }
+        engagedCentroid = engagedCount > 0 ? engagedSum / engagedCount : AnchorPos;
 
         CanReform = !anyWithinDisengage && soldiers.Count > 0 && State != FormationState.Reforming;
+    }
+
+    // An engaged formation gradually wheels its canonical facing toward the
+    // fight (own engaged soldiers mark the contact surface). AnchorForward is
+    // what directional damage reads, so flank/rear charges keep their bonus
+    // while the defender turns (~3.5 s for a flank, ~7 s for a full rear turn
+    // at the default rate) and then fade — the melting-forever failure case
+    // (Rotate south, get hit from the north) resolves itself. Slots wheel
+    // with the anchor, which engaged fighters barely feel (tiny slot weight)
+    // and rear ranks follow as a controlled reorientation.
+    private void UpdateEngagedFacing()
+    {
+        if (State != FormationState.Engaged || engagedCount == 0) return;
+        Vector3 to = engagedCentroid - AnchorPos;
+        to.y = 0f;
+        if (to.sqrMagnitude < 0.5f) return;   // surrounded/on top: keep current facing
+        Quaternion want = Quaternion.LookRotation(to.normalized, Vector3.up);
+        AnchorRot = Quaternion.RotateTowards(AnchorRot, want,
+                                             engagedReorientSpeedDeg * Time.deltaTime);
     }
 
     private void UpdateStateMachine()

@@ -50,10 +50,17 @@ public class Soldier : MonoBehaviour
     private int sepTick;                      // staggered so a quarter of soldiers recompute per tick
     private static int sepStagger;
 
+    private bool movingForFacing;             // hysteresis state for movement-facing
+
     private const float Accel = 25f;
+    private const float FaceCombatDegPerSec = 480f;   // snapping onto an opponent
+    private const float FaceMoveDegPerSec = 360f;     // turning into the march direction
+    private const float FaceIdleDegPerSec = 240f;     // settling on formation facing (~pivot clip pace)
+    private const float FaceStartSpeed = 0.45f;       // m/s: begin facing movement
+    private const float FaceStopSpeed = 0.25f;        // m/s: fall back to hold/idle facing
     private const float SepMaxPush = 1.2f;            // m/s cap: separation biases, never flings
     private const float SepFractionOrdered = 0.85f;   // of formation spacing
-    private const float SepFractionPacked = 0.65f;    // melee crowds may pack tighter
+    private const float SepFractionPacked = 0.72f;    // melee packs tighter, but stays readable
     private static readonly int BaseColorId = Shader.PropertyToID("_BaseColor");
 
     public void Init(Formation f, int slot, Rigidbody rb, Renderer body, Transform weapon,
@@ -182,7 +189,13 @@ public class Soldier : MonoBehaviour
     {
         if (!Alive) return;
         if (BattleSetup.Instance == null || BattleSetup.Instance.Phase != BattlePhase.Active)
-            return;   // no targeting or attacks before Start / after battle end
+        {
+            // no targeting or attacks before Start / after battle end, but the
+            // models still track facing so a pre-battle Rotate command turns
+            // the soldiers, not just the ground arrow
+            UpdateFacing();
+            return;
+        }
 
         retargetTimer -= Time.deltaTime;
         if (retargetTimer <= 0f)
@@ -284,20 +297,73 @@ public class Soldier : MonoBehaviour
 
     public void CancelPendingShot() { pendingShotTarget = null; }
 
+    // Facing resolver, in priority order: pending shot > active combat >
+    // meaningful movement > formation facing. The gameplay root is the single
+    // dynamically rotated transform (the visual prefab is an identity child),
+    // so models, the mild ahead-preference in AcquireTarget, and formation
+    // presentation all read the same facing. Directional damage stays
+    // formation-level (AnchorForward) and is unaffected. RotateTowards is
+    // frame-rate independent and takes the shortest horizontal path; the
+    // dead zone below retains the last valid facing instead of guessing.
     private void UpdateFacing()
     {
+        Vector3 v = Velocity;
+        float sp2 = v.sqrMagnitude;
+        // hysteresis: slot-correction noise must not flip between movement
+        // facing and idle facing every few frames
+        if (movingForFacing) { if (sp2 < FaceStopSpeed * FaceStopSpeed) movingForFacing = false; }
+        else if (sp2 > FaceStartSpeed * FaceStartSpeed) movingForFacing = true;
+
         Vector3 dir;
-        if (target != null && target.Alive)
+        float degPerSec;
+        if (pendingShotTarget != null && pendingShotTarget.Alive)
+        {
+            // mid-draw archer: hold on the shot actually being released, even
+            // if target acquisition has already moved on — no mid-draw wobble
+            dir = pendingShotTarget.transform.position - transform.position;
+            degPerSec = FaceCombatDegPerSec;
+        }
+        else if (target != null && target.Alive && InCombatFacingRange())
+        {
             dir = target.transform.position - transform.position;
+            degPerSec = FaceCombatDegPerSec;
+        }
+        else if (movingForFacing)
+        {
+            dir = v;
+            degPerSec = FaceMoveDegPerSec;
+        }
         else
         {
-            Vector3 v = Velocity;
-            dir = v.sqrMagnitude > 0.2f ? v : formation.AnchorForward;
+            // idle: the formation's canonical facing — this is what makes an
+            // explicit Rotate command end with soldiers facing the arrow
+            dir = formation.AnchorForward;
+            degPerSec = FaceIdleDegPerSec;
         }
         dir.y = 0f;
-        if (dir.sqrMagnitude < 0.001f) return;
+        if (dir.sqrMagnitude < 0.001f) return;   // dead zone: keep last facing
         Quaternion want = Quaternion.LookRotation(dir.normalized, Vector3.up);
-        transform.rotation = Quaternion.RotateTowards(transform.rotation, want, 420f * Time.deltaTime);
+        transform.rotation = Quaternion.RotateTowards(transform.rotation, want,
+                                                      degPerSec * Time.deltaTime);
+    }
+
+    // Melee faces its opponent only while genuinely fighting (in contact or in
+    // reach), not a distant acquisition while marching. Ranged holds on a
+    // target inside bow range while standing in the firing line; on the move
+    // both face their movement instead of twisting toward a far-away target.
+    private bool InCombatFacingRange()
+    {
+        Vector3 to = target.transform.position - transform.position;
+        to.y = 0f;
+        float d2 = to.sqrMagnitude;
+        if (!S.isRanged)
+        {
+            float r = S.strikeRange * 1.5f;
+            return IsEngaged || d2 <= r * r;
+        }
+        if (movingForFacing) return false;
+        float rr = S.rangedRange * 1.1f;
+        return d2 <= rr * rr;
     }
 
     public void TakeDamage(float dmg)

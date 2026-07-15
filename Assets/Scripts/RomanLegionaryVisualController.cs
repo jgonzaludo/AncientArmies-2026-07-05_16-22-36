@@ -46,6 +46,24 @@ public class RomanLegionaryVisualController : MonoBehaviour
     [Tooltip("Front-rank soldiers raise shields when the nearest enemy is inside this range while the formation is attacking or engaged (visual only)")]
     [SerializeField] private float guardRange = 12f;
 
+    // Locomotion calibration: reference speeds are the measured stance-foot
+    // ground speeds of each clip at 1x playback (sampled in-editor from the
+    // imported FBX), so playback = actualSpeed / reference keeps the feet
+    // honest instead of skating. Clamps stop flutter at full gameplay speed
+    // (the authored strides are compact; Patch 3 owns re-authoring them) and
+    // slow-motion churn near zero. Only loco states bind LocoScale, so
+    // attacks / hits / deaths / pivot never speed up.
+    [SerializeField] private float marchReferenceSpeed = 0.76f;    // ANIM_Roman_FormationMarch
+    [SerializeField] private float advanceReferenceSpeed = 0.55f;  // ANIM_Roman_CombatAdvance
+    [SerializeField] private float shuffleReferenceSpeed = 0.43f;  // ANIM_Roman_CloseRanksShuffle
+    [SerializeField] private float runReferenceSpeed = 2.54f;      // ANIM_Roman_Run
+    [SerializeField] private float minLocoPlayback = 0.6f;
+    [SerializeField] private float maxLocoPlayback = 2.4f;         // march / advance
+    [SerializeField] private float maxShufflePlayback = 2.2f;
+    [SerializeField] private float maxRunPlayback = 1.6f;
+
+    private const float ShuffleMaxSpeed = 1.2f;   // m/s: faster corrections march instead
+
     private Soldier soldier;
     private Formation formation;
     private Animator animator;
@@ -108,14 +126,28 @@ public class RomanLegionaryVisualController : MonoBehaviour
         if (speed > 0.35f) isMoving = true;
         else if (speed < 0.2f) isMoving = false;
 
-        // Stride matching: scale looping locomotion clips by actual speed
-        // relative to the unit's move speed (visual playback only).
-        float refSpeed = formation != null ? Mathf.Max(0.5f, formation.stats.moveSpeed) : 2.7f;
-        animator.SetFloat(LocoScaleId, Mathf.Clamp(speed / refSpeed, 0.6f, 1.4f));
-        animator.SetInteger(LocoId, ComputeLoco());
+        int loco = ComputeLoco(speed);
+        animator.SetInteger(LocoId, loco);
+        animator.SetFloat(LocoScaleId, LocoPlayback(loco, speed));
     }
 
-    private int ComputeLoco()
+    // Stride matching: playback = actual ground speed over the clip's own
+    // measured reference speed, clamped per category (visual playback only).
+    private float LocoPlayback(int loco, float speed)
+    {
+        float reference, max;
+        switch (loco)
+        {
+            case LocoMarch: reference = marchReferenceSpeed; max = maxLocoPlayback; break;
+            case LocoAdvance: reference = advanceReferenceSpeed; max = maxLocoPlayback; break;
+            case LocoShuffle: reference = shuffleReferenceSpeed; max = maxShufflePlayback; break;
+            case LocoBrokenRun: reference = runReferenceSpeed; max = maxRunPlayback; break;
+            default: return 1f;   // stationary loops don't bind LocoScale
+        }
+        return Mathf.Clamp(speed / Mathf.Max(0.05f, reference), minLocoPlayback, max);
+    }
+
+    private int ComputeLoco(float speed)
     {
         if (formation == null) return isMoving ? LocoMarch : LocoRearIdle;
         FormationState st = formation.State;
@@ -138,10 +170,14 @@ public class RomanLegionaryVisualController : MonoBehaviour
 
         if (isMoving)
         {
-            // Small slot corrections (reform, auto-close, post-rotate shuffles)
-            // read as a controlled shuffle, not a full march cycle.
-            bool shuffle = st == FormationState.Reforming ||
-                           (st == FormationState.Ordered && !formation.HasMoveDestination);
+            // Genuinely small, slow slot corrections read as a controlled
+            // shuffle. Fast corrections — reform rushes and auto-close
+            // compaction included — use the full march cycle: the shuffle
+            // clip can only cover ~0.95 m/s of ground at max playback, so
+            // rushing in it is what read as sliding.
+            bool shuffle = speed < ShuffleMaxSpeed &&
+                           (st == FormationState.Reforming ||
+                            (st == FormationState.Ordered && !formation.HasMoveDestination));
             return shuffle ? LocoShuffle : LocoMarch;
         }
         return LocoRearIdle;

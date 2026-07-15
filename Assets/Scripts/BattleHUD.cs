@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 using UnityEngine.UI;
 using UnityEngine.EventSystems;
 using UnityEngine.InputSystem.UI;
@@ -36,6 +37,12 @@ public class BattleHUD : MonoBehaviour
     private GameObject startRoot;
     private GameObject endRoot;
     private Text resultText;
+
+    // Scene switcher: the full battle plus isolation sandboxes for observing
+    // behavior with a handful of soldiers. Scenes must be in Build Settings.
+    private static readonly string[] SceneNames = { "Battle", "TestSkirmish" };
+    private static readonly string[] SceneLabels = { "BATTLE", "TEST 1" };
+    private GameObject sceneRowGO;
 
     // ---------------- lifecycle ----------------
 
@@ -310,6 +317,49 @@ public class BattleHUD : MonoBehaviour
 
         BuildBottomPanel(canvasT);
         BuildStartAndEndUI(canvasT);
+        BuildSceneSwitcher(canvasT);
+    }
+
+    // Top-center SCENES button expanding a row of scene buttons; the current
+    // scene renders accented and disabled, others load on tap.
+    private void BuildSceneSwitcher(Transform canvasT)
+    {
+        Button scenesBtn = MakeButton(canvasT, "ScenesButton", "SCENES", Vector2.zero);
+        var sRT = scenesBtn.GetComponent<RectTransform>();
+        sRT.anchorMin = sRT.anchorMax = new Vector2(0.5f, 1f);
+        sRT.pivot = new Vector2(0.5f, 1f);
+        sRT.anchoredPosition = new Vector2(0f, -20f);
+        sRT.sizeDelta = new Vector2(170f, 64f);
+        var sLabel = scenesBtn.GetComponentInChildren<Text>();
+        if (sLabel != null) sLabel.fontSize = 24;
+
+        sceneRowGO = new GameObject("SceneRow");
+        sceneRowGO.transform.SetParent(canvasT, false);
+        var rowRT = sceneRowGO.AddComponent<RectTransform>();
+        rowRT.anchorMin = rowRT.anchorMax = new Vector2(0.5f, 1f);
+        rowRT.pivot = new Vector2(0.5f, 1f);
+        rowRT.anchoredPosition = new Vector2(0f, -94f);
+        rowRT.sizeDelta = new Vector2(SceneNames.Length * 184f, 64f);
+
+        string current = gameObject.scene.name;
+        for (int i = 0; i < SceneNames.Length; i++)
+        {
+            string sceneName = SceneNames[i];
+            bool isCurrent = sceneName == current;
+            Button b = MakeButton(sceneRowGO.transform, "Scene_" + sceneName, SceneLabels[i],
+                                  Vector2.zero, accent: isCurrent);
+            var bRT = b.GetComponent<RectTransform>();
+            bRT.anchorMin = bRT.anchorMax = new Vector2(0.5f, 1f);
+            bRT.pivot = new Vector2(0.5f, 1f);
+            bRT.anchoredPosition = new Vector2((i - (SceneNames.Length - 1) * 0.5f) * 184f, 0f);
+            bRT.sizeDelta = new Vector2(170f, 64f);
+            var lbl = b.GetComponentInChildren<Text>();
+            if (lbl != null) lbl.fontSize = 24;
+            if (isCurrent) SetButtonEnabled(b, false);
+            else b.onClick.AddListener(() => SceneManager.LoadScene(sceneName));
+        }
+        sceneRowGO.SetActive(false);
+        scenesBtn.onClick.AddListener(() => sceneRowGO.SetActive(!sceneRowGO.activeSelf));
     }
 
     // Lightweight battle entry/exit UI: a START button before the battle and a

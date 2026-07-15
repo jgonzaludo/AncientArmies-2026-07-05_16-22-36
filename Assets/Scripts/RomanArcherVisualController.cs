@@ -39,6 +39,17 @@ public class RomanArcherVisualController : MonoBehaviour
     [Tooltip("Shots at more than this fraction of rangedRange use the high-arc clip")]
     [SerializeField] private float highArcRangeFraction = 0.6f;
 
+    // Locomotion calibration (see RomanLegionaryVisualController): reference
+    // speeds are the measured stance-foot ground speeds of each clip at 1x
+    // playback; playback = actualSpeed / reference, clamped. Only Walk and
+    // Shuffle bind LocoScale, so draws / releases / knife work never speed up.
+    [SerializeField] private float walkReferenceSpeed = 0.66f;     // ANIM_Archer_FormationWalk
+    [SerializeField] private float shuffleReferenceSpeed = 0.35f;  // ANIM_Archer_CloseRanksShuffle
+    [SerializeField] private float minLocoPlayback = 0.6f;
+    [SerializeField] private float maxLocoPlayback = 2.2f;
+
+    private const float ShuffleMaxSpeed = 1.2f;   // m/s: faster corrections walk instead
+
     private Soldier soldier;
     private Formation formation;
     private Animator animator;
@@ -110,14 +121,27 @@ public class RomanArcherVisualController : MonoBehaviour
         if (speed > 0.35f) isMoving = true;
         else if (speed < 0.2f) isMoving = false;
 
-        float refSpeed = formation != null ? Mathf.Max(0.5f, formation.stats.moveSpeed) : 2.6f;
-        animator.SetFloat(LocoScaleId, Mathf.Clamp(speed / refSpeed, 0.6f, 1.4f));
-        animator.SetInteger(LocoId, ComputeLoco());
+        int loco = ComputeLoco(speed);
+        animator.SetInteger(LocoId, loco);
+        animator.SetFloat(LocoScaleId, LocoPlayback(loco, speed));
 
         if (shotPendingVisual) UpdateReleaseFrame();
     }
 
-    private int ComputeLoco()
+    // Stride matching against the clip's own measured reference speed.
+    private float LocoPlayback(int loco, float speed)
+    {
+        float reference;
+        switch (loco)
+        {
+            case LocoWalk: reference = walkReferenceSpeed; break;
+            case LocoShuffle: reference = shuffleReferenceSpeed; break;
+            default: return 1f;   // stationary loops don't bind LocoScale
+        }
+        return Mathf.Clamp(speed / Mathf.Max(0.05f, reference), minLocoPlayback, maxLocoPlayback);
+    }
+
+    private int ComputeLoco(float speed)
     {
         if (formation == null) return isMoving ? LocoWalk : LocoRearIdle;
         FormationState st = formation.State;
@@ -129,14 +153,19 @@ public class RomanArcherVisualController : MonoBehaviour
 
         if (isMoving)
         {
-            bool shuffle = st == FormationState.Reforming ||
-                           (st == FormationState.Ordered && !formation.HasMoveDestination);
+            // Slow corrections shuffle; fast ones (reform rushes, auto-close)
+            // use the full walk so feet keep up with the ground.
+            bool shuffle = speed < ShuffleMaxSpeed &&
+                           (st == FormationState.Reforming ||
+                            (st == FormationState.Ordered && !formation.HasMoveDestination));
             return shuffle ? LocoShuffle : LocoWalk;
         }
 
-        // Stationary with a live target in bow range → firing-ready stance.
-        bool combat = st == FormationState.Engaged || st == FormationState.Attacking;
-        if (combat && soldier.NearestEnemyDist <= stats.rangedRange * 1.1f)
+        // Stationary with an enemy in bow range → firing-ready stance. Matches
+        // gameplay: archers can shoot back in any state except Withdrawing /
+        // Reforming (acquire radius 0 there), including Ordered and Broken.
+        bool canShoot = st != FormationState.Withdrawing && st != FormationState.Reforming;
+        if (canShoot && soldier.NearestEnemyDist <= stats.rangedRange * 1.1f)
             return LocoFiringReady;
         return LocoRearIdle;
     }
