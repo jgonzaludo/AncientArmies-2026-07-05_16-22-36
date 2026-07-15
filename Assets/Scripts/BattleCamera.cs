@@ -20,9 +20,15 @@ public class BattleCamera : MonoBehaviour
     public float zoomMin = 5.5f;
     public float zoomMax = 36f;
 
-    [Header("Battlefield bounds (camera position)")]
-    public float minX = -40f, maxX = 40f;
-    public float minZ = -66f, maxZ = 8f;
+    [Header("Battlefield bounds (ground-focus clamp, pitch-aware)")]
+    [Tooltip("How far the center-screen ground focus may travel from the battlefield center")]
+    public float focusHalfX = 40f;
+    public float focusHalfZ = 38f;
+
+    // camera-position clamps derived once in Awake from the camera's actual
+    // pitch and height, so the FOCUS point is what gets clamped — pan bounds
+    // stay correct if the fixed angle is ever tuned again (Patch 5)
+    private float minX, maxX, minZ, maxZ;
 
     public bool IsPanning { get; private set; }
 
@@ -39,6 +45,12 @@ public class BattleCamera : MonoBehaviour
         cam = GetComponent<Camera>();
         targetPos = transform.position;
         targetZoom = cam.orthographicSize;
+        // focus = cameraPos + forward * (height / sin(pitch)); its ground
+        // offset from the camera is height / tan(pitch) along +Z (yaw 0)
+        float pitch = transform.eulerAngles.x * Mathf.Deg2Rad;
+        float zOffset = transform.position.y / Mathf.Max(0.1f, Mathf.Tan(pitch));
+        minX = -focusHalfX; maxX = focusHalfX;
+        minZ = -focusHalfZ - zOffset; maxZ = focusHalfZ - zOffset;
     }
 
     // ---------------- input feed (called by PlayerCommander) ----------------

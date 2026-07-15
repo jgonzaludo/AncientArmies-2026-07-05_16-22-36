@@ -243,8 +243,13 @@ public class BattleSetup : MonoBehaviour
         {
             cam.orthographic = true;
             cam.orthographicSize = 26f;   // wide default framing for the 5v5 line
-            cam.transform.position = new Vector3(0f, 42f, -30f);
-            cam.transform.rotation = Quaternion.Euler(55f, 0f, 0f);
+            // Patch 5: pitch lowered 55 -> 42 degrees for a more oblique,
+            // torso-and-shield-readable view. The center-screen ground focus
+            // is preserved: the old ray (0,42,-30)@55 hit the ground at
+            // z = -0.59; the new position is focus - forward * (42/sin42),
+            // so the same point stays centered at the same orthographic size.
+            cam.transform.position = new Vector3(0f, 42f, -47.24f);
+            cam.transform.rotation = Quaternion.Euler(42f, 0f, 0f);
             cam.clearFlags = CameraClearFlags.SolidColor;
             cam.backgroundColor = new Color(0.12f, 0.14f, 0.17f);
             cam.nearClipPlane = 0.3f;
