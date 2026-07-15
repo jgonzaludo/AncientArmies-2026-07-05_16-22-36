@@ -122,8 +122,42 @@ automatically.
 
 ## Verification
 
-- Static Roslyn compile: PASS (main + editor assemblies).
-- `Ancient Armies / Validate Dominant Group`: 8/8 PASS.
-- `Ancient Armies / Validate Facing Pipeline`: see Play Mode results below.
-- Play Mode test sweep: recorded in
+- Static Roslyn compile: PASS (main + editor assemblies); in-editor compile
+  clean (no `error CS` after the final reload).
+- `Ancient Armies / Validate Dominant Group`: **8/8 PASS**.
+- `Ancient Armies / Validate Facing Pipeline`: clean (no BAD BINDING — the
+  new attack state correctly does not bind LocoScale — no MISSING MOTION,
+  prefab axis-conversion nodes intact).
+- Scripted Play Mode sweep (Battle scene, all PASS):
+  - Rotate available when Ordered; `IssueFace` small-turn works.
+  - Attack order → `Attacking`, `IsAutoFacing=true`, `RotateBlock=AutoFacing`,
+    `CanEnterRotateMode=false`; `IssueFace` while auto-facing is ignored.
+  - Arrow shown and **0.0°-aligned to AnchorForward** during auto-facing.
+  - Break Ranks → `RotateBlock=Broken`, arrow GameObject inactive.
+  - Reform → `Reforming/Busy`; dominant group = full formation when intact.
+  - Target wiped → next frame `Ordered`, `RotateBlock=None`, facing retained.
+  - Battle start and Restart: exactly 10 banners each time, no duplicates,
+    correct colors/icons (screenshot-verified, incl. bow vs sword icons).
+  - Staged 40/10 broken split: `DominantGroupCount≈40`, center on the
+    40-group (not the midpoint), banner within 4 m of it; `IssueReform`
+    anchored on the 40-group.
+  - Live melee: all three attack states observed playing simultaneously
+    (thrust 5 / over-shield 4 / slash 1 mid-swing across one sample);
+    engaged fighters' last-variant spread 15/8/3 ≈ the 50/25/25 weights.
+  - Console: zero gameplay errors/warnings across restarts, splits, combat,
+    and full-battle wipes.
+- Human eyeball items (device zooms, extended feel checks): tracked in
   `PATCH_6_FACING_BANNERS_MELEE_MANUAL_TESTS.md`.
+
+## Known limitations
+
+- The banner pennant is billboarded and constant world-size; at extreme
+  minimum zoom it occupies a modest portion of a packed formation's screen
+  area (readable, not occluding taps). Tune `FormationBanner.Width` if
+  desired.
+- The chibi rig's short arms cap the thrust's physical hand travel; the
+  forward read comes from blade direction, torso/shoulder drive, and the
+  1.0 m tip reach (validated in renders at review and gameplay angles).
+- Mid-fight the over-shield chop passes just inside the shield's inner edge
+  from some angles rather than strictly over its top corner — reads
+  correctly at gameplay zoom.
