@@ -70,6 +70,28 @@ public class Formation : MonoBehaviour
     public bool IsSelected { get; private set; }
     public Formation attackTarget;
 
+    // Facing authority: AnchorRot is the single authoritative facing —
+    // directional damage, slots, soldier idle facing, and the ground arrow all
+    // read it. IsAutoFacing marks the states where combat, not the player,
+    // steers it (chase rotation while Attacking, contact wheeling while
+    // Engaged); manual Rotate is unavailable there.
+    public bool IsAutoFacing =>
+        soldiers.Count > 0 &&
+        ((State == FormationState.Attacking && attackTarget != null) ||
+         State == FormationState.Engaged);
+
+    public enum RotateBlock { None, AutoFacing, Broken, Busy, Destroyed }
+
+    // Why the Rotate command is currently unavailable (None = available).
+    public RotateBlock GetRotateBlock()
+    {
+        if (soldiers.Count == 0) return RotateBlock.Destroyed;
+        if (State == FormationState.BrokenRanks) return RotateBlock.Broken;
+        if (IsAutoFacing) return RotateBlock.AutoFacing;
+        if (State != FormationState.Ordered) return RotateBlock.Busy;
+        return RotateBlock.None;
+    }
+
     public readonly List<Soldier> soldiers = new List<Soldier>();
     public int TotalSpawned { get; private set; }
 
@@ -78,21 +100,6 @@ public class Formation : MonoBehaviour
     public Vector3 AnchorForward => AnchorRot * Vector3.forward;
     public float BoundingRadius { get; private set; } = 4f;
     public Vector2 FootprintHalfExtents { get; private set; } = new Vector2(4f, 4f);
-
-    // travel direction when the formation has somewhere to go, otherwise its facing
-    public Vector3 CurrentHeading
-    {
-        get
-        {
-            if (hasDestination)
-            {
-                Vector3 to = destination - AnchorPos;
-                to.y = 0f;
-                if (to.sqrMagnitude > 0.04f) return to.normalized;
-            }
-            return AnchorForward;
-        }
-    }
 
     public float TotalHealth
     {

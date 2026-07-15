@@ -18,8 +18,8 @@ public class PlayerCommander : MonoBehaviour
     public Formation InspectedEnemy { get; private set; }
     public bool RotateMode { get; private set; }
     public bool CanEnterRotateMode =>
-        selection.Count == 1 && selection[0].soldiers.Count > 0 &&
-        selection[0].State == FormationState.Ordered;
+        selection.Count == 1 &&
+        selection[0].GetRotateBlock() == Formation.RotateBlock.None;
 
     private readonly List<Formation> selection = new List<Formation>();
     private Camera cam;
@@ -254,7 +254,13 @@ public class PlayerCommander : MonoBehaviour
         }
         if (InspectedEnemy != null && InspectedEnemy.soldiers.Count == 0)
             InspectedEnemy = null;
-        if (RotateMode && selection.Count != 1) ExitRotateMode();
+        // Facing authority: losing rotate eligibility mid-preview (target
+        // acquired, engagement, break ranks, defeat) cancels rotate mode —
+        // auto-facing must never fight a queued manual facing.
+        if (RotateMode &&
+            (selection.Count != 1 ||
+             selection[0].GetRotateBlock() != Formation.RotateBlock.None))
+            ExitRotateMode();
     }
 
     // ---------------- drags ----------------
