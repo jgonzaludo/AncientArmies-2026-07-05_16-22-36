@@ -18,14 +18,19 @@ public class FormationBannerManager : MonoBehaviour
     public static FormationBannerManager Instance { get; private set; }
 
     [Header("Adaptive zoom thresholds (soldier height in screen pixels)")]
+    // Calibrated to this game's camera: at 1080p the orthographic zoom range
+    // (BattleCamera 5.5-36) puts a soldier between ~28 px (max zoom-out) and
+    // ~186 px (max zoom-in); default framing (ortho 26) is ~39 px. The bands
+    // below make Close/Compact/Expanded all reachable with the default view
+    // landing in Compact, the primary command zoom.
     [Tooltip("Enter Close (banners hide unless important) at or above this soldier pixel height")]
-    [SerializeField] private float closeEnterPixels = 32f;
+    [SerializeField] private float closeEnterPixels = 70f;
     [Tooltip("Leave Close below this (hysteresis)")]
-    [SerializeField] private float closeExitPixels = 28f;
+    [SerializeField] private float closeExitPixels = 62f;
     [Tooltip("Enter Expanded (banner becomes the formation) at or below this")]
-    [SerializeField] private float expandedEnterPixels = 16f;
+    [SerializeField] private float expandedEnterPixels = 34f;
     [Tooltip("Leave Expanded above this (hysteresis)")]
-    [SerializeField] private float expandedExitPixels = 20f;
+    [SerializeField] private float expandedExitPixels = 40f;
 
     [Header("Overlap avoidance (screen space)")]
     [Tooltip("Seconds between overlap resolutions (banners interpolate in between)")]
