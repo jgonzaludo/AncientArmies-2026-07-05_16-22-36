@@ -3,6 +3,11 @@ using UnityEngine;
 
 public enum FormationState { Ordered, Attacking, Engaged, BrokenRanks, Withdrawing, Reforming }
 
+// Rotate-command maneuvers (Patch 4): a formation turns like a rectangular
+// body, not a liquid. SmallTurn/AboutFace snap facing and redress in place;
+// Wheel rotates the whole slot grid rigidly around an inner front corner.
+public enum FormationManeuverState { None, SmallTurn, Wheel, AboutFace, Redressing }
+
 // Owns the high-level state machine, the anchor (position + facing) and the slot grid.
 // Soldiers stay lightweight agents that blend slot attraction with local combat.
 public class Formation : MonoBehaviour
@@ -21,6 +26,21 @@ public class Formation : MonoBehaviour
     public float rotateSpeedDeg = 70f;
     [Tooltip("How fast an engaged formation wheels its canonical facing toward the melee contact (deg/s). Directional flank/rear bonuses persist while it turns, then fade — an ill-timed Rotate can no longer leave a unit permanently rear-facing its attackers")]
     public float engagedReorientSpeedDeg = 25f;
+
+    [Header("Rotate maneuvers (Patch 4)")]
+    [Tooltip("Yaw deltas at or below this pivot in place (facing snaps, slots keep their owners)")]
+    public float smallTurnMaxDeg = 20f;
+    [Tooltip("Yaw deltas at or above this are an about-face: soldiers turn in place and ranks are reinterpreted via nearest-slot remap")]
+    public float aboutFaceMinDeg = 135f;
+    [Tooltip("Ground speed allowed for the outer flank during a wheel; sets the wheel's angular speed")]
+    public float wheelOuterSpeed = 2.3f;
+    [Tooltip("A wheel pauses while more than this fraction of living soldiers is mid-attack/hit (committed actions are never dragged)")]
+    public float wheelPauseLockedFraction = 0.4f;
+    [Tooltip("Redressing after a maneuver ends when this fraction of living soldiers is inside slot tolerance (or after the redress timeout)")]
+    public float redressCompleteFraction = 0.85f;
+    public float redressTimeoutSeconds = 4f;
+
+    public FormationManeuverState Maneuver { get; private set; } = FormationManeuverState.None;
 
     [Header("Engagement")]
     public float personalEngageRadius = 3f;    // enemy this close => soldier is "engaged"
@@ -94,6 +114,13 @@ public class Formation : MonoBehaviour
     private Vector3 engagedCentroid;   // mean position of own engaged soldiers (the contact surface)
     private bool dirtySinceReform;
     private float autoReformCooldown;
+
+    // wheel maneuver state: one formation-level progress, no per-soldier data
+    private Quaternion maneuverTargetRot;
+    private Vector3 wheelPivot;
+    private float wheelAngleRemaining;   // signed degrees still to turn
+    private float wheelAngularSpeed;     // deg/s magnitude
+    private float redressTimer;
 
     // ---------------- setup ----------------
 
@@ -189,6 +216,7 @@ public class Formation : MonoBehaviour
 
     public void IssueMove(Vector3 dest)
     {
+        Maneuver = FormationManeuverState.None;   // a new order supersedes a turn
         dest.y = 0f;
         if (State == FormationState.Engaged || State == FormationState.BrokenRanks)
         {
@@ -214,18 +242,134 @@ public class Formation : MonoBehaviour
         hasDestination = true;
     }
 
-    // Rotate = face direction, not a wheel maneuver: the canonical facing snaps
-    // to the new direction and every soldier is reassigned the new-frame slot
-    // nearest to where it already stands, so each soldier pivots roughly in
-    // place instead of the whole footprint orbiting the anchor. (Ordered only.)
+    // Rotate command, classified by the shortest signed yaw delta (Patch 4):
+    //   <= smallTurnMaxDeg  -> small turn: facing snaps, slot owners keep their
+    //                          slots, soldiers pivot in place and redress.
+    //   >= aboutFaceMinDeg  -> about-face: facing snaps and the nearest-slot
+    //                          remap reinterprets ranks in place (the old rear
+    //                          becomes the new front; near-zero displacement).
+    //   otherwise           -> inner-flank wheel: the whole slot grid rotates
+    //                          rigidly around the inner front corner; the outer
+    //                          flank walks the long arc, no one crosses the
+    //                          block. (Ordered only, as before.)
     public void IssueFace(Vector3 direction)
     {
         direction.y = 0f;
         if (direction.sqrMagnitude < 0.01f) return;
         if (State != FormationState.Ordered) return;
-        AnchorRot = Quaternion.LookRotation(direction.normalized, Vector3.up);
-        AssignNearestSlots();
-        OnFacingSnapped?.Invoke();
+        Quaternion want = Quaternion.LookRotation(direction.normalized, Vector3.up);
+        float signed = Mathf.DeltaAngle(AnchorRot.eulerAngles.y, want.eulerAngles.y);
+        float a = Mathf.Abs(signed);
+        if (a <= smallTurnMaxDeg)
+        {
+            AnchorRot = want;
+            BeginRedress(FormationManeuverState.SmallTurn);
+            OnFacingSnapped?.Invoke();
+        }
+        else if (a >= aboutFaceMinDeg)
+        {
+            AnchorRot = want;
+            AssignNearestSlots();   // rank reinterpretation, minimal displacement
+            BeginRedress(FormationManeuverState.AboutFace);
+            OnFacingSnapped?.Invoke();
+        }
+        else
+        {
+            BeginWheel(want, signed);
+            // no pivot animation: soldiers physically walk the wheel arcs
+        }
+    }
+
+    private void BeginRedress(FormationManeuverState kind)
+    {
+        Maneuver = kind;
+        redressTimer = redressTimeoutSeconds;
+    }
+
+    private void BeginWheel(Quaternion want, float signedDeg)
+    {
+        Maneuver = FormationManeuverState.Wheel;
+        maneuverTargetRot = want;
+        wheelAngleRemaining = signedDeg;
+        // Inner front corner: right turns (positive yaw delta) wheel around the
+        // front-right corner, left turns around the front-left corner.
+        float side = signedDeg > 0f ? 1f : -1f;
+        Vector3 pivotLocal = new Vector3(side * FootprintHalfExtents.x, 0f,
+                                         FootprintHalfExtents.y);
+        wheelPivot = AnchorPos + AnchorRot * pivotLocal;
+        // Angular speed from the outer arc: farthest slot from the pivot walks
+        // at wheelOuterSpeed; duration clamped to a sane window.
+        float outerR = spacing;
+        for (int i = 0; i < slotOffsets.Length; i++)
+            outerR = Mathf.Max(outerR, (slotOffsets[i] - pivotLocal).magnitude);
+        float speed = Mathf.Rad2Deg * (wheelOuterSpeed / Mathf.Max(0.5f, outerR));
+        float duration = Mathf.Clamp(Mathf.Abs(signedDeg) / Mathf.Max(1f, speed), 0.8f, 10f);
+        wheelAngularSpeed = Mathf.Abs(signedDeg) / duration;
+        hasDestination = false;
+    }
+
+    // One rigid-body wheel step: rotate the anchor frame around the pivot.
+    // Slots are derived from AnchorPos/AnchorRot, so every slot follows its
+    // arc exactly — no per-slot math, no straight paths through the block.
+    // Static so validation can exercise the same code path.
+    public static void WheelStep(ref Vector3 anchorPos, ref Quaternion anchorRot,
+                                 Vector3 pivot, float stepDeg)
+    {
+        Quaternion dq = Quaternion.Euler(0f, stepDeg, 0f);
+        anchorRot = dq * anchorRot;
+        anchorPos = pivot + dq * (anchorPos - pivot);
+    }
+
+    private void UpdateManeuver()
+    {
+        if (Maneuver == FormationManeuverState.None) return;
+        if (Maneuver == FormationManeuverState.Wheel)
+        {
+            // committed fighters are never dragged: pause while too many locked
+            if (LockedFraction() > wheelPauseLockedFraction) return;
+            float step = Mathf.Min(Mathf.Abs(wheelAngleRemaining),
+                                   wheelAngularSpeed * Time.deltaTime)
+                         * Mathf.Sign(wheelAngleRemaining);
+            Vector3 p = AnchorPos; Quaternion r = AnchorRot;
+            WheelStep(ref p, ref r, wheelPivot, step);
+            AnchorPos = p; AnchorRot = r;
+            wheelAngleRemaining -= step;
+            if (Mathf.Abs(wheelAngleRemaining) < 0.5f)
+            {
+                AnchorRot = maneuverTargetRot;
+                BeginRedress(FormationManeuverState.Redressing);
+            }
+            return;
+        }
+        // SmallTurn / AboutFace / Redressing: wait for enough soldiers to
+        // settle into their slots, with a timeout so a locked or dead soldier
+        // never blocks completion.
+        redressTimer -= Time.deltaTime;
+        if (redressTimer <= 0f || FractionNearSlots(0.6f) >= redressCompleteFraction)
+            Maneuver = FormationManeuverState.None;
+    }
+
+    private float LockedFraction()
+    {
+        if (soldiers.Count == 0) return 0f;
+        int locked = 0;
+        for (int i = 0; i < soldiers.Count; i++)
+            if (soldiers[i].IsInCommittedCombatAction) locked++;
+        return (float)locked / soldiers.Count;
+    }
+
+    private float FractionNearSlots(float tolerance)
+    {
+        if (soldiers.Count == 0) return 1f;
+        float t2 = tolerance * tolerance;
+        int near = 0;
+        for (int i = 0; i < soldiers.Count; i++)
+        {
+            Vector3 d = soldiers[i].transform.position - GetSlotWorldPos(soldiers[i].slotIndex);
+            d.y = 0f;
+            if (d.sqrMagnitude <= t2) near++;
+        }
+        return (float)near / soldiers.Count;
     }
 
     public void IssueBreakRanks()
@@ -354,6 +498,7 @@ public class Formation : MonoBehaviour
             return;
         }
 
+        UpdateManeuver();
         UpdateAnchorMovement();
         UpdateEngagement();
         UpdateEngagedFacing();
@@ -375,8 +520,11 @@ public class Formation : MonoBehaviour
     // this only stops the grid from preserving empty historical positions.
     private void UpdateAutoClose()
     {
-        if (State != FormationState.Ordered && State != FormationState.Attacking &&
-            State != FormationState.Engaged) return;
+        // Patch 4 priority: auto-close never runs mid-melee (the column-local
+        // rank promotion handles vacancies there without a global remap) and
+        // never during an explicit Rotate maneuver.
+        if (State != FormationState.Ordered && State != FormationState.Attacking) return;
+        if (Maneuver != FormationManeuverState.None) return;
         autoCloseTimer -= Time.deltaTime;
         if (autoCloseTimer > 0f) return;
         autoCloseTimer = autoCloseInterval;
@@ -434,6 +582,7 @@ public class Formation : MonoBehaviour
 
     private void UpdateAnchorMovement()
     {
+        if (Maneuver == FormationManeuverState.Wheel) return;   // the wheel owns the anchor
         bool chasing = (State == FormationState.Attacking ||
                         State == FormationState.BrokenRanks) && attackTarget != null;
         bool canMove = State == FormationState.Ordered ||
@@ -535,6 +684,7 @@ public class Formation : MonoBehaviour
     // and rear ranks follow as a controlled reorientation.
     private void UpdateEngagedFacing()
     {
+        if (Maneuver == FormationManeuverState.Wheel) return;   // the wheel owns AnchorRot
         if (State != FormationState.Engaged || engagedCount == 0) return;
         Vector3 to = engagedCentroid - AnchorPos;
         to.y = 0f;
@@ -581,16 +731,12 @@ public class Formation : MonoBehaviour
 
             case FormationState.Reforming:
                 reformTimer += Time.deltaTime;
-                bool done = true;
-                foreach (var s in soldiers)
-                {
-                    if ((s.transform.position - GetSlotWorldPos(s.slotIndex)).sqrMagnitude > 0.36f)
-                    {
-                        done = false;
-                        break;
-                    }
-                }
-                if (done || reformTimer > 12f) State = FormationState.Ordered;
+                // Patch 4 completion rule: a Reform is done when 85% of living
+                // soldiers stand inside 0.6 m of their slot, or after the 12 s
+                // fallback — one combat-locked or straggling soldier can no
+                // longer hold the whole formation in Reforming forever.
+                if (FractionNearSlots(0.6f) >= 0.85f || reformTimer > 12f)
+                    State = FormationState.Ordered;
                 break;
         }
 

@@ -52,6 +52,30 @@ public class Soldier : MonoBehaviour
 
     private bool movingForFacing;             // hysteresis state for movement-facing
 
+    // Committed-action lock: while a soldier is visibly striking, drawing,
+    // stabbing, or reacting to a hit, slot correction (and idle drift toward
+    // combat targets) is suspended so the action stays planted; it ramps back
+    // quickly when the window ends. Gameplay timing drives these windows —
+    // never Animator state names. Death stops movement entirely (existing).
+    private float actionLockTimer;
+    private float lockRecovery = 1f;          // 0 locked -> 1 free, quick ramp
+
+    // Action-priority reads (Patch 4): derived from gameplay state only.
+    public bool IsInCommittedCombatAction => actionLockTimer > 0f || pendingShotTarget != null;
+    public bool IsImmediatelyThreatened => IsEngaged;
+    public bool CanPerformStrongSlotCorrection =>
+        Alive && !IsInCommittedCombatAction && !IsEngaged;
+    public bool CanPerformWeakSlotCorrection => Alive && !IsInCommittedCombatAction;
+
+    // Centralized committed-action windows (seconds), matched to the visible
+    // clip lengths but timed by gameplay.
+    private const float MeleeAttackLockSeconds = 0.85f;    // sword strike window
+    private const float KnifeLockSeconds = 0.7f;           // archer sidearm stab
+    private const float RangedFollowThroughSeconds = 0.35f; // after arrow release
+    private const float RangedImmediateLockSeconds = 0.5f;  // capsule-fallback shot
+    private const float HitLockSeconds = 0.45f;            // hit-reaction window
+    private const float LockRampSeconds = 0.3f;            // correction ramp back in
+
     private const float Accel = 25f;
     private const float FaceCombatDegPerSec = 480f;   // snapping onto an opponent
     private const float FaceMoveDegPerSec = 360f;     // turning into the march direction
@@ -123,6 +147,21 @@ public class Soldier : MonoBehaviour
             desired = slotDesire * Mathf.Clamp01(w + 0.35f);
         }
 
+        // Committed-action lock: a striking/drawing/stabbing/hit-reacting
+        // soldier stays planted (no slot chasing, no drift toward far
+        // targets); when the window ends, correction ramps back over
+        // LockRampSeconds instead of snapping. Combat stays authoritative:
+        // in-reach fighting has near-zero desired velocity anyway, and the
+        // lock timer is set by the same gameplay events that deal damage.
+        if (actionLockTimer > 0f)
+        {
+            actionLockTimer -= Time.fixedDeltaTime;
+            lockRecovery = 0f;
+        }
+        else if (pendingShotTarget != null) lockRecovery = 0f;   // bow drawn
+        else lockRecovery = Mathf.Min(1f, lockRecovery + Time.fixedDeltaTime / LockRampSeconds);
+        desired *= lockRecovery;
+
         // never stray past the leash, even with broken ranks
         Vector3 fromAnchor = pos - formation.AnchorPos;
         fromAnchor.y = 0f;
@@ -130,9 +169,10 @@ public class Soldier : MonoBehaviour
             desired = -fromAnchor.normalized * S.moveSpeed;
 
         // soft same-team separation: recomputed every 4th tick (staggered),
-        // cached in between; biases the desired velocity, never overpowers it
+        // cached in between; biases the desired velocity, never overpowers it.
+        // Kept partially active while locked so overlaps still resolve gently.
         if ((sepTick++ & 3) == 0) RecomputeSeparation(pos);
-        desired += sepVel;
+        desired += sepVel * Mathf.Max(0.4f, lockRecovery);
 
         Vector3 vel = rb.linearVelocity;
         vel.y = 0f;
@@ -226,15 +266,21 @@ public class Soldier : MonoBehaviour
                         ReleasePendingShot();   // an unreleased previous shot flies now
                         pendingShotTarget = target;
                         pendingShotDamage = dmg;
+                        // the pending shot itself locks correction until release
                     }
                     else
                     {
                         Projectile.Spawn(transform.position + Vector3.up * 1.3f, target,
                                          dmg, S.projectileSpeed);
+                        actionLockTimer = Mathf.Max(actionLockTimer, RangedImmediateLockSeconds);
                     }
                 }
                 else
+                {
                     target.TakeDamage(S.attackDamage * skill * dirMult * (S.isRanged ? 0.4f : 1f));
+                    actionLockTimer = Mathf.Max(actionLockTimer,
+                        S.isRanged ? KnifeLockSeconds : MeleeAttackLockSeconds);
+                }
                 OnAttack?.Invoke();
                 if (weapon != null) StartCoroutine(LungeAnim());
             }
@@ -290,6 +336,7 @@ public class Soldier : MonoBehaviour
         if (pendingShotTarget == null) return;
         var t = pendingShotTarget;
         pendingShotTarget = null;
+        actionLockTimer = Mathf.Max(actionLockTimer, RangedFollowThroughSeconds);
         if (!Alive || !t.Alive) return;
         Projectile.Spawn(transform.position + Vector3.up * 1.3f, t,
                          pendingShotDamage, S.projectileSpeed);
@@ -375,6 +422,7 @@ public class Soldier : MonoBehaviour
             Die();
             return;
         }
+        actionLockTimer = Mathf.Max(actionLockTimer, HitLockSeconds);
         OnHurt?.Invoke();
         if (flashRoutine != null) StopCoroutine(flashRoutine);
         flashRoutine = StartCoroutine(HitFlash());
