@@ -195,9 +195,13 @@ public class BattleSetup : MonoBehaviour
                             soldiersPerCentury, centuryColumns,
                             new Vector3(x, 0f, z + rear * reserveLineOffset), yaw, auto);
         }
+        // archers are wider (looser spacing): pitch from their own footprint
+        float archerHalfW = Formation.LineHalfWidth(soldiersPerCentury, archerColumns, archerSpacing);
+        float archerPitch = Mathf.Max(lineSpacingX,
+                                      2f * archerHalfW + formationGapFactor * archerSpacing);
         for (int i = 0; i < archerCenturiesPerSide; i++)
         {
-            float x = (i - (archerCenturiesPerSide - 1) * 0.5f) * pitch;
+            float x = (i - (archerCenturiesPerSide - 1) * 0.5f) * archerPitch;
             CreateFormation($"{p} Archers {i + 1}", team, archerStats,
                             soldiersPerCentury, archerColumns,
                             new Vector3(x, 0f, z + rear * archerLineOffset), yaw, auto);
