@@ -17,9 +17,35 @@ public class PlayerCommander : MonoBehaviour
     public IReadOnlyList<Formation> Selection => selection;
     public Formation InspectedEnemy { get; private set; }
     public bool RotateMode { get; private set; }
-    public bool CanEnterRotateMode =>
-        selection.Count == 1 &&
-        selection[0].GetRotateBlock() == Formation.RotateBlock.None;
+
+    // Rotate is a group edit now (Phase 2G): available when every live
+    // selected century is eligible (no auto-facing, not broken, not busy).
+    public bool CanEnterRotateMode
+    {
+        get
+        {
+            int live = 0;
+            for (int i = 0; i < selection.Count; i++)
+            {
+                Formation f = selection[i];
+                if (f == null || f.soldiers.Count == 0) continue;
+                live++;
+                if (f.GetRotateBlock() != Formation.RotateBlock.None) return false;
+            }
+            return live >= 1;
+        }
+    }
+
+    // rotate-edit session (Phase 2G): pivot, entry facing, and the rigid
+    // destination arrangement captured when the mode was entered
+    private Vector3 rotatePivot;
+    private Vector3 rotateInitialDir;
+    private Vector3 rotateEditDir;
+    private float rotateArrowRadius = 6f;
+    private readonly List<Formation> rotateMovers = new List<Formation>();
+    private readonly List<Vector3> rotateDestOffsets = new List<Vector3>();
+    private readonly List<Formation> rotateStationary = new List<Formation>();
+    private const float RotateDeadzone = 1.5f;   // meters around the pivot: ignore unstable input
 
     private readonly List<Formation> selection = new List<Formation>();
     private Camera cam;
@@ -77,7 +103,7 @@ public class PlayerCommander : MonoBehaviour
         if (down && !PointerOverUI())
         {
             pressScreenPos = pos;
-            if (RotateMode && selection.Count == 1)
+            if (RotateMode && selection.Count >= 1)
             {
                 mode = PointerMode.RotateDrag;
             }
@@ -209,7 +235,7 @@ public class PlayerCommander : MonoBehaviour
         }
         if (f.team == Team.Blue)
         {
-            SelectOnly(f);
+            ToggleSelect(f);
         }
         else
         {
@@ -217,20 +243,31 @@ public class PlayerCommander : MonoBehaviour
         }
     }
 
-    // V1.2 selection model: tapping a friendly formation selects it EXCLUSIVELY.
-    // Any previously selected formation is dropped — selections never accumulate
-    // by accident. (The selection list stays a list so a deliberate multi-select
-    // mode can be added later without rearchitecting.)
-    public void SelectOnly(Formation f)
+    // V1 overhaul selection model (Phase 2C): taps toggle membership — tap an
+    // unselected friendly century to add it, tap a selected one to remove it,
+    // tap empty ground to clear everything. Selection persists through orders
+    // so destination previews stay attached to moving centuries.
+    public void ToggleSelect(Formation f)
     {
         InspectedEnemy = null;
-        if (selection.Count == 1 && selection[0] == f) return;   // already sole selection
-        foreach (var s in selection)
-            if (s != null) s.SetSelected(false);
-        selection.Clear();
-        selection.Add(f);
-        f.SetSelected(true);
+        if (selection.Contains(f))
+        {
+            f.SetSelected(false);
+            selection.Remove(f);
+        }
+        else
+        {
+            selection.Add(f);
+            f.SetSelected(true);
+        }
         if (RotateMode) ExitRotateMode();
+    }
+
+    // exclusive selection kept for scripted tests and future UI paths
+    public void SelectOnly(Formation f)
+    {
+        DeselectAll();
+        ToggleSelect(f);
     }
 
     public void DeselectAll()
@@ -257,9 +294,7 @@ public class PlayerCommander : MonoBehaviour
         // Facing authority: losing rotate eligibility mid-preview (target
         // acquired, engagement, break ranks, defeat) cancels rotate mode —
         // auto-facing must never fight a queued manual facing.
-        if (RotateMode &&
-            (selection.Count != 1 ||
-             selection[0].GetRotateBlock() != Formation.RotateBlock.None))
+        if (RotateMode && !CanEnterRotateMode)
             ExitRotateMode();
     }
 
@@ -385,20 +420,46 @@ public class PlayerCommander : MonoBehaviour
         }
         else
         {
+            // Group order snapshot (Phase 2E): pivot at the selected anchors'
+            // center, relative offsets preserved and rigidly rotated so the
+            // whole arrangement faces the direction of travel. (Selected
+            // centuries with different individual facings are aligned to the
+            // common group destination facing — documented simplification.)
+            Vector3 pivot = Vector3.zero;
+            Vector3 avgFwd = Vector3.zero;
+            int live = 0;
             foreach (var f in selection)
             {
-                Vector3 offset = f.AnchorPos - origin.AnchorPos;
-                Vector3 dest = pt + offset;
+                if (f == null || f.soldiers.Count == 0) continue;
+                pivot += f.AnchorPos;
+                avgFwd += f.AnchorForward;
+                live++;
+            }
+            if (live == 0) return;
+            pivot /= live;
+
+            Vector3 travel = pt - pivot;
+            travel.y = 0f;
+            Quaternion arrange = Quaternion.identity;
+            if (live > 1 && travel.sqrMagnitude > 1f && avgFwd.sqrMagnitude > 0.01f)
+                arrange = Quaternion.FromToRotation(
+                    new Vector3(avgFwd.x, 0f, avgFwd.z).normalized, travel.normalized);
+            Vector3 groupFacing = travel.sqrMagnitude > 0.04f
+                ? travel.normalized : new Vector3(avgFwd.x, 0f, avgFwd.z).normalized;
+
+            foreach (var f in selection)
+            {
+                if (f == null || f.soldiers.Count == 0) continue;
+                Vector3 dest = pt + arrange * (f.AnchorPos - pivot);
                 dest.x = Mathf.Clamp(dest.x, -FieldX, FieldX);
                 dest.z = Mathf.Clamp(dest.z, -FieldZ, FieldZ);
                 f.IssueMove(dest);
+                f.SetDestinationFacing(groupFacing);
             }
             BattleVisuals.SpawnPulse(pt, false);
         }
-
-        // V1.2: issuing an order ends the interaction — auto-deselect so the
-        // next tap starts clean and selections never linger unnoticed
-        DeselectAll();
+        // Selection persists after orders (Phase 2): destination previews
+        // follow the moving centuries until the player deselects.
     }
 
     private void CancelCommandDrag()
@@ -410,51 +471,126 @@ public class PlayerCommander : MonoBehaviour
         if (enemyRing != null) enemyRing.SetActive(false);
     }
 
-    // ---------------- rotate mode ----------------
+    // ---------------- free-arrow rotate mode (Phase 2G) ----------------
+    //
+    // The Rotate button toggles an edit session: a freely movable facing arrow
+    // anchored to the session pivot. Moving centuries edit their DESTINATION
+    // facing (pivot = destination arrangement center; positions rotate rigidly
+    // around it on release); stationary centuries pivot in place. Attack
+    // orders never reach here — GetRotateBlock reports AutoFacing and the
+    // button is greyed out.
 
     public void ToggleRotateMode()
     {
         if (RotateMode) { ExitRotateMode(); return; }
         if (!CanEnterRotateMode) return;
+
+        rotateMovers.Clear();
+        rotateDestOffsets.Clear();
+        rotateStationary.Clear();
+        Vector3 pivot = Vector3.zero;
+        Vector3 initial = Vector3.zero;
+        float radius = 4f;
+        int movers = 0, live = 0;
+        foreach (var f in selection)
+        {
+            if (f == null || f.soldiers.Count == 0) continue;
+            live++;
+            radius = Mathf.Max(radius, f.BoundingRadius);
+            bool moving = f.HasMoveDestination &&
+                          (f.CurrentOrderType == OrderType.Move ||
+                           f.CurrentOrderType == OrderType.Withdraw);
+            if (moving) { rotateMovers.Add(f); movers++; }
+            else rotateStationary.Add(f);
+        }
+        if (live == 0) return;
+
+        // pivot around the planned destination center when anything is moving,
+        // otherwise around the current formation anchors
+        if (movers > 0)
+        {
+            foreach (var f in rotateMovers) { pivot += f.DestinationPosition; initial += f.DestinationFacing; }
+            pivot /= movers;
+        }
+        else
+        {
+            foreach (var f in rotateStationary) { pivot += f.AnchorPos; initial += f.AnchorForward; }
+            pivot /= rotateStationary.Count;
+        }
+        rotatePivot = pivot;
+        rotateInitialDir = initial.sqrMagnitude > 0.01f
+            ? new Vector3(initial.x, 0f, initial.z).normalized : Vector3.forward;
+        rotateEditDir = rotateInitialDir;
+        rotateArrowRadius = radius * 0.55f + 1.5f;
+        foreach (var f in rotateMovers)
+            rotateDestOffsets.Add(f.DestinationPosition - pivot);
+
         RotateMode = true;
         if (rotatePreviewArrow == null)
             rotatePreviewArrow = BattleVisuals.CreateArrow("RotatePreview", preview: true);
         rotatePreviewArrow.gameObject.SetActive(true);
-        UpdateRotatePreview(selection[0].AnchorForward);
+        UpdateRotatePreview(rotateEditDir);
     }
 
     private void ExitRotateMode()
     {
         RotateMode = false;
+        rotateMovers.Clear();
+        rotateDestOffsets.Clear();
+        rotateStationary.Clear();
         if (rotatePreviewArrow != null) rotatePreviewArrow.gameObject.SetActive(false);
     }
 
     private void UpdateRotateDrag(Vector2 pos)
     {
-        if (!RotateMode || selection.Count != 1) return;
+        if (!RotateMode) return;
         if (!GroundPoint(pos, out Vector3 pt)) return;
-        Vector3 dir = pt - selection[0].AnchorPos;
+        Vector3 dir = pt - rotatePivot;
         dir.y = 0f;
-        if (dir.sqrMagnitude < 0.25f) return;
-        UpdateRotatePreview(dir.normalized);
+        if (dir.sqrMagnitude < RotateDeadzone * RotateDeadzone) return;   // unstable near pivot
+        rotateEditDir = dir.normalized;
+        UpdateRotatePreview(rotateEditDir);
+        // live preview: moving centuries' planned facing follows the arrow so
+        // the destination slot previews rotate under the finger
+        foreach (var f in rotateMovers) f.SetDestinationFacing(rotateEditDir);
     }
 
     private void EndRotateDrag(Vector2 pos)
     {
-        if (RotateMode && selection.Count == 1 && GroundPoint(pos, out Vector3 pt))
+        if (RotateMode)
         {
-            Vector3 dir = pt - selection[0].AnchorPos;
-            dir.y = 0f;
-            if (dir.sqrMagnitude > 0.25f) selection[0].IssueFace(dir);
+            if (GroundPoint(pos, out Vector3 pt))
+            {
+                Vector3 dir = pt - rotatePivot;
+                dir.y = 0f;
+                if (dir.sqrMagnitude >= RotateDeadzone * RotateDeadzone)
+                    rotateEditDir = dir.normalized;
+            }
+            // lock: rotate the destination arrangement rigidly around the
+            // pivot by the edited delta; stationary centuries pivot in place
+            Quaternion delta = Quaternion.FromToRotation(rotateInitialDir, rotateEditDir);
+            for (int i = 0; i < rotateMovers.Count; i++)
+            {
+                var f = rotateMovers[i];
+                if (f == null || f.soldiers.Count == 0) continue;
+                Vector3 dest = rotatePivot + delta * rotateDestOffsets[i];
+                dest.x = Mathf.Clamp(dest.x, -FieldX, FieldX);
+                dest.z = Mathf.Clamp(dest.z, -FieldZ, FieldZ);
+                f.RedirectMove(dest, rotateEditDir);
+            }
+            foreach (var f in rotateStationary)
+            {
+                if (f == null || f.soldiers.Count == 0) continue;
+                f.IssueFace(rotateEditDir);
+            }
         }
         ExitRotateMode();
     }
 
     private void UpdateRotatePreview(Vector3 dir)
     {
-        if (rotatePreviewArrow == null || selection.Count != 1) return;
-        var f = selection[0];
-        rotatePreviewArrow.position = f.AnchorPos + dir * (f.BoundingRadius * 0.55f + 1.0f)
+        if (rotatePreviewArrow == null) return;
+        rotatePreviewArrow.position = rotatePivot + dir * rotateArrowRadius
                                       + Vector3.up * 0.14f;
         rotatePreviewArrow.rotation = Quaternion.LookRotation(dir, Vector3.up);
     }

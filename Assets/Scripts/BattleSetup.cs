@@ -42,22 +42,42 @@ public class BattleSetup : MonoBehaviour
         projectileSpeed = 20f         // keeps a 48 m extreme shot readable (~2.4 s flight)
     };
 
-    [Header("Battle layout")]
-    public int meleeCount = 50;
-    public int archerCount = 30;
-    public int formationColumns = 10;
+    // V1 overhaul army scale. NOTE: these are NEW field names on purpose —
+    // Battle.unity serializes the old layout fields (meleeCount=50 etc.) and
+    // scene values override C# defaults; new names fall back to the defaults
+    // below without editing the scene.
+    [Header("V1 century scale (per side: 6 melee + 2 archer centuries of 80)")]
+    public int soldiersPerCentury = 80;
+    public int meleeCenturiesPerSide = 6;
+    public int archerCenturiesPerSide = 2;
+    [Tooltip("Melee century frontage (10 wide x 8 deep at 80)")]
+    public int centuryColumns = 10;
+    [Tooltip("Archer century frontage — exposed separately so archer lines can go wider/shallower later")]
+    public int archerColumns = 10;
     [Tooltip("Distance between melee soldiers — near shoulder-to-shoulder for a dense, continuous front")]
     public float meleeSpacing = 1.15f;
     [Tooltip("Distance between archers — visibly looser than melee")]
     public float archerSpacing = 1.75f;
     [Tooltip("Guaranteed edge-to-edge gap between neighboring formations, in multiples of the larger of the two intra-formation spacings")]
     public float formationGapFactor = 1.1f;
-    public int formationsPerSide = 5;
-    [Range(0f, 1f)]
-    [Tooltip("Chance each formation slot rolls Archers instead of Swordsmen (re-rolled every battle)")]
-    public float archerChance = 1f / 3f;   // archers rarer for now: 1 in 3 slots
     public float lineZ = 24f;
     public float lineSpacingX = 16f;
+    [Tooltip("How far behind the front line the two reserve centuries deploy")]
+    public float reserveLineOffset = 18f;
+    [Tooltip("How far behind the front line the archer centuries deploy")]
+    public float archerLineOffset = 11f;
+
+    // Battlefield scale (Phase 6). ~410x280 = roughly 11x the old 120x80 area:
+    // room for wings, reserves, and maneuver without empty-travel tedium. At
+    // formation march speed 2.6 m/s, two armies separated by armySeparation
+    // and advancing on each other meet in armySeparation / 5.2 ≈ 46 s.
+    [Header("V1 battlefield scale (Phase 6)")]
+    public float fieldHalfX = 205f;
+    public float fieldHalfZ = 140f;
+    [Tooltip("Starting anchor-to-anchor separation of the two front lines")]
+    public float armySeparation = 240f;
+    [Tooltip("Depth of each side's deployment zone, measured from its map edge")]
+    public float deploymentZoneDepth = 60f;
 
     [Header("Directional combat (front / flank / rear)")]
     [Tooltip("Damage multiplier when attacking a formation from its front arc")]
@@ -93,6 +113,15 @@ public class BattleSetup : MonoBehaviour
         if (Instance == this) Instance = null;
     }
 
+    // Spatial partition for all soldier neighbor queries (Phase 6F). Rebuilt
+    // every physics tick — cheap index writes — so separation, targeting, and
+    // engagement scans stay O(local density) at 1,280 soldiers.
+    private void FixedUpdate()
+    {
+        if (Phase == BattlePhase.Ended) return;
+        BattleGrid.Rebuild(blue, red);
+    }
+
     private void Update()
     {
         if (Phase != BattlePhase.Active) return;
@@ -123,51 +152,45 @@ public class BattleSetup : MonoBehaviour
         SceneManager.LoadScene(gameObject.scene.name);
     }
 
-    // One line of formationsPerSide formations per army; each slot randomly
-    // rolls Swordsmen or Archers, so every battle (and every Restart, which
-    // reloads the scene) fields a different army composition. Archer slots sit
-    // slightly behind the line, away from the enemy.
+    // V1 fixed army structure per side: a four-century primary melee line,
+    // two melee reserve centuries behind it, and two archer centuries as a
+    // supporting missile line between the reserves — the default Roman-style
+    // deployment the commander AI and the player both start from. Composition
+    // is fixed (no random rerolls) so both armies are symmetric.
     private void SpawnSide(Team team, float z, float yaw, bool auto)
     {
         string p = team == Team.Blue ? "Blue" : "Red";
-        int n = formationsPerSide;
-
-        // Roll the whole line first so it can be spaced by real footprints:
-        // fixed center pitch alone let two archer formations (wider than
-        // lineSpacingX) spawn overlapping.
-        var ranged = new bool[n];
-        var halfW = new float[n];
-        for (int i = 0; i < n; i++)
-        {
-            ranged[i] = Random.value < archerChance;
-            float sp = ranged[i] ? archerSpacing : meleeSpacing;
-            halfW[i] = Formation.LineHalfWidth(ranged[i] ? archerCount : meleeCount,
-                                               formationColumns, sp);
-        }
-
-        // Neighbor centers sit at least lineSpacingX apart, and never closer
-        // than footprints + a guaranteed edge gap; then recenter on x = 0.
-        var xs = new float[n];
-        for (int i = 1; i < n; i++)
-        {
-            float spA = ranged[i - 1] ? archerSpacing : meleeSpacing;
-            float spB = ranged[i] ? archerSpacing : meleeSpacing;
-            float gap = formationGapFactor * Mathf.Max(spA, spB);
-            xs[i] = xs[i - 1] + Mathf.Max(lineSpacingX, halfW[i - 1] + gap + halfW[i]);
-        }
-        float center = xs[n - 1] * 0.5f;
-
-        int swordIdx = 0, archerIdx = 0;
+        float rear = team == Team.Blue ? -1f : 1f;   // away from the enemy
         int firstIdx = formations.Count;
-        for (int i = 0; i < n; i++)
+
+        float meleeHalfW = Formation.LineHalfWidth(soldiersPerCentury, centuryColumns, meleeSpacing);
+        float pitch = Mathf.Max(lineSpacingX,
+                                2f * meleeHalfW + formationGapFactor * meleeSpacing);
+
+        int frontCount = Mathf.Min(4, meleeCenturiesPerSide);
+        int reserveCount = meleeCenturiesPerSide - frontCount;
+        int centuryIdx = 0;
+
+        for (int i = 0; i < frontCount; i++)
         {
-            UnitStats stats = ranged[i] ? archerStats : meleeStats;
-            int count = ranged[i] ? archerCount : meleeCount;
-            float zPos = z + (ranged[i] ? (team == Team.Blue ? -6f : 6f) : 0f);
-            string label = ranged[i] ? $"{p} Archers {++archerIdx}"
-                                     : $"{p} Swords {++swordIdx}";
-            CreateFormation(label, team, stats, count, formationColumns,
-                            new Vector3(xs[i] - center, 0f, zPos), yaw, auto);
+            float x = (i - (frontCount - 1) * 0.5f) * pitch;
+            CreateFormation($"{p} Century {++centuryIdx}", team, meleeStats,
+                            soldiersPerCentury, centuryColumns,
+                            new Vector3(x, 0f, z), yaw, auto);
+        }
+        for (int i = 0; i < reserveCount; i++)
+        {
+            float x = (i - (reserveCount - 1) * 0.5f) * pitch * 1.7f;
+            CreateFormation($"{p} Century {++centuryIdx}", team, meleeStats,
+                            soldiersPerCentury, centuryColumns,
+                            new Vector3(x, 0f, z + rear * reserveLineOffset), yaw, auto);
+        }
+        for (int i = 0; i < archerCenturiesPerSide; i++)
+        {
+            float x = (i - (archerCenturiesPerSide - 1) * 0.5f) * pitch;
+            CreateFormation($"{p} Archers {i + 1}", team, archerStats,
+                            soldiersPerCentury, archerColumns,
+                            new Vector3(x, 0f, z + rear * archerLineOffset), yaw, auto);
         }
         ValidateLineGaps(formations, firstIdx, formationGapFactor);
     }
@@ -213,14 +236,20 @@ public class BattleSetup : MonoBehaviour
         // melee packs tight for a continuous front; archers stay visibly looser
         f.spacing = stats.isRanged ? archerSpacing : meleeSpacing;
         f.BuildSlots(count);
+        // Century composition: roles are reserved in data (centurion, optio,
+        // signifer, tesserarius, cornicen); all roles currently spawn the
+        // generic visual until specialist prefabs exist.
+        var roles = stats.BuildCenturyRoles(count, columns);
         for (int i = 0; i < count; i++)
         {
             var s = SoldierFactory.Create(f, i, f.GetSlotWorldPos(i));
+            s.role = roles[i];
             f.AddSoldier(s);
             Register(s);
         }
         go.AddComponent<FormationBannerController>();
         go.AddComponent<FormationArrow>();
+        go.AddComponent<FormationDestinationPreview>();
         formations.Add(f);
         return f;
     }

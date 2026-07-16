@@ -8,6 +8,7 @@ public class Soldier : MonoBehaviour
     public Team team;
     public Formation formation;
     public int slotIndex;
+    public SoldierRole role = SoldierRole.Legionary;   // data-reserved century role (Phase 1)
 
     public bool Alive { get; private set; } = true;
     public bool IsEngaged;                    // maintained by the formation's engagement scan
@@ -61,6 +62,16 @@ public class Soldier : MonoBehaviour
     private GameObject selectionDisc;
     private MaterialPropertyBlock mpb;
     private Color baseColor;
+
+    // Contact-line saturation (Phase 4): melee attackers register on their
+    // victim so scoring can spread strikes along the boundary instead of the
+    // whole rear rank swarming one enemy.
+    [System.NonSerialized] public int meleeAttackerCount;
+    private const int MaxMeleeAttackersPerTarget = 3;
+
+    // grid query scratch (Phase 6F): shared, main-thread only
+    private static readonly Soldier[] sepBuffer = new Soldier[24];
+    private static readonly Soldier[] targetBuffer = new Soldier[96];
 
     private Soldier target;
     private float attackTimer;
@@ -134,9 +145,11 @@ public class Soldier : MonoBehaviour
     private void FixedUpdate()
     {
         if (!Alive) return;
-        if (BattleSetup.Instance == null || BattleSetup.Instance.Phase != BattlePhase.Active)
+        // Deployment (Pre) allows full physical movement — formations march to
+        // their deployment positions; only combat is gated on Active (Update).
+        if (BattleSetup.Instance == null || BattleSetup.Instance.Phase == BattlePhase.Ended)
         {
-            rb.linearVelocity = Vector3.zero;   // hold position until the battle starts
+            rb.linearVelocity = Vector3.zero;
             return;
         }
 
@@ -222,12 +235,14 @@ public class Soldier : MonoBehaviour
         float sepDist = formation.spacing * (packed ? SepFractionPacked : SepFractionOrdered);
         float sep2 = sepDist * sepDist;
 
-        var friends = BattleSetup.Instance.GetSoldiers(team);
+        // Phase 6F: grid-local neighbors instead of the whole team registry —
+        // at 640 friends the full scan was the hottest loop in the game.
+        int nearby = BattleGrid.CollectFriends(pos, team, sepDist, sepBuffer);
         Vector3 push = Vector3.zero;
-        for (int i = 0; i < friends.Count; i++)
+        for (int i = 0; i < nearby; i++)
         {
-            Soldier f = friends[i];
-            if (f == this || !f.Alive) continue;   // registry holds only the living, but be safe
+            Soldier f = sepBuffer[i];
+            if (f == this || !f.Alive) continue;
             Vector3 away = pos - f.transform.position;
             away.y = 0f;
             float d2 = away.sqrMagnitude;
@@ -289,6 +304,7 @@ public class Soldier : MonoBehaviour
                     formation, target.formation);
                 if (shoot)
                 {
+                    formation.NotifyRangedShot();   // archer IsFiring window
                     float dmg = S.attackDamage * skill * dirMult;
                     if (deferRangedRelease)
                     {
@@ -336,7 +352,7 @@ public class Soldier : MonoBehaviour
     private void AcquireTarget()
     {
         float radius = formation.GetAcquireRadius(this);
-        if (radius <= 0f) { target = null; return; }
+        if (radius <= 0f) { SetTarget(null); return; }
 
         if (target != null && target.Alive)
         {
@@ -345,12 +361,15 @@ public class Soldier : MonoBehaviour
             if (!S.isRanged && d <= S.strikeRange * 1.2f) return;
             if (d < radius * 1.25f) return;   // hysteresis: keep current fight
         }
-        target = null;
+        SetTarget(null);
 
         if (BattleSetup.Instance == null) return;
-        var enemies = BattleSetup.Instance.GetSoldiers(team == Team.Blue ? Team.Red : Team.Blue);
+        // Phase 6F: grid-local candidates. The buffer bounds the scan; ring
+        // expansion order means truncation drops only the farthest candidates.
+        int found = BattleGrid.CollectEnemies(transform.position, team, radius, targetBuffer);
         float max2 = radius * radius;
         float bestScore = float.MaxValue;
+        Soldier best = null;
         // ranged units must be able to acquire anything inside their own range,
         // even when it stands beyond the broken-ranks leash around the anchor
         float leash = formation.brokenLeash;
@@ -358,8 +377,9 @@ public class Soldier : MonoBehaviour
         float leash2 = leash * leash;
         Vector3 p = transform.position;
         Vector3 fwd = transform.forward;
-        foreach (var e in enemies)
+        for (int i = 0; i < found; i++)
         {
+            Soldier e = targetBuffer[i];
             if (!e.Alive) continue;
             Vector3 to = e.transform.position - p;
             float d2 = to.sqrMagnitude;
@@ -369,8 +389,28 @@ public class Soldier : MonoBehaviour
             // spin away from the local fight for a marginally closer enemy at
             // its back, but a lone rear threat is still acquired
             float score = Vector3.Dot(fwd, to) < 0f ? d2 * 1.6f : d2;
-            if (score < bestScore) { bestScore = score; target = e; }
+            // contact-line spread (Phase 4): an enemy already mobbed by the
+            // attacker cap scores badly, so the next rank looks for an open
+            // position along the boundary instead of piling on
+            if (!S.isRanged && e.meleeAttackerCount >= MaxMeleeAttackersPerTarget)
+                score *= 3f;
+            if (score < bestScore) { bestScore = score; best = e; }
         }
+        SetTarget(best);
+    }
+
+    // Central target setter: keeps the victim's melee attacker count honest
+    // (Phase 4 saturation). Ranged attackers don't reserve contact positions.
+    private void SetTarget(Soldier t)
+    {
+        if (target == t) return;
+        if (!S.isRanged)
+        {
+            if (target != null)
+                target.meleeAttackerCount = Mathf.Max(0, target.meleeAttackerCount - 1);
+            if (t != null) t.meleeAttackerCount++;
+        }
+        target = t;
     }
 
     // Called by the visual controller at the firing clip's release frame (or
@@ -459,6 +499,9 @@ public class Soldier : MonoBehaviour
         }
         else
         {
+            // Broken and idle: keep the last meaningful visual direction —
+            // there is no formation facing to settle onto (Phase 2 policy).
+            if (formation.State == FormationState.BrokenRanks) return;
             // idle: the formation's canonical facing — this is what makes an
             // explicit Rotate command end with soldiers facing the arrow
             dir = formation.AnchorForward;
@@ -509,6 +552,7 @@ public class Soldier : MonoBehaviour
     {
         Alive = false;
         pendingMeleeTarget = null;   // a dead soldier never finishes a swing
+        SetTarget(null);             // release the contact-line reservation
         formation.NotifyDeath(this);
         if (BattleSetup.Instance != null) BattleSetup.Instance.Unregister(this);
         var col = GetComponent<Collider>();
