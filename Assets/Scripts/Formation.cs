@@ -718,7 +718,10 @@ public class Formation : MonoBehaviour
 
     private void Update()
     {
-        if (BattleSetup.Instance == null || BattleSetup.Instance.Phase != BattlePhase.Active)
+        // Deployment (Pre) runs the full formation movement stack — centuries
+        // physically march to their deployment positions; combat cannot start
+        // because soldiers only fight while the battle is Active.
+        if (BattleSetup.Instance == null || BattleSetup.Instance.Phase == BattlePhase.Ended)
             return;
 
         // A destroyed formation is inert: its anchor must never keep chasing a

@@ -81,7 +81,9 @@ public class BattleHUD : MonoBehaviour
             }
         }
         if (hintText != null) hintText.gameObject.SetActive(phase == BattlePhase.Active);
-        if (phase != BattlePhase.Active)
+        // the command panel works during deployment too (move + rotate) —
+        // only a finished battle hides it
+        if (phase == BattlePhase.Ended)
         {
             panelGO.SetActive(false);
             return;

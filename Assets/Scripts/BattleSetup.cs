@@ -60,7 +60,6 @@ public class BattleSetup : MonoBehaviour
     public float archerSpacing = 1.75f;
     [Tooltip("Guaranteed edge-to-edge gap between neighboring formations, in multiples of the larger of the two intra-formation spacings")]
     public float formationGapFactor = 1.1f;
-    public float lineZ = 24f;
     public float lineSpacingX = 16f;
     [Tooltip("How far behind the front line the two reserve centuries deploy")]
     public float reserveLineOffset = 18f;
@@ -111,8 +110,8 @@ public class BattleSetup : MonoBehaviour
         Instance = this;
         Application.runInBackground = true;
         EnsureEnvironment();
-        SpawnSide(Team.Blue, -lineZ, 0f, false);
-        SpawnSide(Team.Red, lineZ, 180f, true);
+        SpawnSide(Team.Blue, -armySeparation * 0.5f, 0f, false);
+        SpawnSide(Team.Red, armySeparation * 0.5f, 180f, true);
         if (GetComponent<EnemyCommander>() == null)
             gameObject.AddComponent<EnemyCommander>();
         if (GetComponent<FormationBannerManager>() == null)
@@ -276,7 +275,9 @@ public class BattleSetup : MonoBehaviour
             var ground = GameObject.CreatePrimitive(PrimitiveType.Plane);
             ground.name = "Ground";
             ground.transform.position = Vector3.zero;
-            ground.transform.localScale = new Vector3(12f, 1f, 8f);   // 120 x 80 field
+            // Phase 6: field is parameterized (default 410 x 280, ~11x the old
+            // area) — a Unity plane is 10x10 at scale 1
+            ground.transform.localScale = new Vector3(fieldHalfX * 0.2f, 1f, fieldHalfZ * 0.2f);
             BattlefieldDecor.Decorate(ground);      // light tiled grass albedo
         }
 
@@ -284,20 +285,20 @@ public class BattleSetup : MonoBehaviour
         if (cam != null)
         {
             cam.orthographic = true;
-            cam.orthographicSize = 26f;   // wide default framing for the 5v5 line
-            // Pitch 40 degrees (user request; was 42 in Patch 5, 55 before).
-            // The center-screen ground focus is preserved: the historical ray
-            // hit the ground at z = -0.59; position = focus - forward *
-            // (height / sin(pitch)) with height 42, so the same point stays
-            // centered at the same orthographic size: z = -0.59 - 42/tan40.
-            cam.transform.position = new Vector3(0f, 42f, -50.64f);
+            cam.orthographicSize = 34f;   // frames the player's deployment zone
+            // Pitch 40 degrees; position = focus - forward * (height/sin40),
+            // height 42. Initial focus sits over the BLUE deployment line so
+            // the player starts looking at their own army.
+            float focusZ = -armySeparation * 0.5f;
+            cam.transform.position = new Vector3(0f, 42f, focusZ - 42f / Mathf.Tan(40f * Mathf.Deg2Rad));
             cam.transform.rotation = Quaternion.Euler(40f, 0f, 0f);
             cam.clearFlags = CameraClearFlags.SolidColor;
             cam.backgroundColor = new Color(0.12f, 0.14f, 0.17f);
             cam.nearClipPlane = 0.3f;
-            cam.farClipPlane = 200f;
-            if (cam.GetComponent<BattleCamera>() == null)
-                cam.gameObject.AddComponent<BattleCamera>();
+            cam.farClipPlane = 600f;      // reaches the far corners of the big field
+            var rig = cam.GetComponent<BattleCamera>();
+            if (rig == null) rig = cam.gameObject.AddComponent<BattleCamera>();
+            rig.Configure(fieldHalfX, fieldHalfZ, 6f, 120f);
         }
     }
 }

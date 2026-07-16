@@ -45,6 +45,25 @@ public class BattleCamera : MonoBehaviour
         cam = GetComponent<Camera>();
         targetPos = transform.position;
         targetZoom = cam.orthographicSize;
+        RecomputeBounds();
+    }
+
+    // Phase 6: battlefield scale is parameterized on BattleSetup — the setup
+    // pushes pan bounds and zoom limits here instead of this rig guessing.
+    public void Configure(float halfX, float halfZ, float minZoom, float maxZoom)
+    {
+        focusHalfX = halfX;
+        focusHalfZ = halfZ;
+        zoomMin = minZoom;
+        zoomMax = maxZoom;
+        if (cam == null) cam = GetComponent<Camera>();
+        targetPos = transform.position;
+        targetZoom = Mathf.Clamp(cam.orthographicSize, zoomMin, zoomMax);
+        RecomputeBounds();
+    }
+
+    private void RecomputeBounds()
+    {
         // focus = cameraPos + forward * (height / sin(pitch)); its ground
         // offset from the camera is height / tan(pitch) along +Z (yaw 0)
         float pitch = transform.eulerAngles.x * Mathf.Deg2Rad;

@@ -62,7 +62,9 @@ public class PlayerCommander : MonoBehaviour
     private Transform rotatePreviewArrow;
     private float lastPinchDist = -1f;
 
-    private const float FieldX = 54f, FieldZ = 36f;  // order destination clamp
+    // order destination clamps read the parameterized battlefield (Phase 6)
+    private static float FieldX => BattleSetup.Instance != null ? BattleSetup.Instance.fieldHalfX - 4f : 54f;
+    private static float FieldZ => BattleSetup.Instance != null ? BattleSetup.Instance.fieldHalfZ - 4f : 36f;
 
     // Touch slop: small finger movement after touch-down must not instantly
     // commit the gesture to a drag. ~1.5mm on a real screen, 22px fallback
@@ -224,9 +226,17 @@ public class PlayerCommander : MonoBehaviour
     private static bool BattleActive =>
         BattleSetup.Instance != null && BattleSetup.Instance.Phase == BattlePhase.Active;
 
+    // Deployment (Pre) allows full command interaction — select, move, rotate
+    // — with physical marching; only ATTACK orders wait for Start Battle.
+    private static bool CommandsAllowed =>
+        BattleSetup.Instance != null && BattleSetup.Instance.Phase != BattlePhase.Ended;
+
+    private static bool Deploying =>
+        BattleSetup.Instance != null && BattleSetup.Instance.Phase == BattlePhase.Pre;
+
     private void HandleTap(Vector2 pos)
     {
-        if (!BattleActive) return;   // pre-battle / ended: camera only
+        if (!CommandsAllowed) return;   // battle ended: camera only
         var f = HitFormation(pos);
         if (f == null)
         {
@@ -302,7 +312,7 @@ public class PlayerCommander : MonoBehaviour
 
     private void BeginDrag(Vector2 startPos)
     {
-        Formation f = BattleActive ? FindCommandGrabFormation(startPos) : null;
+        Formation f = CommandsAllowed ? FindCommandGrabFormation(startPos) : null;
         if (f != null)
         {
             mode = PointerMode.CommandDrag;
@@ -373,7 +383,8 @@ public class PlayerCommander : MonoBehaviour
         if (!GroundPoint(pos, out Vector3 pt)) return;
 
         var over = HitFormation(pos);
-        dragEnemyTarget = (over != null && over.team == Team.Red) ? over : null;
+        // no attack orders during deployment — combat starts at Start Battle
+        dragEnemyTarget = (!Deploying && over != null && over.team == Team.Red) ? over : null;
 
         Vector3 from = dragOrigin.AnchorPos + Vector3.up * 0.15f;
         Vector3 to = dragEnemyTarget != null
@@ -447,12 +458,18 @@ public class PlayerCommander : MonoBehaviour
             Vector3 groupFacing = travel.sqrMagnitude > 0.04f
                 ? travel.normalized : new Vector3(avgFwd.x, 0f, avgFwd.z).normalized;
 
+            // deployment destinations stay inside the friendly zone (Phase 6C)
+            var bs = BattleSetup.Instance;
+            float zMin = -FieldZ, zMax = FieldZ;
+            if (Deploying && bs != null)
+                zMax = -bs.fieldHalfZ + bs.deploymentZoneDepth;   // blue deploys south
+
             foreach (var f in selection)
             {
                 if (f == null || f.soldiers.Count == 0) continue;
                 Vector3 dest = pt + arrange * (f.AnchorPos - pivot);
                 dest.x = Mathf.Clamp(dest.x, -FieldX, FieldX);
-                dest.z = Mathf.Clamp(dest.z, -FieldZ, FieldZ);
+                dest.z = Mathf.Clamp(dest.z, zMin, zMax);
                 f.IssueMove(dest);
                 f.SetDestinationFacing(groupFacing);
             }
