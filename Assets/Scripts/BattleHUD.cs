@@ -108,13 +108,20 @@ public class BattleHUD : MonoBehaviour
         }
 
         panelGO.SetActive(true);
+
+        // A fully broken selection has exactly one meaningful order — REFORM.
+        // Offering BREAK RANKS or ROTATE there is noise; hide them entirely.
+        // Mixed selections keep the full row so the coherent formations stay
+        // commandable.
+        bool allBroken = AllLiveBroken(selection);
         SetCommandButtonsVisible(true);
+        if (allBroken) breakButton.gameObject.SetActive(false);
         UpdateButtonInteractivity(selection);
 
         if (liveCount == 1)
         {
-            rotateButton.gameObject.SetActive(true);
-            UpdateRotateButton();
+            rotateButton.gameObject.SetActive(!allBroken);
+            if (!allBroken) UpdateRotateButton();
             UpdateSingleSelectionPanel(GetFirstLive(selection));
         }
         else
@@ -225,6 +232,19 @@ public class BattleHUD : MonoBehaviour
         for (int i = 0; i < selection.Count; i++)
             if (selection[i] != null && selection[i].soldiers.Count > 0) count++;
         return count;
+    }
+
+    private static bool AllLiveBroken(IReadOnlyList<Formation> selection)
+    {
+        bool any = false;
+        for (int i = 0; i < selection.Count; i++)
+        {
+            Formation f = selection[i];
+            if (f == null || f.soldiers.Count == 0) continue;
+            if (f.State != FormationState.BrokenRanks) return false;
+            any = true;
+        }
+        return any;
     }
 
     private static Formation GetFirstLive(IReadOnlyList<Formation> selection)
@@ -574,11 +594,14 @@ public class BattleHUD : MonoBehaviour
 
     // Shared 9-sliced rounded-rectangle sprite so every button reads as one
     // intentional family instead of raw quads. Generated once, tinted per use.
+    // The corner radius stays small (square-ish, not pill) and a subtle darker
+    // rim is baked just inside the edge — it survives per-use tinting because
+    // the sprite is still near-white.
     private static Sprite RoundedSprite()
     {
         if (roundedSprite != null) return roundedSprite;
         const int size = 64;
-        const int radius = 18;
+        const int radius = 12;
         var tex = new Texture2D(size, size, TextureFormat.RGBA32, false);
         for (int y = 0; y < size; y++)
         {
@@ -588,7 +611,8 @@ public class BattleHUD : MonoBehaviour
                 float dy = Mathf.Max(0f, Mathf.Max(radius - y, y - (size - 1 - radius)));
                 float d = Mathf.Sqrt(dx * dx + dy * dy);
                 float a = Mathf.Clamp01(radius - d + 0.5f);   // 1 inside, soft 1px edge
-                tex.SetPixel(x, y, new Color(1f, 1f, 1f, a));
+                float rgb = (a > 0.05f && radius - d < 2f) ? 0.85f : 1f;   // darker rim
+                tex.SetPixel(x, y, new Color(rgb, rgb, rgb, a));
             }
         }
         tex.wrapMode = TextureWrapMode.Clamp;

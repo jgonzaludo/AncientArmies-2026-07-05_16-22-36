@@ -30,7 +30,7 @@ public class FormationBannerController : MonoBehaviour
     [Tooltip("Zoom-compensation clamp: keeps banners restrained at extreme zooms")]
     [SerializeField] private float minZoomCompensation = 0.45f;
     [SerializeField] private float maxZoomCompensation = 1.35f;
-    [SerializeField] private float selectedScaleMultiplier = 1.12f;
+    [SerializeField] private float selectedScaleMultiplier = 1.08f;
     [SerializeField] private int selectedSortingBoost = 100;
 
     [Header("Order feedback")]
@@ -47,7 +47,11 @@ public class FormationBannerController : MonoBehaviour
     private static readonly Color HealthHigh = new Color(0.38f, 0.86f, 0.38f);
     private static readonly Color HealthLow = new Color(0.95f, 0.7f, 0.15f);
     private static readonly Color BarBackground = new Color(0.08f, 0.08f, 0.1f, 0.85f);
-    private static readonly Color SelectionTint = new Color(1f, 0.93f, 0.35f, 0.85f);
+    // Selection is a thin white outline (slightly larger badge copy behind the
+    // badge), never a gold recolor — team color must stay readable on the badge.
+    private static readonly Color SelectionOutline = new Color(1f, 1f, 1f, 0.85f);
+    // Broken ranks reads as damage: badge desaturated toward grey and faded.
+    private static readonly Color BrokenBadgeTint = new Color(0.75f, 0.7f, 0.7f);
 
     // Data-driven badge selection: future classes (cavalry, spears, siege...)
     // extend this table — never parse display strings for faction/class.
@@ -154,12 +158,17 @@ public class FormationBannerController : MonoBehaviour
         if (!rendered) return;
 
         // anchor: structured formations sit slightly to the rear of the block;
-        // combat deformation and broken ranks follow the dominant cluster
-        bool scattered = f.State == FormationState.Engaged ||
-                         f.State == FormationState.BrokenRanks;
-        Vector3 target = scattered && f.DominantGroupCount > 0
-            ? f.DominantGroupCenter
-            : f.AnchorPos - f.AnchorForward * rearOffset;
+        // combat deformation follows the dominant cluster. While broken or
+        // reforming the banner is a fixed rally flag at the point where ranks
+        // broke — it must not chase the scattering soldiers, or the player
+        // loses the reference point the formation will reform around.
+        Vector3 target;
+        if (critical)
+            target = f.RallyAnchor;
+        else if (f.State == FormationState.Engaged && f.DominantGroupCount > 0)
+            target = f.DominantGroupCenter;
+        else
+            target = f.AnchorPos - f.AnchorForward * rearOffset;
         target.y = hoverHeight;
         DesiredWorldAnchor = target;
         target.y += overlapLiftPx * mgr.WorldPerPixel;   // de-clutter lift
@@ -211,15 +220,19 @@ public class FormationBannerController : MonoBehaviour
     }
 
     // Child-element visibility per detail level: Close (selected marker) shows
-    // badge + selection + wedge only; Compact adds health bar and state icon;
-    // Expanded adds the remaining-soldier count.
+    // badge + selection + wedge only; Compact and Expanded add health bar,
+    // state icon, and the strength readout. Selection also forces the strength
+    // readout at Close — a selected formation always answers "how many left".
     private void ApplyPresentation(FormationBannerDetailLevel level, bool selected, float alpha)
     {
         bool bars = level != FormationBannerDetailLevel.Close;
-        bool count = level == FormationBannerDetailLevel.Expanded;
+        bool count = bars || selected;
 
-        SetSpriteAlpha(baseSR, Color.white, alpha);
-        SetSpriteAlpha(selectionSR, SelectionTint, selected ? alpha : 0f);
+        // broken ranks = damaged flag: grey and faded until reforming restores it
+        bool broken = f.State == FormationState.BrokenRanks;
+        SetSpriteAlpha(baseSR, broken ? BrokenBadgeTint : Color.white,
+                       broken ? alpha * 0.55f : alpha);
+        SetSpriteAlpha(selectionSR, SelectionOutline, selected ? alpha : 0f);
         SetSpriteAlpha(healthBgSR, BarBackground, bars ? alpha : 0f);
         float hp = Mathf.Clamp01(f.TotalHealth / Mathf.Max(1f, f.TotalMaxHealth));
         SetSpriteAlpha(healthFillSR, Color.Lerp(HealthLow, HealthHigh, hp), bars ? alpha : 0f);
@@ -253,7 +266,7 @@ public class FormationBannerController : MonoBehaviour
         if (n != lastCount)
         {
             lastCount = n;
-            countTM.text = n.ToString();
+            countTM.text = $"{n} / {f.TotalSpawned}";
         }
         if (f.State != lastState || (f.State == FormationState.Ordered))
         {
@@ -321,8 +334,9 @@ public class FormationBannerController : MonoBehaviour
         scaleContainer.SetParent(root, false);
 
         baseSR = MakeSprite("BaseBannerImage", badge, Vector3.zero, Vector3.one);
+        // barely larger than the badge so it reads as an outline, not a second frame
         selectionSR = MakeSprite("SelectionOutline", badge, new Vector3(0f, 0f, 0.02f),
-                                 Vector3.one * 1.16f);
+                                 Vector3.one * 1.10f);
         healthBgSR = MakeSprite("HealthBarBg", whiteSprite, new Vector3(0f, -1.95f, -0.01f),
                                 new Vector3(barWidth + 0.1f, barHeight + 0.1f, 1f));
         healthFillSR = MakeSprite("HealthBarFill", whiteSprite, new Vector3(0f, -1.95f, -0.02f),
