@@ -115,9 +115,7 @@ public class Soldier : MonoBehaviour
     private const float FaceIdleDegPerSec = 240f;     // settling on formation facing (~pivot clip pace)
     private const float FaceStartSpeed = 0.45f;       // m/s: begin facing movement
     private const float FaceStopSpeed = 0.25f;        // m/s: fall back to hold/idle facing
-    private const float SepMaxPush = 1.2f;            // m/s cap: separation biases, never flings
-    private const float SepFractionOrdered = 0.85f;   // of formation spacing
-    private const float SepFractionPacked = 0.72f;    // melee packs tighter, but stays readable
+    // separation tuning now lives on BattleSetup (Phase 4 central exposure)
     private static readonly int BaseColorId = Shader.PropertyToID("_BaseColor");
 
     public void Init(Formation f, int slot, Rigidbody rb, Renderer body, Transform weapon,
@@ -232,7 +230,9 @@ public class Soldier : MonoBehaviour
     {
         FormationState st = formation.State;
         bool packed = st == FormationState.BrokenRanks || st == FormationState.Engaged;
-        float sepDist = formation.spacing * (packed ? SepFractionPacked : SepFractionOrdered);
+        var bs = BattleSetup.Instance;
+        float sepDist = formation.spacing *
+                        (packed ? bs.separationFractionPacked : bs.separationFractionOrdered);
         float sep2 = sepDist * sepDist;
 
         // Phase 6F: grid-local neighbors instead of the whole team registry —
@@ -257,7 +257,7 @@ public class Soldier : MonoBehaviour
             float d = Mathf.Sqrt(d2);
             push += away * ((sepDist - d) / (sepDist * d));   // unit dir * penetration 0..1
         }
-        sepVel = Vector3.ClampMagnitude(push * SepMaxPush, SepMaxPush);
+        sepVel = Vector3.ClampMagnitude(push * bs.separationMaxPush, bs.separationMaxPush);
     }
 
     // ---------------- combat ----------------

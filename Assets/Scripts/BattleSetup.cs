@@ -79,6 +79,17 @@ public class BattleSetup : MonoBehaviour
     [Tooltip("Depth of each side's deployment zone, measured from its map edge")]
     public float deploymentZoneDepth = 60f;
 
+    // Centralized soldier-spacing tuning (Phase 4). Soldiers read these so
+    // the whole contact feel is adjustable in one place; the melee opponent
+    // distance itself comes from UnitStats.strikeRange.
+    [Header("V1 spacing & contact (Phase 4)")]
+    [Tooltip("Minimum friendly separation while ordered, as a fraction of formation spacing")]
+    public float separationFractionOrdered = 0.85f;
+    [Tooltip("Minimum friendly separation while packed into melee/broken, as a fraction of formation spacing")]
+    public float separationFractionPacked = 0.72f;
+    [Tooltip("Cap on the local-avoidance push (m/s) — biases movement, never flings")]
+    public float separationMaxPush = 1.2f;
+
     [Header("Directional combat (front / flank / rear)")]
     [Tooltip("Damage multiplier when attacking a formation from its front arc")]
     public float frontDamageMultiplier = 1f;
