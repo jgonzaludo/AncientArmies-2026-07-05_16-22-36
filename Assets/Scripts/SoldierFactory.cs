@@ -7,6 +7,32 @@ public static class SoldierFactory
     private static Material blueMat, redMat, blueArcherMat, redArcherMat, weaponMat, discMat;
     private static PhysicsMaterial slipMat;
 
+    // Roman visuals (presentation only). Loaded once; null => capsule fallback.
+    private static GameObject romanMeleeVisual;
+    private static bool romanVisualLoaded;
+    private static GameObject romanArcherVisual;
+    private static bool romanArcherLoaded;
+
+    private static GameObject RomanMeleeVisual()
+    {
+        if (!romanVisualLoaded)
+        {
+            romanVisualLoaded = true;
+            romanMeleeVisual = Resources.Load<GameObject>("VIS_Roman_Legionary_Basic");
+        }
+        return romanMeleeVisual;
+    }
+
+    private static GameObject RomanArcherVisual()
+    {
+        if (!romanArcherLoaded)
+        {
+            romanArcherLoaded = true;
+            romanArcherVisual = Resources.Load<GameObject>("VIS_Roman_Archer_Basic");
+        }
+        return romanArcherVisual;
+    }
+
     private static readonly Color BlueMelee = new Color(0.2f, 0.4f, 0.95f);
     private static readonly Color BlueArcher = new Color(0.45f, 0.7f, 1f);
     private static readonly Color RedMelee = new Color(0.9f, 0.22f, 0.18f);
@@ -38,31 +64,49 @@ public static class SoldierFactory
         rb.interpolation = RigidbodyInterpolation.Interpolate;
         rb.linearDamping = 0f;
 
-        var body = GameObject.CreatePrimitive(PrimitiveType.Capsule);
-        Object.Destroy(body.GetComponent<Collider>());
-        body.name = "Body";
-        body.transform.SetParent(root.transform, false);
-        body.transform.localPosition = new Vector3(0f, 1f, 0f);
-        float girth = ranged ? 0.55f : 0.7f;
-        body.transform.localScale = new Vector3(girth, 0.85f, girth);
-        var bodyR = body.GetComponent<Renderer>();
-        bodyR.sharedMaterial = mat;
-
-        var weapon = GameObject.CreatePrimitive(PrimitiveType.Cube);
-        Object.Destroy(weapon.GetComponent<Collider>());
-        weapon.name = "Weapon";
-        weapon.transform.SetParent(root.transform, false);
-        if (ranged)
+        // Soldiers use their Roman visual when available; the missing-prefab
+        // case falls back to the original capsule placeholder.
+        Renderer bodyR = null;
+        Transform weaponT = null;
+        GameObject visualPrefab = ranged ? RomanArcherVisual() : RomanMeleeVisual();
+        if (visualPrefab != null)
         {
-            weapon.transform.localPosition = new Vector3(0.3f, 1.15f, 0.25f);
-            weapon.transform.localScale = new Vector3(0.08f, 0.85f, 0.08f);
+            var vis = Object.Instantiate(visualPrefab, root.transform);
+            vis.name = "VisualRoot";
+            vis.transform.localPosition = Vector3.zero;
+            vis.transform.localRotation = Quaternion.identity;
+            bodyR = vis.GetComponentInChildren<SkinnedMeshRenderer>();
+            color = Color.white;   // Romans keep their own palette; tint = white base
         }
         else
         {
-            weapon.transform.localPosition = new Vector3(0.3f, 1.05f, 0.45f);
-            weapon.transform.localScale = new Vector3(0.14f, 0.14f, 0.7f);
+            var body = GameObject.CreatePrimitive(PrimitiveType.Capsule);
+            Object.Destroy(body.GetComponent<Collider>());
+            body.name = "Body";
+            body.transform.SetParent(root.transform, false);
+            body.transform.localPosition = new Vector3(0f, 1f, 0f);
+            float girth = ranged ? 0.55f : 0.7f;
+            body.transform.localScale = new Vector3(girth, 0.85f, girth);
+            bodyR = body.GetComponent<Renderer>();
+            bodyR.sharedMaterial = mat;
+
+            var weapon = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            Object.Destroy(weapon.GetComponent<Collider>());
+            weapon.name = "Weapon";
+            weapon.transform.SetParent(root.transform, false);
+            if (ranged)
+            {
+                weapon.transform.localPosition = new Vector3(0.3f, 1.15f, 0.25f);
+                weapon.transform.localScale = new Vector3(0.08f, 0.85f, 0.08f);
+            }
+            else
+            {
+                weapon.transform.localPosition = new Vector3(0.3f, 1.05f, 0.45f);
+                weapon.transform.localScale = new Vector3(0.14f, 0.14f, 0.7f);
+            }
+            weapon.GetComponent<Renderer>().sharedMaterial = weaponMat;
+            weaponT = weapon.transform;
         }
-        weapon.GetComponent<Renderer>().sharedMaterial = weaponMat;
 
         // clean white selection circle, flat on the ground beneath the soldier
         var disc = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
@@ -77,8 +121,11 @@ public static class SoldierFactory
         disc.SetActive(false);
 
         var s = root.AddComponent<Soldier>();
+        // Roman visuals tint per material slot (faction cloth, damage, flash) in
+        // RomanLegionaryVisualController; the renderer-wide tint would wipe the palette.
+        if (visualPrefab != null && bodyR != null) s.suppressTint = true;
         float skill = 0.85f + ((slot * 37) % 13) / 13f * 0.3f;   // deterministic, visible variety
-        s.Init(f, slot, rb, bodyR, weapon.transform, disc, color, skill);
+        s.Init(f, slot, rb, bodyR, weaponT, disc, color, skill);
         return s;
     }
 

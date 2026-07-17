@@ -109,3 +109,18 @@ InitTestScene*.unity*
 # MCP screenshot output
 /[Aa]ssets/Screenshots/
 /[Aa]ssets/Screenshots.meta
+
+# OS / IDE / local tooling
+.DS_Store
+.vscode/
+.claude/
+*.slnx
+
+# Generated codebase knowledge graph (local RAG - see CLAUDE.md)
+graphify-out/
+.env
+
+# Local-only art source (multi-hundred-MB .blend files and raw Meshy
+# downloads exceed GitHub's 100 MB file limit; exported FBX/PNG assets
+# live in Assets/Art which IS committed)
+/ArtSource/

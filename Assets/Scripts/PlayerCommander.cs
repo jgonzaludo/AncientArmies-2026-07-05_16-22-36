@@ -3,10 +3,12 @@ using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.InputSystem;
 
-// Mobile-first control grammar (docs/MOBILE_CONTROLS.md):
-//   tap = select / inspect        drag = issue orders
+// Mobile-first control grammar (docs/MOBILE_CONTROLS.md, V1.2 selection rules):
+//   tap friendly = select that formation EXCLUSIVELY (any prior selection drops)
+//   tap empty ground = clear all selection
+//   drag from the selected formation = command drag (move or attack), then the
+//   formation auto-deselects — issuing an order ends the interaction
 //   drag on empty ground = camera pan       pinch / scroll = zoom
-//   drag from a SELECTED formation = command drag (move or attack)
 // Mouse input in the editor mirrors the touch model 1:1 (click = tap, etc.).
 public class PlayerCommander : MonoBehaviour
 {
@@ -15,15 +17,42 @@ public class PlayerCommander : MonoBehaviour
     public IReadOnlyList<Formation> Selection => selection;
     public Formation InspectedEnemy { get; private set; }
     public bool RotateMode { get; private set; }
-    public bool CanEnterRotateMode =>
-        selection.Count == 1 && selection[0].soldiers.Count > 0 &&
-        selection[0].State == FormationState.Ordered;
+
+    // Rotate is a group edit now (Phase 2G): available when every live
+    // selected century is eligible (no auto-facing, not broken, not busy).
+    public bool CanEnterRotateMode
+    {
+        get
+        {
+            int live = 0;
+            for (int i = 0; i < selection.Count; i++)
+            {
+                Formation f = selection[i];
+                if (f == null || f.soldiers.Count == 0) continue;
+                live++;
+                if (f.GetRotateBlock() != Formation.RotateBlock.None) return false;
+            }
+            return live >= 1;
+        }
+    }
+
+    // rotate-edit session (Phase 2G): pivot, entry facing, and the rigid
+    // destination arrangement captured when the mode was entered
+    private Vector3 rotatePivot;
+    private Vector3 rotateInitialDir;
+    private Vector3 rotateEditDir;
+    private float rotateArrowRadius = 6f;
+    private readonly List<Formation> rotateMovers = new List<Formation>();
+    private readonly List<Vector3> rotateDestOffsets = new List<Vector3>();
+    private readonly List<Formation> rotateStationary = new List<Formation>();
+    private const float RotateDeadzone = 1.5f;   // meters around the pivot: ignore unstable input
 
     private readonly List<Formation> selection = new List<Formation>();
     private Camera cam;
+    private BattleCamera camRig;
     private PointerMode mode;
     private Vector2 pressScreenPos;
-    private Vector3 panGrabWorld;          // battlefield point grabbed at pan start
+    private Vector2 lastPanScreen;         // previous pointer position while panning
     private Formation dragOrigin;          // selected formation a command drag started from
     private Formation dragEnemyTarget;     // enemy currently under the command drag
 
@@ -33,20 +62,39 @@ public class PlayerCommander : MonoBehaviour
     private Transform rotatePreviewArrow;
     private float lastPinchDist = -1f;
 
-    private const float TapMaxPixels = 22f;
-    private const float FormationTapRadius = 1.8f;   // forgiveness around soldiers
-    private const float ZoomMin = 8f, ZoomMax = 30f;
-    private const float FieldX = 46f, FieldZ = 27f;  // order destination clamp
+    // order destination clamps read the parameterized battlefield (Phase 6)
+    private static float FieldX => BattleSetup.Instance != null ? BattleSetup.Instance.fieldHalfX - 4f : 54f;
+    private static float FieldZ => BattleSetup.Instance != null ? BattleSetup.Instance.fieldHalfZ - 4f : 36f;
+
+    // Touch slop: small finger movement after touch-down must not instantly
+    // commit the gesture to a drag. ~1.5mm on a real screen, 22px fallback
+    // where dpi is unavailable (editor).
+    private float TouchSlopPixels => Mathf.Max(22f, Screen.dpi * 0.06f);
+
+    // World units covered by one screen pixel at the current zoom.
+    private float WorldPerPixel => cam.orthographicSize * 2f / Screen.height;
+
+    // Tap forgiveness beyond a formation's footprint/soldiers. Zoom-aware so
+    // the padding stays finger-sized on screen; never smaller than 2.5m.
+    private float FormationTapPadding => Mathf.Max(2.5f, WorldPerPixel * 60f);
+
+    // Command drags may begin this far (world units) outside the selected
+    // formation's footprint and still count as commanding it. More generous
+    // than tap selection: once a formation is selected, grabbing it should be
+    // nearly impossible to miss.
+    private float CommandGrabTolerance => Mathf.Max(4f, WorldPerPixel * 100f);
 
     private void Start()
     {
         cam = Camera.main;
+        if (cam != null) camRig = cam.GetComponent<BattleCamera>();
     }
 
     private void Update()
     {
         PruneSelection();
         if (cam == null) { cam = Camera.main; if (cam == null) return; }
+        if (camRig == null) camRig = cam.GetComponent<BattleCamera>();
 
         HandleZoom();
         if (HandlePinch()) return;   // two fingers down: zoom only, no tap/drag
@@ -57,7 +105,7 @@ public class PlayerCommander : MonoBehaviour
         if (down && !PointerOverUI())
         {
             pressScreenPos = pos;
-            if (RotateMode && selection.Count == 1)
+            if (RotateMode && selection.Count >= 1)
             {
                 mode = PointerMode.RotateDrag;
             }
@@ -68,7 +116,7 @@ public class PlayerCommander : MonoBehaviour
         }
 
         if (mode == PointerMode.Pending && held &&
-            (pos - pressScreenPos).magnitude > TapMaxPixels)
+            (pos - pressScreenPos).magnitude > TouchSlopPixels)
         {
             BeginDrag(pressScreenPos);
         }
@@ -88,6 +136,7 @@ public class PlayerCommander : MonoBehaviour
             switch (mode)
             {
                 case PointerMode.Pending: HandleTap(pos); break;
+                case PointerMode.CameraPan: if (camRig != null) camRig.EndPan(); break;
                 case PointerMode.CommandDrag: EndCommandDrag(pos); break;
                 case PointerMode.RotateDrag: EndRotateDrag(pos); break;
             }
@@ -140,8 +189,12 @@ public class PlayerCommander : MonoBehaviour
         return false;
     }
 
-    // Formation-level hit test: a direct soldier hit, or any formation whose soldiers
-    // are within the forgiveness radius of the tapped battlefield point.
+    // Formation-level hit test: a direct soldier hit, or the closest formation
+    // whose interaction footprint (soldiers + oriented rectangle + generous
+    // padding) contains the tapped battlefield point. A formation of 40-50
+    // soldiers is one big touch target — taps between soldiers, on the block's
+    // edge, or slightly outside it all resolve to that formation. Overlapping
+    // footprints resolve to the closest formation, never a random one.
     private Formation HitFormation(Vector2 screenPos)
     {
         Ray ray = cam.ScreenPointToRay(screenPos);
@@ -158,11 +211,11 @@ public class PlayerCommander : MonoBehaviour
 
         if (!GroundPoint(screenPos, out Vector3 pt) || BattleSetup.Instance == null) return null;
         Formation best = null;
-        float bestD = FormationTapRadius;
+        float bestD = FormationTapPadding;
         foreach (var f in BattleSetup.Instance.formations)
         {
             if (f.soldiers.Count == 0) continue;
-            float d = f.DistanceToNearestSoldier(pt);
+            float d = f.InteractionDistance(pt);
             if (d < bestD) { bestD = d; best = f; }
         }
         return best;
@@ -173,13 +226,21 @@ public class PlayerCommander : MonoBehaviour
     private static bool BattleActive =>
         BattleSetup.Instance != null && BattleSetup.Instance.Phase == BattlePhase.Active;
 
+    // Deployment (Pre) allows full command interaction — select, move, rotate
+    // — with physical marching; only ATTACK orders wait for Start Battle.
+    private static bool CommandsAllowed =>
+        BattleSetup.Instance != null && BattleSetup.Instance.Phase != BattlePhase.Ended;
+
+    private static bool Deploying =>
+        BattleSetup.Instance != null && BattleSetup.Instance.Phase == BattlePhase.Pre;
+
     private void HandleTap(Vector2 pos)
     {
-        if (!BattleActive) return;   // pre-battle / ended: camera only
+        if (!CommandsAllowed) return;   // battle ended: camera only
         var f = HitFormation(pos);
         if (f == null)
         {
-            DeselectAll();
+            DeselectAll();   // tap on empty battlefield clears everything
             return;
         }
         if (f.team == Team.Blue)
@@ -192,6 +253,10 @@ public class PlayerCommander : MonoBehaviour
         }
     }
 
+    // V1 overhaul selection model (Phase 2C): taps toggle membership — tap an
+    // unselected friendly century to add it, tap a selected one to remove it,
+    // tap empty ground to clear everything. Selection persists through orders
+    // so destination previews stay attached to moving centuries.
     public void ToggleSelect(Formation f)
     {
         InspectedEnemy = null;
@@ -205,7 +270,14 @@ public class PlayerCommander : MonoBehaviour
             selection.Add(f);
             f.SetSelected(true);
         }
-        if (RotateMode && selection.Count != 1) ExitRotateMode();
+        if (RotateMode) ExitRotateMode();
+    }
+
+    // exclusive selection kept for scripted tests and future UI paths
+    public void SelectOnly(Formation f)
+    {
+        DeselectAll();
+        ToggleSelect(f);
     }
 
     public void DeselectAll()
@@ -229,15 +301,19 @@ public class PlayerCommander : MonoBehaviour
         }
         if (InspectedEnemy != null && InspectedEnemy.soldiers.Count == 0)
             InspectedEnemy = null;
-        if (RotateMode && selection.Count != 1) ExitRotateMode();
+        // Facing authority: losing rotate eligibility mid-preview (target
+        // acquired, engagement, break ranks, defeat) cancels rotate mode —
+        // auto-facing must never fight a queued manual facing.
+        if (RotateMode && !CanEnterRotateMode)
+            ExitRotateMode();
     }
 
     // ---------------- drags ----------------
 
     private void BeginDrag(Vector2 startPos)
     {
-        var f = BattleActive ? HitFormation(startPos) : null;
-        if (f != null && f.team == Team.Blue && selection.Contains(f))
+        Formation f = CommandsAllowed ? FindCommandGrabFormation(startPos) : null;
+        if (f != null)
         {
             mode = PointerMode.CommandDrag;
             dragOrigin = f;
@@ -250,19 +326,55 @@ public class PlayerCommander : MonoBehaviour
         else
         {
             mode = PointerMode.CameraPan;
-            GroundPoint(startPos, out panGrabWorld);
+            lastPanScreen = startPos;
+            if (camRig != null) camRig.BeginPan();
         }
+    }
+
+    // A command drag wins when it starts on a selected formation's soldiers OR
+    // anywhere within a forgiving, zoom-aware region around the selected
+    // formation's footprint. Camera pan only happens when the drag clearly
+    // begins on empty ground away from the selection.
+    private Formation FindCommandGrabFormation(Vector2 screenPos)
+    {
+        var direct = HitFormation(screenPos);
+        if (direct != null && direct.team == Team.Blue && selection.Contains(direct))
+            return direct;
+
+        if (selection.Count == 0 || !GroundPoint(screenPos, out Vector3 pt)) return null;
+        Formation best = null;
+        float bestD = CommandGrabTolerance;
+        foreach (var s in selection)
+        {
+            if (s == null || s.soldiers.Count == 0) continue;
+            float d = s.InteractionDistance(pt);
+            if (d < bestD) { bestD = d; best = s; }
+        }
+        return best;
     }
 
     private void UpdateCameraPan(Vector2 pos)
     {
-        if (!GroundPoint(pos, out Vector3 now)) return;
-        Vector3 delta = panGrabWorld - now;
-        delta.y = 0f;
-        Vector3 p = cam.transform.position + delta;
-        p.x = Mathf.Clamp(p.x, -34f, 34f);
-        p.z = Mathf.Clamp(p.z, -56f, -4f);
-        cam.transform.position = p;
+        Vector2 screenDelta = pos - lastPanScreen;
+        lastPanScreen = pos;
+        if (camRig == null || screenDelta == Vector2.zero) return;
+        camRig.PanBy(-ScreenDeltaToGroundDelta(screenDelta));
+    }
+
+    // Ground-plane displacement that keeps the grabbed battlefield point under
+    // the moving finger, for the fixed-angle orthographic camera. Screen-space
+    // math so it stays exact while the camera itself is still easing.
+    private Vector3 ScreenDeltaToGroundDelta(Vector2 screenDelta)
+    {
+        float wpp = WorldPerPixel;
+        Vector3 right = cam.transform.right;
+        right.y = 0f;
+        right.Normalize();
+        Vector3 upGround = cam.transform.up;
+        upGround.y = 0f;
+        float upScale = Mathf.Max(0.2f, upGround.magnitude);   // sin(camera tilt)
+        upGround /= upScale;
+        return right * (screenDelta.x * wpp) + upGround * (screenDelta.y * wpp / upScale);
     }
 
     private void UpdateCommandDrag(Vector2 pos)
@@ -271,7 +383,8 @@ public class PlayerCommander : MonoBehaviour
         if (!GroundPoint(pos, out Vector3 pt)) return;
 
         var over = HitFormation(pos);
-        dragEnemyTarget = (over != null && over.team == Team.Red) ? over : null;
+        // no attack orders during deployment — combat starts at Start Battle
+        dragEnemyTarget = (!Deploying && over != null && over.team == Team.Red) ? over : null;
 
         Vector3 from = dragOrigin.AnchorPos + Vector3.up * 0.15f;
         Vector3 to = dragEnemyTarget != null
@@ -309,7 +422,7 @@ public class PlayerCommander : MonoBehaviour
         if (origin == null || origin.soldiers.Count == 0 || !hasPoint) return;
 
         // dragging back onto the origin formation cancels the command
-        if (enemy == null && origin.DistanceToNearestSoldier(pt) < FormationTapRadius) return;
+        if (enemy == null && origin.InteractionDistance(pt) < 1.2f) return;
 
         if (enemy != null && enemy.soldiers.Count > 0)
         {
@@ -318,16 +431,52 @@ public class PlayerCommander : MonoBehaviour
         }
         else
         {
+            // Group order snapshot (Phase 2E): pivot at the selected anchors'
+            // center, relative offsets preserved and rigidly rotated so the
+            // whole arrangement faces the direction of travel. (Selected
+            // centuries with different individual facings are aligned to the
+            // common group destination facing — documented simplification.)
+            Vector3 pivot = Vector3.zero;
+            Vector3 avgFwd = Vector3.zero;
+            int live = 0;
             foreach (var f in selection)
             {
-                Vector3 offset = f.AnchorPos - origin.AnchorPos;
-                Vector3 dest = pt + offset;
+                if (f == null || f.soldiers.Count == 0) continue;
+                pivot += f.AnchorPos;
+                avgFwd += f.AnchorForward;
+                live++;
+            }
+            if (live == 0) return;
+            pivot /= live;
+
+            Vector3 travel = pt - pivot;
+            travel.y = 0f;
+            Quaternion arrange = Quaternion.identity;
+            if (live > 1 && travel.sqrMagnitude > 1f && avgFwd.sqrMagnitude > 0.01f)
+                arrange = Quaternion.FromToRotation(
+                    new Vector3(avgFwd.x, 0f, avgFwd.z).normalized, travel.normalized);
+            Vector3 groupFacing = travel.sqrMagnitude > 0.04f
+                ? travel.normalized : new Vector3(avgFwd.x, 0f, avgFwd.z).normalized;
+
+            // deployment destinations stay inside the friendly zone (Phase 6C)
+            var bs = BattleSetup.Instance;
+            float zMin = -FieldZ, zMax = FieldZ;
+            if (Deploying && bs != null)
+                zMax = -bs.fieldHalfZ + bs.deploymentZoneDepth;   // blue deploys south
+
+            foreach (var f in selection)
+            {
+                if (f == null || f.soldiers.Count == 0) continue;
+                Vector3 dest = pt + arrange * (f.AnchorPos - pivot);
                 dest.x = Mathf.Clamp(dest.x, -FieldX, FieldX);
-                dest.z = Mathf.Clamp(dest.z, -FieldZ, FieldZ);
+                dest.z = Mathf.Clamp(dest.z, zMin, zMax);
                 f.IssueMove(dest);
+                f.SetDestinationFacing(groupFacing);
             }
             BattleVisuals.SpawnPulse(pt, false);
         }
+        // Selection persists after orders (Phase 2): destination previews
+        // follow the moving centuries until the player deselects.
     }
 
     private void CancelCommandDrag()
@@ -339,51 +488,126 @@ public class PlayerCommander : MonoBehaviour
         if (enemyRing != null) enemyRing.SetActive(false);
     }
 
-    // ---------------- rotate mode ----------------
+    // ---------------- free-arrow rotate mode (Phase 2G) ----------------
+    //
+    // The Rotate button toggles an edit session: a freely movable facing arrow
+    // anchored to the session pivot. Moving centuries edit their DESTINATION
+    // facing (pivot = destination arrangement center; positions rotate rigidly
+    // around it on release); stationary centuries pivot in place. Attack
+    // orders never reach here — GetRotateBlock reports AutoFacing and the
+    // button is greyed out.
 
     public void ToggleRotateMode()
     {
         if (RotateMode) { ExitRotateMode(); return; }
         if (!CanEnterRotateMode) return;
+
+        rotateMovers.Clear();
+        rotateDestOffsets.Clear();
+        rotateStationary.Clear();
+        Vector3 pivot = Vector3.zero;
+        Vector3 initial = Vector3.zero;
+        float radius = 4f;
+        int movers = 0, live = 0;
+        foreach (var f in selection)
+        {
+            if (f == null || f.soldiers.Count == 0) continue;
+            live++;
+            radius = Mathf.Max(radius, f.BoundingRadius);
+            bool moving = f.HasMoveDestination &&
+                          (f.CurrentOrderType == OrderType.Move ||
+                           f.CurrentOrderType == OrderType.Withdraw);
+            if (moving) { rotateMovers.Add(f); movers++; }
+            else rotateStationary.Add(f);
+        }
+        if (live == 0) return;
+
+        // pivot around the planned destination center when anything is moving,
+        // otherwise around the current formation anchors
+        if (movers > 0)
+        {
+            foreach (var f in rotateMovers) { pivot += f.DestinationPosition; initial += f.DestinationFacing; }
+            pivot /= movers;
+        }
+        else
+        {
+            foreach (var f in rotateStationary) { pivot += f.AnchorPos; initial += f.AnchorForward; }
+            pivot /= rotateStationary.Count;
+        }
+        rotatePivot = pivot;
+        rotateInitialDir = initial.sqrMagnitude > 0.01f
+            ? new Vector3(initial.x, 0f, initial.z).normalized : Vector3.forward;
+        rotateEditDir = rotateInitialDir;
+        rotateArrowRadius = radius * 0.55f + 1.5f;
+        foreach (var f in rotateMovers)
+            rotateDestOffsets.Add(f.DestinationPosition - pivot);
+
         RotateMode = true;
         if (rotatePreviewArrow == null)
             rotatePreviewArrow = BattleVisuals.CreateArrow("RotatePreview", preview: true);
         rotatePreviewArrow.gameObject.SetActive(true);
-        UpdateRotatePreview(selection[0].AnchorForward);
+        UpdateRotatePreview(rotateEditDir);
     }
 
     private void ExitRotateMode()
     {
         RotateMode = false;
+        rotateMovers.Clear();
+        rotateDestOffsets.Clear();
+        rotateStationary.Clear();
         if (rotatePreviewArrow != null) rotatePreviewArrow.gameObject.SetActive(false);
     }
 
     private void UpdateRotateDrag(Vector2 pos)
     {
-        if (!RotateMode || selection.Count != 1) return;
+        if (!RotateMode) return;
         if (!GroundPoint(pos, out Vector3 pt)) return;
-        Vector3 dir = pt - selection[0].AnchorPos;
+        Vector3 dir = pt - rotatePivot;
         dir.y = 0f;
-        if (dir.sqrMagnitude < 0.25f) return;
-        UpdateRotatePreview(dir.normalized);
+        if (dir.sqrMagnitude < RotateDeadzone * RotateDeadzone) return;   // unstable near pivot
+        rotateEditDir = dir.normalized;
+        UpdateRotatePreview(rotateEditDir);
+        // live preview: moving centuries' planned facing follows the arrow so
+        // the destination slot previews rotate under the finger
+        foreach (var f in rotateMovers) f.SetDestinationFacing(rotateEditDir);
     }
 
     private void EndRotateDrag(Vector2 pos)
     {
-        if (RotateMode && selection.Count == 1 && GroundPoint(pos, out Vector3 pt))
+        if (RotateMode)
         {
-            Vector3 dir = pt - selection[0].AnchorPos;
-            dir.y = 0f;
-            if (dir.sqrMagnitude > 0.25f) selection[0].IssueFace(dir);
+            if (GroundPoint(pos, out Vector3 pt))
+            {
+                Vector3 dir = pt - rotatePivot;
+                dir.y = 0f;
+                if (dir.sqrMagnitude >= RotateDeadzone * RotateDeadzone)
+                    rotateEditDir = dir.normalized;
+            }
+            // lock: rotate the destination arrangement rigidly around the
+            // pivot by the edited delta; stationary centuries pivot in place
+            Quaternion delta = Quaternion.FromToRotation(rotateInitialDir, rotateEditDir);
+            for (int i = 0; i < rotateMovers.Count; i++)
+            {
+                var f = rotateMovers[i];
+                if (f == null || f.soldiers.Count == 0) continue;
+                Vector3 dest = rotatePivot + delta * rotateDestOffsets[i];
+                dest.x = Mathf.Clamp(dest.x, -FieldX, FieldX);
+                dest.z = Mathf.Clamp(dest.z, -FieldZ, FieldZ);
+                f.RedirectMove(dest, rotateEditDir);
+            }
+            foreach (var f in rotateStationary)
+            {
+                if (f == null || f.soldiers.Count == 0) continue;
+                f.IssueFace(rotateEditDir);
+            }
         }
         ExitRotateMode();
     }
 
     private void UpdateRotatePreview(Vector3 dir)
     {
-        if (rotatePreviewArrow == null || selection.Count != 1) return;
-        var f = selection[0];
-        rotatePreviewArrow.position = f.AnchorPos + dir * (f.BoundingRadius * 0.55f + 1.0f)
+        if (rotatePreviewArrow == null) return;
+        rotatePreviewArrow.position = rotatePivot + dir * rotateArrowRadius
                                       + Vector3.up * 0.14f;
         rotatePreviewArrow.rotation = Quaternion.LookRotation(dir, Vector3.up);
     }
@@ -393,12 +617,11 @@ public class PlayerCommander : MonoBehaviour
     private void HandleZoom()
     {
         var m = Mouse.current;
-        if (m == null) return;
+        if (m == null || camRig == null) return;
         float scroll = m.scroll.ReadValue().y;
         if (Mathf.Abs(scroll) < 0.01f) return;
         float step = Mathf.Clamp(scroll, -3f, 3f);
-        cam.orthographicSize = Mathf.Clamp(cam.orthographicSize * (1f - step * 0.045f),
-                                           ZoomMin, ZoomMax);
+        camRig.ZoomBy(1f - step * 0.06f);   // eased toward the target by the rig
     }
 
     private bool HandlePinch()
@@ -410,14 +633,14 @@ public class PlayerCommander : MonoBehaviour
         if (!t0.press.isPressed || !t1.press.isPressed) { lastPinchDist = -1f; return false; }
 
         float dist = Vector2.Distance(t0.position.ReadValue(), t1.position.ReadValue());
-        if (lastPinchDist > 0f && dist > 1f)
+        if (lastPinchDist > 0f && dist > 1f && camRig != null)
         {
-            cam.orthographicSize = Mathf.Clamp(cam.orthographicSize * (lastPinchDist / dist),
-                                               ZoomMin, ZoomMax);
+            camRig.ZoomBy(lastPinchDist / dist);
         }
         lastPinchDist = dist;
         mode = PointerMode.Idle;
         CancelCommandDrag();
+        if (camRig != null) camRig.CancelPan();   // a pinch never leaves glide behind
         return true;
     }
 

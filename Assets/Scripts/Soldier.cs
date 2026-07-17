@@ -8,12 +8,51 @@ public class Soldier : MonoBehaviour
     public Team team;
     public Formation formation;
     public int slotIndex;
+    public SoldierRole role = SoldierRole.Legionary;   // data-reserved century role (Phase 1)
 
     public bool Alive { get; private set; } = true;
     public bool IsEngaged;                    // maintained by the formation's engagement scan
+    public float NearestEnemyDist = float.MaxValue;   // also from the engagement scan
     public float Health { get; private set; }
 
     public Vector3 Velocity => rb != null && !rb.isKinematic ? rb.linearVelocity : Vector3.zero;
+
+    // Visual hooks (presentation only; gameplay stays authoritative).
+    public event System.Action OnAttack;
+    public event System.Action OnHurt;
+    public event System.Action OnDeath;
+    [System.NonSerialized] public bool suppressFallRotation;   // set by animated visuals
+    [System.NonSerialized] public bool suppressTint;            // visual controller owns all tinting
+    // Animated archers defer the projectile spawn to the firing clip's release
+    // frame. The shot is validated, damaged, and cooldown-charged at attack
+    // time as always; only the spawn moment moves. Capsule archers (flag off)
+    // keep the immediate spawn.
+    [System.NonSerialized] public bool deferRangedRelease;
+
+    // Animated legionaries defer the melee damage to each attack clip's
+    // authored contact frame (same philosophy as deferRangedRelease): the hit
+    // is validated, variant-chosen, and cooldown-charged at attack time; only
+    // the damage moment moves. Capsule melee (flag off) keeps instant damage.
+    [System.NonSerialized] public bool deferMeleeImpact;
+
+    // 0 thrust / 1 over-shield / 2 diagonal slash — chosen by gameplay so the
+    // damage timing and the displayed clip can never disagree.
+    public int MeleeAttackVariant { get; private set; }
+
+    [Tooltip("Relative weights: thrust / over-shield / diagonal slash")]
+    [SerializeField] private Vector3 meleeVariantWeights = new Vector3(0.5f, 0.25f, 0.25f);
+
+    // Seconds from attack commit to the authored contact frame, per variant
+    // (thrust f9/30fps, over-shield f12, diagonal f13 — trued to the clips).
+    private static readonly float[] MeleeImpactDelay = { 0.30f, 0.40f, 0.43f };
+
+    private Soldier pendingMeleeTarget;
+    private float pendingMeleeDamage;
+    private float pendingMeleeTimer;
+    private int lastVariant = -1, prevVariant = -1;
+
+    private Soldier pendingShotTarget;
+    private float pendingShotDamage;
 
     private UnitStats S => formation.stats;
 
@@ -24,13 +63,59 @@ public class Soldier : MonoBehaviour
     private MaterialPropertyBlock mpb;
     private Color baseColor;
 
+    // Contact-line saturation (Phase 4): melee attackers register on their
+    // victim so scoring can spread strikes along the boundary instead of the
+    // whole rear rank swarming one enemy.
+    [System.NonSerialized] public int meleeAttackerCount;
+    private const int MaxMeleeAttackersPerTarget = 3;
+
+    // grid query scratch (Phase 6F): shared, main-thread only
+    private static readonly Soldier[] sepBuffer = new Soldier[24];
+    private static readonly Soldier[] targetBuffer = new Soldier[96];
+
     private Soldier target;
     private float attackTimer;
     private float retargetTimer;
     private float skill = 1f;                 // fixed per-soldier variation, not hidden dice
     private Coroutine flashRoutine;
 
+    private Vector3 sepVel;                   // cached friendly-separation push
+    private int sepTick;                      // staggered so a quarter of soldiers recompute per tick
+    private static int sepStagger;
+
+    private bool movingForFacing;             // hysteresis state for movement-facing
+
+    // Committed-action lock: while a soldier is visibly striking, drawing,
+    // stabbing, or reacting to a hit, slot correction (and idle drift toward
+    // combat targets) is suspended so the action stays planted; it ramps back
+    // quickly when the window ends. Gameplay timing drives these windows —
+    // never Animator state names. Death stops movement entirely (existing).
+    private float actionLockTimer;
+    private float lockRecovery = 1f;          // 0 locked -> 1 free, quick ramp
+
+    // Action-priority reads (Patch 4): derived from gameplay state only.
+    public bool IsInCommittedCombatAction => actionLockTimer > 0f || pendingShotTarget != null;
+    public bool IsImmediatelyThreatened => IsEngaged;
+    public bool CanPerformStrongSlotCorrection =>
+        Alive && !IsInCommittedCombatAction && !IsEngaged;
+    public bool CanPerformWeakSlotCorrection => Alive && !IsInCommittedCombatAction;
+
+    // Centralized committed-action windows (seconds), matched to the visible
+    // clip lengths but timed by gameplay.
+    private const float MeleeAttackLockSeconds = 0.85f;    // sword strike window
+    private const float KnifeLockSeconds = 0.7f;           // archer sidearm stab
+    private const float RangedFollowThroughSeconds = 0.35f; // after arrow release
+    private const float RangedImmediateLockSeconds = 0.5f;  // capsule-fallback shot
+    private const float HitLockSeconds = 0.45f;            // hit-reaction window
+    private const float LockRampSeconds = 0.3f;            // correction ramp back in
+
     private const float Accel = 25f;
+    private const float FaceCombatDegPerSec = 480f;   // snapping onto an opponent
+    private const float FaceMoveDegPerSec = 360f;     // turning into the march direction
+    private const float FaceIdleDegPerSec = 240f;     // settling on formation facing (~pivot clip pace)
+    private const float FaceStartSpeed = 0.45f;       // m/s: begin facing movement
+    private const float FaceStopSpeed = 0.25f;        // m/s: fall back to hold/idle facing
+    // separation tuning now lives on BattleSetup (Phase 4 central exposure)
     private static readonly int BaseColorId = Shader.PropertyToID("_BaseColor");
 
     public void Init(Formation f, int slot, Rigidbody rb, Renderer body, Transform weapon,
@@ -49,6 +134,7 @@ public class Soldier : MonoBehaviour
         mpb = new MaterialPropertyBlock();
         retargetTimer = Random.value * 0.3f;
         attackTimer = Random.value * 0.5f;
+        sepTick = sepStagger++;               // spread separation recomputes across ticks
         RefreshTint();
     }
 
@@ -57,9 +143,11 @@ public class Soldier : MonoBehaviour
     private void FixedUpdate()
     {
         if (!Alive) return;
-        if (BattleSetup.Instance == null || BattleSetup.Instance.Phase != BattlePhase.Active)
+        // Deployment (Pre) allows full physical movement — formations march to
+        // their deployment positions; only combat is gated on Active (Update).
+        if (BattleSetup.Instance == null || BattleSetup.Instance.Phase == BattlePhase.Ended)
         {
-            rb.linearVelocity = Vector3.zero;   // hold position until the battle starts
+            rb.linearVelocity = Vector3.zero;
             return;
         }
 
@@ -92,11 +180,32 @@ public class Soldier : MonoBehaviour
             desired = slotDesire * Mathf.Clamp01(w + 0.35f);
         }
 
+        // Committed-action lock: a striking/drawing/stabbing/hit-reacting
+        // soldier stays planted (no slot chasing, no drift toward far
+        // targets); when the window ends, correction ramps back over
+        // LockRampSeconds instead of snapping. Combat stays authoritative:
+        // in-reach fighting has near-zero desired velocity anyway, and the
+        // lock timer is set by the same gameplay events that deal damage.
+        if (actionLockTimer > 0f)
+        {
+            actionLockTimer -= Time.fixedDeltaTime;
+            lockRecovery = 0f;
+        }
+        else if (pendingShotTarget != null) lockRecovery = 0f;   // bow drawn
+        else lockRecovery = Mathf.Min(1f, lockRecovery + Time.fixedDeltaTime / LockRampSeconds);
+        desired *= lockRecovery;
+
         // never stray past the leash, even with broken ranks
         Vector3 fromAnchor = pos - formation.AnchorPos;
         fromAnchor.y = 0f;
         if (fromAnchor.magnitude > formation.brokenLeash)
             desired = -fromAnchor.normalized * S.moveSpeed;
+
+        // soft same-team separation: recomputed every 4th tick (staggered),
+        // cached in between; biases the desired velocity, never overpowers it.
+        // Kept partially active while locked so overlaps still resolve gently.
+        if ((sepTick++ & 3) == 0) RecomputeSeparation(pos);
+        desired += sepVel * Mathf.Max(0.4f, lockRecovery);
 
         Vector3 vel = rb.linearVelocity;
         vel.y = 0f;
@@ -111,13 +220,66 @@ public class Soldier : MonoBehaviour
         return offset / dist * speed;
     }
 
+    // Friendly anti-clumping: a capped push away from same-team soldiers closer
+    // than a fraction of formation spacing (looser while packed into melee).
+    // Enemies are never pushed, so combat contact is untouched. Linear ramp with
+    // penetration depth; a deterministic tiebreak keeps coincident soldiers from
+    // jittering. Allocation-free brute force over the team registry, affordable
+    // because each soldier only recomputes every 4th tick.
+    private void RecomputeSeparation(Vector3 pos)
+    {
+        FormationState st = formation.State;
+        bool packed = st == FormationState.BrokenRanks || st == FormationState.Engaged;
+        var bs = BattleSetup.Instance;
+        float sepDist = formation.spacing *
+                        (packed ? bs.separationFractionPacked : bs.separationFractionOrdered);
+        float sep2 = sepDist * sepDist;
+
+        // Phase 6F: grid-local neighbors instead of the whole team registry —
+        // at 640 friends the full scan was the hottest loop in the game.
+        int nearby = BattleGrid.CollectFriends(pos, team, sepDist, sepBuffer);
+        Vector3 push = Vector3.zero;
+        for (int i = 0; i < nearby; i++)
+        {
+            Soldier f = sepBuffer[i];
+            if (f == this || !f.Alive) continue;
+            Vector3 away = pos - f.transform.position;
+            away.y = 0f;
+            float d2 = away.sqrMagnitude;
+            if (d2 >= sep2) continue;
+            if (d2 < 0.0001f)
+            {
+                // nearly coincident: no direction to push along, so break the tie
+                // by entity ID — stable across frames, never Random
+                push += GetEntityId().CompareTo(f.GetEntityId()) < 0 ? Vector3.right : Vector3.left;
+                continue;
+            }
+            float d = Mathf.Sqrt(d2);
+            push += away * ((sepDist - d) / (sepDist * d));   // unit dir * penetration 0..1
+        }
+        sepVel = Vector3.ClampMagnitude(push * bs.separationMaxPush, bs.separationMaxPush);
+    }
+
     // ---------------- combat ----------------
 
     private void Update()
     {
         if (!Alive) return;
         if (BattleSetup.Instance == null || BattleSetup.Instance.Phase != BattlePhase.Active)
-            return;   // no targeting or attacks before Start / after battle end
+        {
+            // no targeting or attacks before Start / after battle end, but the
+            // models still track facing so a pre-battle Rotate command turns
+            // the soldiers, not just the ground arrow
+            UpdateFacing();
+            return;
+        }
+
+        // deferred melee hit: land on the authored contact frame
+        if (pendingMeleeTarget != null)
+        {
+            pendingMeleeTimer -= Time.deltaTime;
+            if (pendingMeleeTimer <= 0f) LandPendingMeleeHit();
+        }
 
         retargetTimer -= Time.deltaTime;
         if (retargetTimer <= 0f)
@@ -137,11 +299,49 @@ public class Soldier : MonoBehaviour
             if (d <= reach && attackTimer <= 0f)
             {
                 attackTimer = S.attackCooldown * Random.Range(0.9f, 1.15f);
+                // formation-level tactical truth: front 1x, flank 1.5x, rear 2x
+                float dirMult = BattleSetup.Instance.GetDirectionalMultiplier(
+                    formation, target.formation);
                 if (shoot)
-                    Projectile.Spawn(transform.position + Vector3.up * 1.3f, target,
-                                     S.attackDamage * skill, S.projectileSpeed);
+                {
+                    formation.NotifyRangedShot();   // archer IsFiring window
+                    float dmg = S.attackDamage * skill * dirMult;
+                    if (deferRangedRelease)
+                    {
+                        ReleasePendingShot();   // an unreleased previous shot flies now
+                        pendingShotTarget = target;
+                        pendingShotDamage = dmg;
+                        // the pending shot itself locks correction until release
+                    }
+                    else
+                    {
+                        Projectile.Spawn(transform.position + Vector3.up * 1.3f, target,
+                                         dmg, S.projectileSpeed);
+                        actionLockTimer = Mathf.Max(actionLockTimer, RangedImmediateLockSeconds);
+                    }
+                }
                 else
-                    target.TakeDamage(S.attackDamage * skill * (S.isRanged ? 0.4f : 1f));
+                {
+                    float dmg = S.attackDamage * skill * dirMult * (S.isRanged ? 0.4f : 1f);
+                    if (deferMeleeImpact && !S.isRanged)
+                    {
+                        // damage lands on the clip's contact frame; everything
+                        // else (validation, cooldown, lock) charges now
+                        MeleeAttackVariant = PickMeleeVariant();
+                        LandPendingMeleeHit();   // an unlanded previous hit resolves now
+                        pendingMeleeTarget = target;
+                        pendingMeleeDamage = dmg;
+                        pendingMeleeTimer = MeleeImpactDelay[MeleeAttackVariant];
+                        actionLockTimer = Mathf.Max(actionLockTimer, MeleeAttackLockSeconds);
+                    }
+                    else
+                    {
+                        target.TakeDamage(dmg);
+                        actionLockTimer = Mathf.Max(actionLockTimer,
+                            S.isRanged ? KnifeLockSeconds : MeleeAttackLockSeconds);
+                    }
+                }
+                OnAttack?.Invoke();
                 if (weapon != null) StartCoroutine(LungeAnim());
             }
         }
@@ -152,45 +352,185 @@ public class Soldier : MonoBehaviour
     private void AcquireTarget()
     {
         float radius = formation.GetAcquireRadius(this);
-        if (radius <= 0f) { target = null; return; }
+        if (radius <= 0f) { SetTarget(null); return; }
 
         if (target != null && target.Alive)
         {
             float d = (target.transform.position - transform.position).magnitude;
+            // committed melee: never swap opponents while one is at sword's reach
+            if (!S.isRanged && d <= S.strikeRange * 1.2f) return;
             if (d < radius * 1.25f) return;   // hysteresis: keep current fight
         }
-        target = null;
+        SetTarget(null);
 
         if (BattleSetup.Instance == null) return;
-        var enemies = BattleSetup.Instance.GetSoldiers(team == Team.Blue ? Team.Red : Team.Blue);
-        float best = radius * radius;
-        float leash2 = formation.brokenLeash * formation.brokenLeash;
+        // Phase 6F: grid-local candidates. The buffer bounds the scan; ring
+        // expansion order means truncation drops only the farthest candidates.
+        int found = BattleGrid.CollectEnemies(transform.position, team, radius, targetBuffer);
+        float max2 = radius * radius;
+        float bestScore = float.MaxValue;
+        Soldier best = null;
+        // ranged units must be able to acquire anything inside their own range,
+        // even when it stands beyond the broken-ranks leash around the anchor
+        float leash = formation.brokenLeash;
+        if (S.isRanged) leash = Mathf.Max(leash, S.rangedRange + 2f);
+        float leash2 = leash * leash;
         Vector3 p = transform.position;
-        foreach (var e in enemies)
+        Vector3 fwd = transform.forward;
+        for (int i = 0; i < found; i++)
         {
+            Soldier e = targetBuffer[i];
             if (!e.Alive) continue;
-            float d2 = (e.transform.position - p).sqrMagnitude;
-            if (d2 >= best) continue;
+            Vector3 to = e.transform.position - p;
+            float d2 = to.sqrMagnitude;
+            if (d2 >= max2) continue;
             if ((e.transform.position - formation.AnchorPos).sqrMagnitude > leash2) continue;
-            best = d2;
-            target = e;
+            // mild preference for enemies roughly ahead: a soldier should not
+            // spin away from the local fight for a marginally closer enemy at
+            // its back, but a lone rear threat is still acquired
+            float score = Vector3.Dot(fwd, to) < 0f ? d2 * 1.6f : d2;
+            // contact-line spread (Phase 4): an enemy already mobbed by the
+            // attacker cap scores badly, so the next rank looks for an open
+            // position along the boundary instead of piling on
+            if (!S.isRanged && e.meleeAttackerCount >= MaxMeleeAttackersPerTarget)
+                score *= 3f;
+            if (score < bestScore) { bestScore = score; best = e; }
         }
+        SetTarget(best);
     }
 
+    // Central target setter: keeps the victim's melee attacker count honest
+    // (Phase 4 saturation). Ranged attackers don't reserve contact positions.
+    private void SetTarget(Soldier t)
+    {
+        if (target == t) return;
+        if (!S.isRanged)
+        {
+            if (target != null)
+                target.meleeAttackerCount = Mathf.Max(0, target.meleeAttackerCount - 1);
+            if (t != null) t.meleeAttackerCount++;
+        }
+        target = t;
+    }
+
+    // Called by the visual controller at the firing clip's release frame (or
+    // immediately on interrupt). Spawns the shot validated at attack time.
+    public void ReleasePendingShot()
+    {
+        if (pendingShotTarget == null) return;
+        var t = pendingShotTarget;
+        pendingShotTarget = null;
+        actionLockTimer = Mathf.Max(actionLockTimer, RangedFollowThroughSeconds);
+        if (!Alive || !t.Alive) return;
+        Projectile.Spawn(transform.position + Vector3.up * 1.3f, t,
+                         pendingShotDamage, S.projectileSpeed);
+    }
+
+    public void CancelPendingShot() { pendingShotTarget = null; }
+
+    // Resolve the staged melee hit (contact frame reached, or a new attack is
+    // committing before the previous one landed). Damage was computed at
+    // commit time; the target just has to still be there to receive it.
+    private void LandPendingMeleeHit()
+    {
+        if (pendingMeleeTarget == null) return;
+        var t = pendingMeleeTarget;
+        pendingMeleeTarget = null;
+        if (!Alive || !t.Alive) return;
+        t.TakeDamage(pendingMeleeDamage);
+    }
+
+    // Weighted pick over the three attack clips; one re-roll if the choice
+    // would make three identical strikes in a row. Visual variety only —
+    // damage, cooldown, and reach are identical across variants.
+    private int PickMeleeVariant()
+    {
+        int v = RollMeleeVariant();
+        if (v == lastVariant && v == prevVariant) v = RollMeleeVariant();
+        prevVariant = lastVariant;
+        lastVariant = v;
+        return v;
+    }
+
+    private int RollMeleeVariant()
+    {
+        float total = meleeVariantWeights.x + meleeVariantWeights.y + meleeVariantWeights.z;
+        if (total <= 0f) return 0;
+        float r = Random.value * total;
+        if (r < meleeVariantWeights.x) return 0;
+        return r < meleeVariantWeights.x + meleeVariantWeights.y ? 1 : 2;
+    }
+
+    // Facing resolver, in priority order: pending shot > active combat >
+    // meaningful movement > formation facing. The gameplay root is the single
+    // dynamically rotated transform (the visual prefab is an identity child),
+    // so models, the mild ahead-preference in AcquireTarget, and formation
+    // presentation all read the same facing. Directional damage stays
+    // formation-level (AnchorForward) and is unaffected. RotateTowards is
+    // frame-rate independent and takes the shortest horizontal path; the
+    // dead zone below retains the last valid facing instead of guessing.
     private void UpdateFacing()
     {
+        Vector3 v = Velocity;
+        float sp2 = v.sqrMagnitude;
+        // hysteresis: slot-correction noise must not flip between movement
+        // facing and idle facing every few frames
+        if (movingForFacing) { if (sp2 < FaceStopSpeed * FaceStopSpeed) movingForFacing = false; }
+        else if (sp2 > FaceStartSpeed * FaceStartSpeed) movingForFacing = true;
+
         Vector3 dir;
-        if (target != null && target.Alive)
+        float degPerSec;
+        if (pendingShotTarget != null && pendingShotTarget.Alive)
+        {
+            // mid-draw archer: hold on the shot actually being released, even
+            // if target acquisition has already moved on — no mid-draw wobble
+            dir = pendingShotTarget.transform.position - transform.position;
+            degPerSec = FaceCombatDegPerSec;
+        }
+        else if (target != null && target.Alive && InCombatFacingRange())
+        {
             dir = target.transform.position - transform.position;
+            degPerSec = FaceCombatDegPerSec;
+        }
+        else if (movingForFacing)
+        {
+            dir = v;
+            degPerSec = FaceMoveDegPerSec;
+        }
         else
         {
-            Vector3 v = Velocity;
-            dir = v.sqrMagnitude > 0.2f ? v : formation.AnchorForward;
+            // Broken and idle: keep the last meaningful visual direction —
+            // there is no formation facing to settle onto (Phase 2 policy).
+            if (formation.State == FormationState.BrokenRanks) return;
+            // idle: the formation's canonical facing — this is what makes an
+            // explicit Rotate command end with soldiers facing the arrow
+            dir = formation.AnchorForward;
+            degPerSec = FaceIdleDegPerSec;
         }
         dir.y = 0f;
-        if (dir.sqrMagnitude < 0.001f) return;
+        if (dir.sqrMagnitude < 0.001f) return;   // dead zone: keep last facing
         Quaternion want = Quaternion.LookRotation(dir.normalized, Vector3.up);
-        transform.rotation = Quaternion.RotateTowards(transform.rotation, want, 420f * Time.deltaTime);
+        transform.rotation = Quaternion.RotateTowards(transform.rotation, want,
+                                                      degPerSec * Time.deltaTime);
+    }
+
+    // Melee faces its opponent only while genuinely fighting (in contact or in
+    // reach), not a distant acquisition while marching. Ranged holds on a
+    // target inside bow range while standing in the firing line; on the move
+    // both face their movement instead of twisting toward a far-away target.
+    private bool InCombatFacingRange()
+    {
+        Vector3 to = target.transform.position - transform.position;
+        to.y = 0f;
+        float d2 = to.sqrMagnitude;
+        if (!S.isRanged)
+        {
+            float r = S.strikeRange * 1.5f;
+            return IsEngaged || d2 <= r * r;
+        }
+        if (movingForFacing) return false;
+        float rr = S.rangedRange * 1.1f;
+        return d2 <= rr * rr;
     }
 
     public void TakeDamage(float dmg)
@@ -202,6 +542,8 @@ public class Soldier : MonoBehaviour
             Die();
             return;
         }
+        actionLockTimer = Mathf.Max(actionLockTimer, HitLockSeconds);
+        OnHurt?.Invoke();
         if (flashRoutine != null) StopCoroutine(flashRoutine);
         flashRoutine = StartCoroutine(HitFlash());
     }
@@ -209,12 +551,15 @@ public class Soldier : MonoBehaviour
     private void Die()
     {
         Alive = false;
+        pendingMeleeTarget = null;   // a dead soldier never finishes a swing
+        SetTarget(null);             // release the contact-line reservation
         formation.NotifyDeath(this);
         if (BattleSetup.Instance != null) BattleSetup.Instance.Unregister(this);
         var col = GetComponent<Collider>();
         if (col != null) col.enabled = false;
         rb.isKinematic = true;
         if (selectionDisc != null) selectionDisc.SetActive(false);
+        OnDeath?.Invoke();
         StopAllCoroutines();
         StartCoroutine(DeathAnim());
     }
@@ -222,15 +567,23 @@ public class Soldier : MonoBehaviour
     private IEnumerator DeathAnim()
     {
         SetTint(Color.Lerp(baseColor, Color.black, 0.55f));
-        Quaternion start = transform.rotation;
-        Quaternion fallen = start * Quaternion.Euler(90f, 0f, 0f);
-        for (float t = 0f; t < 1f; t += Time.deltaTime / 0.35f)
+        if (!suppressFallRotation)
         {
-            transform.rotation = Quaternion.Slerp(start, fallen, t);
-            yield return null;
+            Quaternion start = transform.rotation;
+            Quaternion fallen = start * Quaternion.Euler(90f, 0f, 0f);
+            for (float t = 0f; t < 1f; t += Time.deltaTime / 0.35f)
+            {
+                transform.rotation = Quaternion.Slerp(start, fallen, t);
+                yield return null;
+            }
+            transform.rotation = fallen;
+            yield return new WaitForSeconds(1.2f);
         }
-        transform.rotation = fallen;
-        yield return new WaitForSeconds(1.2f);
+        else
+        {
+            // animated visual plays its own death clip (~2.4 s); keep overall timing
+            yield return new WaitForSeconds(1.55f);
+        }
         for (float t = 0f; t < 1f; t += Time.deltaTime / 0.8f)
         {
             transform.position += Vector3.down * (1.6f * Time.deltaTime);
@@ -257,6 +610,9 @@ public class Soldier : MonoBehaviour
 
     private void SetTint(Color c)
     {
+        // A renderer-level MPB overrides _BaseColor on EVERY material slot of a
+        // multi-material renderer; the Roman visual controller tints per slot instead.
+        if (suppressTint) return;
         if (bodyRenderer == null) return;
         bodyRenderer.GetPropertyBlock(mpb);
         mpb.SetColor(BaseColorId, c);
