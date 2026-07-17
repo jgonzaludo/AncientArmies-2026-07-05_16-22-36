@@ -61,10 +61,14 @@ public class BattleSetup : MonoBehaviour
     [Tooltip("Guaranteed edge-to-edge gap between neighboring formations, in multiples of the larger of the two intra-formation spacings")]
     public float formationGapFactor = 1.1f;
     public float lineSpacingX = 16f;
+    // Line depths (v1.8.1): a melee century is ~9 m deep (8 rows x 1.15) and
+    // an archer century ~13 m (8 rows x 1.75), so the lines need real gaps —
+    // archers clear of the front line's rear rank, reserves clear of the
+    // archers' rear rank.
     [Tooltip("How far behind the front line the two reserve centuries deploy")]
-    public float reserveLineOffset = 18f;
+    public float reserveLineOffset = 32f;
     [Tooltip("How far behind the front line the archer centuries deploy")]
-    public float archerLineOffset = 11f;
+    public float archerLineOffset = 16f;
 
     // Battlefield scale (Phase 6). ~410x280 = roughly 11x the old 120x80 area:
     // room for wings, reserves, and maneuver without empty-travel tedium. At

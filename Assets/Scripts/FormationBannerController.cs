@@ -32,6 +32,10 @@ public class FormationBannerController : MonoBehaviour
     [SerializeField] private float maxZoomCompensation = 1.35f;
     [SerializeField] private float selectedScaleMultiplier = 1.08f;
     [SerializeField] private int selectedSortingBoost = 100;
+    // v1.8.1 selection language: no outline — while anything is selected,
+    // every OTHER banner dims to this alpha and the selected ones stay full.
+    [Tooltip("Alpha applied to unselected banners while a selection exists")]
+    [SerializeField] private float unselectedDimFactor = 0.4f;
 
     [Header("Order feedback")]
     [Tooltip("A hidden close-zoom banner appears this long after an order")]
@@ -47,9 +51,6 @@ public class FormationBannerController : MonoBehaviour
     private static readonly Color HealthHigh = new Color(0.38f, 0.86f, 0.38f);
     private static readonly Color HealthLow = new Color(0.95f, 0.7f, 0.15f);
     private static readonly Color BarBackground = new Color(0.08f, 0.08f, 0.1f, 0.85f);
-    // Selection is a thin white outline (slightly larger badge copy behind the
-    // badge), never a gold recolor — team color must stay readable on the badge.
-    private static readonly Color SelectionOutline = new Color(1f, 1f, 1f, 0.85f);
     // Broken ranks reads as damage: badge desaturated toward grey and faded.
     private static readonly Color BrokenBadgeTint = new Color(0.75f, 0.7f, 0.7f);
 
@@ -74,7 +75,7 @@ public class FormationBannerController : MonoBehaviour
     private Camera cam;
 
     private Transform root, scaleContainer;
-    private SpriteRenderer baseSR, selectionSR, stateIconSR, healthBgSR, healthFillSR, facingSR;
+    private SpriteRenderer baseSR, stateIconSR, healthBgSR, healthFillSR, facingSR;
     private TextMesh countTM;
     private MeshRenderer countMR;
 
@@ -189,7 +190,11 @@ public class FormationBannerController : MonoBehaviour
         currentScale = Mathf.MoveTowards(currentScale, want, blendStep * want * 1.5f);
         scaleContainer.localScale = Vector3.one * currentScale;
 
-        float alpha = shownAlpha * (overlapFaded && !selected && !targeted ? 0.25f : 1f);
+        // selection reads as focus: everything NOT selected drops opacity
+        bool anySelection = commander != null && commander.Selection.Count > 0;
+        float dim = anySelection && !selected ? unselectedDimFactor : 1f;
+        float alpha = shownAlpha * dim *
+                      (overlapFaded && !selected && !targeted ? 0.25f : 1f);
         ApplyPresentation(level, selected, alpha);
 
         infoTimer -= Time.unscaledDeltaTime;
@@ -232,7 +237,6 @@ public class FormationBannerController : MonoBehaviour
         bool broken = f.State == FormationState.BrokenRanks;
         SetSpriteAlpha(baseSR, broken ? BrokenBadgeTint : Color.white,
                        broken ? alpha * 0.55f : alpha);
-        SetSpriteAlpha(selectionSR, SelectionOutline, selected ? alpha : 0f);
         SetSpriteAlpha(healthBgSR, BarBackground, bars ? alpha : 0f);
         float hp = Mathf.Clamp01(f.TotalHealth / Mathf.Max(1f, f.TotalMaxHealth));
         SetSpriteAlpha(healthFillSR, Color.Lerp(HealthLow, HealthHigh, hp), bars ? alpha : 0f);
@@ -250,7 +254,6 @@ public class FormationBannerController : MonoBehaviour
 
         int order = 10 + (selected ? selectedSortingBoost : (int)(Priority * 10f));
         baseSR.sortingOrder = order;
-        selectionSR.sortingOrder = order - 1;
         healthBgSR.sortingOrder = order + 1;
         healthFillSR.sortingOrder = order + 2;
         stateIconSR.sortingOrder = order + 2;
@@ -334,9 +337,6 @@ public class FormationBannerController : MonoBehaviour
         scaleContainer.SetParent(root, false);
 
         baseSR = MakeSprite("BaseBannerImage", badge, Vector3.zero, Vector3.one);
-        // barely larger than the badge so it reads as an outline, not a second frame
-        selectionSR = MakeSprite("SelectionOutline", badge, new Vector3(0f, 0f, 0.02f),
-                                 Vector3.one * 1.10f);
         healthBgSR = MakeSprite("HealthBarBg", whiteSprite, new Vector3(0f, -1.95f, -0.01f),
                                 new Vector3(barWidth + 0.1f, barHeight + 0.1f, 1f));
         healthFillSR = MakeSprite("HealthBarFill", whiteSprite, new Vector3(0f, -1.95f, -0.02f),
