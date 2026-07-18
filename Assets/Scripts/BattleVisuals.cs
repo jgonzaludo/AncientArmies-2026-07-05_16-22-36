@@ -90,6 +90,16 @@ public static class BattleVisuals
         lr.material = attack ? attackLineMat : moveLineMat;
     }
 
+    // Arrow color state (v1.8.2): white = settled current facing, yellow =
+    // an edit in progress or a facing the formation is still turning toward.
+    // Shared materials — swapping costs nothing.
+    public static void SetArrowPreviewStyle(Transform arrow, bool preview)
+    {
+        EnsureMaterials();
+        var mr = arrow.GetComponent<MeshRenderer>();
+        if (mr != null) mr.sharedMaterial = preview ? previewArrowMat : arrowMat;
+    }
+
     public static GameObject CreateGroundDisc(string name, float diameter, bool enemyStyle)
     {
         EnsureMaterials();
