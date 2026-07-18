@@ -5,6 +5,27 @@ versions are git tags on `main` per `docs/VERSIONING.md`.
 
 ## [Unreleased]
 
+### 0.11.0 candidate — Controls & UI revamp (on `dev`, awaiting owner Play Mode test)
+
+#### Added
+- Move drags now preview the real thing: the 80 destination slot dots follow
+  the finger live (same math the released order issues, so the preview never
+  lies); attack drags keep the red line + target ring.
+- Place-and-twist facing: while dragging a move, a second finger aims the
+  formation's final facing — the dots rotate under it, the facing locks past
+  a small deadzone, and lifting the second finger keeps it. No rotate button
+  needed mid-order (the button remains for stationary rotates).
+- Double-tap grouping: tap = exclusive select; a quick second tap on another
+  century adds it to the group; tapping a selected century removes it; empty
+  ground clears.
+
+#### Fixed
+- Removed the full-width bottom bar whose invisible background swallowed unit
+  taps near the bottom of the screen. Commands are standalone floating
+  rounded buttons bottom-right; formation info lives on a compact
+  non-interactive chip bottom-left. Only button backgrounds are raycast
+  targets anywhere in the HUD.
+
 ### 0.10.0 candidate — Mobile presentation (on `dev`, awaiting owner Play Mode test)
 
 #### Added
