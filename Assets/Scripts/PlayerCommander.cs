@@ -75,23 +75,31 @@ public class PlayerCommander : MonoBehaviour
     private static float FieldX => BattleSetup.Instance != null ? BattleSetup.Instance.fieldHalfX - 4f : 54f;
     private static float FieldZ => BattleSetup.Instance != null ? BattleSetup.Instance.fieldHalfZ - 4f : 36f;
 
+    // 1080p-reference pixels expressed at the current resolution
+    private static float RefPx(float px) => px / 1080f * Screen.height;
+
     // Touch slop: small finger movement after touch-down must not instantly
-    // commit the gesture to a drag. ~1.5mm on a real screen, 22px fallback
-    // where dpi is unavailable (editor).
-    private float TouchSlopPixels => Mathf.Max(22f, Screen.dpi * 0.06f);
+    // commit the gesture to a drag. ~1.5mm where dpi is trustworthy; else a
+    // screen-height fraction (22px at 1080p) so the slop scales with
+    // resolution instead of shrinking on dense screens.
+    private float TouchSlopPixels => Mathf.Max(RefPx(22f), Screen.dpi > 0f ? Screen.dpi * 0.06f : 0f);
 
     // World units covered by one screen pixel at the current zoom.
     private float WorldPerPixel => cam.orthographicSize * 2f / Screen.height;
 
     // Tap forgiveness beyond a formation's footprint/soldiers. Zoom-aware so
     // the padding stays finger-sized on screen; never smaller than 2.5m.
-    private float FormationTapPadding => Mathf.Max(2.5f, WorldPerPixel * 60f);
+    // 60 is 1080p-reference pixels: WorldPerPixel * RefPx cancels
+    // Screen.height, so the world padding depends only on zoom, not device
+    // resolution.
+    private float FormationTapPadding => Mathf.Max(2.5f, WorldPerPixel * RefPx(60f));
 
     // Command drags may begin this far (world units) outside the selected
     // formation's footprint and still count as commanding it. More generous
     // than tap selection: once a formation is selected, grabbing it should be
-    // nearly impossible to miss.
-    private float CommandGrabTolerance => Mathf.Max(4f, WorldPerPixel * 100f);
+    // nearly impossible to miss. 100 is 1080p-reference pixels; as above,
+    // the world tolerance depends only on zoom, not device resolution.
+    private float CommandGrabTolerance => Mathf.Max(4f, WorldPerPixel * RefPx(100f));
 
     private void Start()
     {
