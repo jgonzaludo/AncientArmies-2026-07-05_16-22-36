@@ -163,9 +163,10 @@ public class RomanLegionaryVisualController : MonoBehaviour
         if (formation == null) return isMoving ? LocoMarch : LocoRearIdle;
         FormationState st = formation.State;
 
-        // Broken ranks: freer individual behavior — open combat stance and a
-        // run, no formation rank restrictions (documented fallback clips).
-        if (st == FormationState.BrokenRanks)
+        // Broken ranks and the charge rush: freer individual behavior — open
+        // combat stance and a run, no formation rank restrictions (a charging
+        // century sprints as a pack, not a marching column).
+        if (st == FormationState.BrokenRanks || st == FormationState.Charging)
             return isMoving ? LocoBrokenRun : LocoBrokenIdle;
 
         // Guard applies to soldiers actually exposed to combat: in melee

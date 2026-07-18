@@ -155,9 +155,13 @@ public class FormationBannerController : MonoBehaviour
         // combat deformation follows the dominant cluster. While broken or
         // reforming the banner is a fixed rally flag at the point where ranks
         // broke — it must not chase the scattering soldiers, or the player
-        // loses the reference point the formation will reform around.
+        // loses the reference point the formation will reform around. A
+        // PURSUING pack is the exception: the standard moved with the men, so
+        // the banner rides the dominant cluster until Reform plants it.
         Vector3 target;
-        if (critical)
+        if (f.State == FormationState.BrokenRanks && f.IsPursuing && f.DominantGroupCount > 0)
+            target = f.DominantGroupCenter;
+        else if (critical)
             target = f.RallyAnchor;
         else if (f.State == FormationState.Engaged && f.DominantGroupCount > 0)
             target = f.DominantGroupCenter;
@@ -263,6 +267,7 @@ public class FormationBannerController : MonoBehaviour
             case FormationState.BrokenRanks: return iconBroken;
             case FormationState.Reforming: return iconReforming;
             case FormationState.Attacking:
+            case FormationState.Charging:
             case FormationState.Withdrawing: return iconMoving;
             case FormationState.Ordered: return f.HasMoveDestination ? iconMoving : null;
             default: return null;

@@ -1,12 +1,12 @@
 using System.Collections.Generic;
 using UnityEngine;
 
-public enum FormationState { Ordered, Attacking, Engaged, BrokenRanks, Withdrawing, Reforming }
+public enum FormationState { Ordered, Attacking, Engaged, BrokenRanks, Withdrawing, Reforming, Charging }
 
 // Current strategic order (Phase 2). Stored, never inferred: a move order
 // keeps its DestinationPosition and DestinationFacing from issue to arrival,
 // so current facing, travel direction, and final facing are three values.
-public enum OrderType { None, Move, Attack, Reform, BreakRanks, Withdraw }
+public enum OrderType { None, Move, Attack, Reform, BreakRanks, Withdraw, Charge }
 
 // Rotate-command maneuvers (Patch 4): a formation turns like a rectangular
 // body, not a liquid. SmallTurn/AboutFace snap facing and redress in place;
@@ -73,6 +73,22 @@ public class Formation : MonoBehaviour
     public float disengageRadius = 9f;         // no enemy within this of any soldier => can reform
     public float brokenLeash = 26f;
     public float meleeChaseStopDist = 3.5f;    // anchor-to-anchor stop distance when charging
+
+    [Header("Charge (rush -> pursuit)")]
+    [Tooltip("Sprint multiplier on the anchor and every soldier while the rush is on")]
+    public float chargeSpeedFactor = 1.3f;
+    [Tooltip("A rush that never finds contact tips into pursuit after this long")]
+    public float chargeMaxSeconds = 5f;
+    [Tooltip("Seconds of impact bonus after first contact; then the rush dissolves into pursuit")]
+    public float chargeImpactWindow = 2f;
+    [Tooltip("Melee damage multiplier inside the impact window (stacks with the directional bonus)")]
+    public float chargeImpactBonus = 1.5f;
+    [Tooltip("Max anchor distance at which a charge can pick or accept a target")]
+    public float chargeRange = 45f;
+    [Tooltip("A pursuing pack flows to the next enemy formation this close — never across the map")]
+    public float pursuitRetargetRadius = 35f;
+    [Tooltip("Tighter soldier leash while pursuing: the pack stays a pack")]
+    public float pursuitLeash = 18f;
 
     [Header("Rank replacement (ordered melee)")]
     public float promoteInterval = 0.6f;       // how often vacancies are scanned
@@ -166,11 +182,12 @@ public class Formation : MonoBehaviour
     // Facing authority: AnchorRot is the single authoritative facing —
     // directional damage, slots, soldier idle facing, and the ground arrow all
     // read it. IsAutoFacing marks the states where combat, not the player,
-    // steers it (chase rotation while Attacking, contact wheeling while
-    // Engaged); manual Rotate is unavailable there.
+    // steers it (chase rotation while Attacking or Charging, contact wheeling
+    // while Engaged); manual Rotate is unavailable there.
     public bool IsAutoFacing =>
         soldiers.Count > 0 &&
-        ((State == FormationState.Attacking && attackTarget != null) ||
+        (((State == FormationState.Attacking || State == FormationState.Charging) &&
+          attackTarget != null) ||
          State == FormationState.Engaged);
 
     public enum RotateBlock { None, AutoFacing, Broken, Busy, Destroyed }
@@ -184,6 +201,42 @@ public class Formation : MonoBehaviour
         if (State != FormationState.Ordered) return RotateBlock.Busy;
         return RotateBlock.None;
     }
+
+    public enum ChargeBlock { None, NoTarget, Broken, Busy, Destroyed }
+
+    // Why the Charge command is currently unavailable (None = available).
+    // Ordered, Attacking, and Engaged may all charge — an engaged century can
+    // still throw itself forward.
+    public ChargeBlock GetChargeBlock()
+    {
+        if (soldiers.Count == 0) return ChargeBlock.Destroyed;
+        if (State == FormationState.BrokenRanks || State == FormationState.Reforming)
+            return ChargeBlock.Broken;
+        if (State == FormationState.Withdrawing || State == FormationState.Charging ||
+            Maneuver == FormationManeuverState.Wheel)
+            return ChargeBlock.Busy;
+        if (NearestEnemyFormation(AnchorPos, chargeRange) == null) return ChargeBlock.NoTarget;
+        return ChargeBlock.None;
+    }
+
+    // True while the post-charge free-for-all runs on the broken-ranks
+    // machinery: soldiers hunt as individuals, but the standard moves with the
+    // pack until Reform plants it.
+    public bool IsPursuing { get; private set; }
+
+    public float SpeedMultiplier =>
+        State == FormationState.Charging ? chargeSpeedFactor : 1f;
+
+    // Impact bonus lives only inside the rush's contact window. Archers may
+    // charge as a last resort but get no bonus — their sidearm's damage
+    // discount already prices that desperation.
+    public float ChargeDamageMultiplier =>
+        State == FormationState.Charging && !stats.isRanged &&
+        (firstContactTime < 0f || Time.time - firstContactTime <= chargeImpactWindow)
+            ? chargeImpactBonus : 1f;
+
+    // The leash tightens while pursuing so the pack stays a pack.
+    public float EffectiveLeash => IsPursuing ? pursuitLeash : brokenLeash;
 
     public readonly List<Soldier> soldiers = new List<Soldier>();
     public int TotalSpawned { get; private set; }
@@ -226,6 +279,10 @@ public class Formation : MonoBehaviour
     private static int[] clusterSize = new int[64];
 
     private float flankThreatTime;   // defensive-pivot reaction timer
+
+    // charge timing: when the rush began and when it first found contact
+    private float chargeStartTime;
+    private float firstContactTime = -1f;
 
     // wheel maneuver state: one formation-level progress, no per-soldier data
     private Quaternion maneuverTargetRot;
@@ -389,6 +446,56 @@ public class Formation : MonoBehaviour
         hasDestination = true;
         CurrentOrderType = OrderType.Attack;
         OnOrderIssued?.Invoke();
+    }
+
+    // Charge: a committed sprint at a nearby enemy that trades formation
+    // discipline for a burst of impact, then dissolves into pursuit on the
+    // broken-ranks machinery. Blocked charges are refused outright — never
+    // queued — so the button state and the outcome can't disagree.
+    public void IssueCharge(Formation target = null)
+    {
+        if (GetChargeBlock() != ChargeBlock.None) return;
+        Formation resolved =
+            IsChargeable(target) ? target :
+            IsChargeable(attackTarget) ? attackTarget :
+            NearestEnemyFormation(AnchorPos, chargeRange);
+        if (resolved == null) return;
+        Maneuver = FormationManeuverState.None;
+        attackTarget = resolved;
+        State = FormationState.Charging;
+        CurrentOrderType = OrderType.Charge;
+        hasDestination = true;
+        chargeStartTime = Time.time;
+        firstContactTime = -1f;
+        OnOrderIssued?.Invoke();
+    }
+
+    // A charge only ever picks or accepts a living enemy within chargeRange
+    // of the anchor — no cross-map death runs.
+    private bool IsChargeable(Formation t)
+    {
+        if (t == null || t.team == team || t.soldiers.Count == 0) return false;
+        Vector3 d = t.AnchorPos - AnchorPos;
+        d.y = 0f;
+        return d.sqrMagnitude <= chargeRange * chargeRange;
+    }
+
+    // Nearest living enemy formation within maxDist of a point. Bounded by the
+    // caller's radius so charge targeting and pursuit flow stay local.
+    private Formation NearestEnemyFormation(Vector3 point, float maxDist)
+    {
+        if (BattleSetup.Instance == null) return null;
+        Formation best = null;
+        float best2 = maxDist * maxDist;
+        foreach (var o in BattleSetup.Instance.formations)
+        {
+            if (o.team == team || o.soldiers.Count == 0) continue;
+            Vector3 d = o.AnchorPos - point;
+            d.y = 0f;
+            float d2 = d.sqrMagnitude;
+            if (d2 < best2) { best2 = d2; best = o; }
+        }
+        return best;
     }
 
     // Rotate command, classified by the shortest signed yaw delta (Patch 4):
@@ -637,6 +744,7 @@ public class Formation : MonoBehaviour
         // of where the soldiers scatter (Phase 3 locked behavior).
         RallyAnchor = AnchorPos;
         rallyFacing = AnchorRot;
+        IsPursuing = false;   // a deliberate break is anchored, not a pursuit
         attackTarget = null;
         hasDestination = false;
         Maneuver = FormationManeuverState.None;
@@ -653,6 +761,18 @@ public class Formation : MonoBehaviour
     public void IssueReform()
     {
         if (State != FormationState.BrokenRanks || soldiers.Count == 0) return;
+
+        // Planting the standard: a pursuit has no pre-frozen rally point — the
+        // standard moved with the men, and Reform strikes it into the ground
+        // wherever the pack stands NOW. From here the ordinary fixed-rally
+        // reform flow applies, and an abort back to Broken leaves the standard
+        // planted rather than resuming the pursuit.
+        if (IsPursuing)
+        {
+            RallyAnchor = DominantGroupCount > 0 ? DominantGroupCenter : AnchorPos;
+            rallyFacing = AnchorRot;
+            IsPursuing = false;
+        }
 
         AnchorPos = RallyAnchor;
         AnchorRot = rallyFacing;
@@ -720,6 +840,7 @@ public class Formation : MonoBehaviour
             case FormationState.BrokenRanks: return 0f;   // Phase 3: zero slot steering while broken
             case FormationState.Withdrawing: return 1f;
             case FormationState.Reforming: return 1f;
+            case FormationState.Charging: return 0.4f;    // a loose pack, not a parade
             default: return 1f;
         }
     }
@@ -736,6 +857,7 @@ public class Formation : MonoBehaviour
                 r = s.IsEngaged || NearCombat(s) ? acquireRadiusEngaged
                                                  : personalEngageRadius; break;
             case FormationState.BrokenRanks:
+            case FormationState.Charging:      // rushing soldiers hunt like broken ones
                 r = acquireRadiusBroken; break;
             default:
                 return 0f;   // Withdrawing / Reforming: stop seeking engagements
@@ -857,14 +979,43 @@ public class Formation : MonoBehaviour
     private void UpdateAnchorMovement()
     {
         if (Maneuver == FormationManeuverState.Wheel) return;   // the wheel owns the anchor
+        // Pursuit is the one exception to the frozen broken-state anchor: the
+        // standard moves with the men, so the anchor (leash center, reform
+        // safety reads) eases after the dominant pack. AnchorRot is untouched.
+        if (State == FormationState.BrokenRanks && IsPursuing && DominantGroupCount > 0)
+        {
+            AnchorPos = Vector3.Lerp(AnchorPos, DominantGroupCenter,
+                                     1f - Mathf.Exp(-2f * Time.deltaTime));
+            return;
+        }
         // Phase 3: broken centuries have NO centralized movement — the anchor
         // stays at the rally point and soldiers act as individuals.
+        bool charging = State == FormationState.Charging;
         bool chasing = State == FormationState.Attacking && attackTarget != null;
         bool canMove = State == FormationState.Ordered ||
-                       State == FormationState.Withdrawing || chasing;
+                       State == FormationState.Withdrawing || chasing || charging;
         if (!canMove) return;
 
-        if (chasing)
+        if (charging)
+        {
+            if (attackTarget == null || attackTarget.soldiers.Count == 0)
+            {
+                // Rush target destroyed: flow to the next enemy already within
+                // pursuit reach; with nothing close, the state machine tips
+                // the charge into pursuit — a charge never map-chases.
+                attackTarget = NearestEnemyFormation(AnchorPos, pursuitRetargetRadius);
+                if (attackTarget == null) return;
+            }
+            // Follow the target's real mass, not a stale anchor: a scattered
+            // enemy is chased where its soldiers actually are.
+            destination = attackTarget.DominantGroupCount > 0
+                ? attackTarget.DominantGroupCenter : attackTarget.AnchorPos;
+            hasDestination = true;
+            Vector3 toTgt = destination - AnchorPos;
+            toTgt.y = 0f;
+            if (toTgt.sqrMagnitude > 0.04f) DestinationFacing = toTgt.normalized;
+        }
+        else if (chasing)
         {
             if (attackTarget.soldiers.Count == 0)
             {
@@ -890,8 +1041,9 @@ public class Formation : MonoBehaviour
         to.y = 0f;
         float dist = to.magnitude;
         // Ranged formations hold their preferred firing distance instead of
-        // marching into melee range; melee closes to contact.
-        float stopDist = chasing
+        // marching into melee range; melee (and every charge) closes to contact.
+        float stopDist = charging ? meleeChaseStopDist
+            : chasing
             ? (stats.isRanged ? stats.rangedPreferredRange : meleeChaseStopDist)
             : 0.2f;
         if (dist <= stopDist)
@@ -902,7 +1054,7 @@ public class Formation : MonoBehaviour
                 Quaternion face = Quaternion.LookRotation(to / dist, Vector3.up);
                 AnchorRot = Quaternion.RotateTowards(AnchorRot, face, rotateSpeedDeg * Time.deltaTime);
             }
-            if (!chasing)
+            if (!chasing && !charging)
             {
                 // Arrival (Phase 2): settle onto the STORED destination facing
                 // — never whatever direction the final approach happened to be.
@@ -929,7 +1081,8 @@ public class Formation : MonoBehaviour
         AnchorRot = Quaternion.RotateTowards(AnchorRot, want, rotateSpeedDeg * Time.deltaTime);
         float align = Vector3.Dot(AnchorForward, dir);
         if (align > 0.3f)
-            AnchorPos += AnchorForward * Mathf.Min(moveSpeed * align * Time.deltaTime, dist);
+            AnchorPos += AnchorForward *
+                         Mathf.Min(moveSpeed * SpeedMultiplier * align * Time.deltaTime, dist);
     }
 
     private void UpdateEngagement()
@@ -961,6 +1114,16 @@ public class Formation : MonoBehaviour
         // are attempted and abort on meaningful melee contact instead of being
         // pre-blocked by a disengage radius.
         CanReform = State == FormationState.BrokenRanks && soldiers.Count > 0;
+
+        // Pursuit retarget: informational for the banner and AI (soldiers hunt
+        // on their own acquire reach). The pack only flows to enemies already
+        // near it; with nothing in reach the target stays null and the pack
+        // mills where it stands instead of map-chasing.
+        if (State == FormationState.BrokenRanks && IsPursuing &&
+            (attackTarget == null || attackTarget.soldiers.Count == 0))
+            attackTarget = NearestEnemyFormation(
+                DominantGroupCount > 0 ? DominantGroupCenter : AnchorPos,
+                pursuitRetargetRadius);
     }
 
     // An engaged formation gradually wheels its canonical facing toward the
@@ -1046,6 +1209,23 @@ public class Formation : MonoBehaviour
                 }
                 break;
 
+            case FormationState.Charging:
+                // The rush is a timed commitment, never a settled state: it
+                // tips into pursuit once the impact window after first contact
+                // is spent, once it ran its whole length without finding
+                // anyone, or once the target died with nothing else in reach.
+                // It must never relax into the generic Engaged transition.
+                if (engagedCount > 0 && firstContactTime < 0f)
+                    firstContactTime = Time.time;
+                bool impactSpent = firstContactTime >= 0f &&
+                                   Time.time - firstContactTime >= chargeImpactWindow;
+                bool rushExpired = firstContactTime < 0f &&
+                                   Time.time - chargeStartTime >= chargeMaxSeconds;
+                bool nothingLeft = (attackTarget == null || attackTarget.soldiers.Count == 0) &&
+                                   NearestEnemyFormation(AnchorPos, pursuitRetargetRadius) == null;
+                if (impactSpent || rushExpired || nothingLeft) EnterPursuit();
+                break;
+
             case FormationState.Reforming:
                 reformTimer += Time.deltaTime;
                 // Abort on MEANINGFUL melee contact only (Phase 3E): a
@@ -1071,5 +1251,19 @@ public class Formation : MonoBehaviour
         }
         // Phase 3: no automatic reform anywhere — the player presses Reform;
         // the enemy commander issues the same command deliberately.
+    }
+
+    // The charge dissolves into an individual free-for-all on the broken-ranks
+    // machinery. Unlike a deliberate break, the standard is NOT planted: the
+    // rally seed starts at the pack and the anchor keeps following it until
+    // Reform strikes it into the ground.
+    private void EnterPursuit()
+    {
+        State = FormationState.BrokenRanks;
+        CurrentOrderType = OrderType.BreakRanks;
+        IsPursuing = true;
+        hasDestination = false;
+        RallyAnchor = DominantGroupCount > 0 ? DominantGroupCenter : AnchorPos;
+        rallyFacing = AnchorRot;
     }
 }

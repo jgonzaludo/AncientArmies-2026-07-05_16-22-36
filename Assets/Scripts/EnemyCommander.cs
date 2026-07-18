@@ -27,8 +27,8 @@ using UnityEngine;
 //                cooldown; a committed reserve behaves like main line.
 //
 // The commander only speaks the public Formation API the player has
-// (IssueMove / IssueAttack / IssueReform) — the formation state machine
-// executes everything, no soldier or transform is ever touched, and no
+// (IssueMove / IssueAttack / IssueCharge / IssueReform) — the formation state
+// machine executes everything, no soldier or transform is ever touched, and no
 // hidden information or stat cheats are used.
 public class EnemyCommander : MonoBehaviour
 {
@@ -307,17 +307,37 @@ public class EnemyCommander : MonoBehaviour
             if (current == null)
             {
                 // idle, or its target was destroyed: take the best assignment.
-                // IssueAttack sets f.attackTarget immediately, so centuries
+                // The order sets f.attackTarget immediately, so centuries
                 // decided later this tick already see this as saturation.
-                f.IssueAttack(best);
+                IssueAttackOrCharge(f, best);
             }
             else if (best != current && bestScore > Score(f, current) + switchMargin)
             {
                 // only a clearly better plan (e.g. an archer emergency)
                 // interrupts a valid existing order — no thrashing
-                f.IssueAttack(best);
+                IssueAttackOrCharge(f, best);
             }
         }
+    }
+
+    // Discipline is a resource: a century charges only a target that is
+    // already beaten — badly under strength or broken — and inside charge
+    // reach. Everything else gets the controlled attack.
+    private void IssueAttackOrCharge(Formation f, Formation t)
+    {
+        bool weak = t.soldiers.Count < t.TotalSpawned * weakStrengthFraction ||
+                    t.State == FormationState.BrokenRanks;
+        if (weak && f.GetChargeBlock() == Formation.ChargeBlock.None)
+        {
+            Vector3 d = t.AnchorPos - f.AnchorPos;
+            d.y = 0f;
+            if (d.sqrMagnitude <= f.chargeRange * f.chargeRange)
+            {
+                f.IssueCharge(t);
+                return;
+            }
+        }
+        f.IssueAttack(t);
     }
 
     // Formation-level target score; bigger is better. All factors share one

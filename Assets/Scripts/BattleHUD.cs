@@ -32,7 +32,7 @@ public class BattleHUD : MonoBehaviour
     private Text reasonText;
     private Text hintText;
 
-    private Button breakButton;
+    private Button chargeButton;
     private Button reformButton;
     private Button rotateButton;
     private Button restartMiniButton;   // persistent: restart before/during a battle
@@ -115,12 +115,12 @@ public class BattleHUD : MonoBehaviour
         panelGO.SetActive(true);
 
         // A fully broken selection has exactly one meaningful order — REFORM.
-        // Offering BREAK RANKS or ROTATE there is noise; hide them entirely.
+        // Offering CHARGE or ROTATE there is noise; hide them entirely.
         // Mixed selections keep the full row so the coherent formations stay
         // commandable.
         bool allBroken = AllLiveBroken(selection);
         SetCommandButtonsVisible(true);
-        if (allBroken) breakButton.gameObject.SetActive(false);
+        if (allBroken) chargeButton.gameObject.SetActive(false);
         UpdateButtonInteractivity(selection);
 
         if (liveCount == 1)
@@ -181,7 +181,8 @@ public class BattleHUD : MonoBehaviour
 
     private void UpdateButtonInteractivity(IReadOnlyList<Formation> selection)
     {
-        bool breakInteractable = false;
+        bool chargeInteractable = false;
+        bool anyChargeNoTarget = false;
         bool anyCanReform = false;
         bool anyBlockingState = false;
         int considered = 0;
@@ -192,7 +193,9 @@ public class BattleHUD : MonoBehaviour
             if (f == null || f.soldiers.Count == 0) continue;
             considered++;
 
-            if (f.State != FormationState.BrokenRanks) breakInteractable = true;
+            Formation.ChargeBlock block = f.GetChargeBlock();
+            if (block == Formation.ChargeBlock.None) chargeInteractable = true;
+            else if (block == Formation.ChargeBlock.NoTarget) anyChargeNoTarget = true;
             if (f.CanReform) anyCanReform = true;
             if (f.State == FormationState.Engaged ||
                 f.State == FormationState.BrokenRanks ||
@@ -200,9 +203,16 @@ public class BattleHUD : MonoBehaviour
                 anyBlockingState = true;
         }
 
-        SetButtonEnabled(breakButton, breakInteractable);
+        SetButtonEnabled(chargeButton, chargeInteractable);
         SetButtonEnabled(reformButton, anyCanReform);
-        reasonText.text = (considered > 0 && !anyCanReform && anyBlockingState) ? "Too close to enemy" : "";
+        // One reason line: the reform story wins when it applies; otherwise
+        // explain a charge blocked purely by distance.
+        if (considered > 0 && !anyCanReform && anyBlockingState)
+            reasonText.text = "Too close to enemy";
+        else if (considered > 0 && !chargeInteractable && anyChargeNoTarget)
+            reasonText.text = "No enemy in charge range";
+        else
+            reasonText.text = "";
     }
 
     private void UpdateRotateButton()
@@ -224,7 +234,7 @@ public class BattleHUD : MonoBehaviour
 
     private void SetCommandButtonsVisible(bool visible)
     {
-        breakButton.gameObject.SetActive(visible);
+        chargeButton.gameObject.SetActive(visible);
         reformButton.gameObject.SetActive(visible);
     }
 
@@ -266,11 +276,11 @@ public class BattleHUD : MonoBehaviour
 
     // ---------------- button commands ----------------
 
-    private void OnBreakRanksClicked()
+    private void OnChargeClicked()
     {
         if (commander == null || commander.Selection == null) return;
         foreach (var f in commander.Selection)
-            if (f != null && f.soldiers.Count > 0) f.IssueBreakRanks();
+            if (f != null && f.soldiers.Count > 0) f.IssueCharge();
     }
 
     private void OnReformClicked()
@@ -525,9 +535,9 @@ public class BattleHUD : MonoBehaviour
         float buttonY = (170f - ButtonHeight) * 0.5f;
         float step = ButtonWidth + ButtonGap;
 
-        breakButton = MakeButton(panelT, "BreakRanksButton", "BREAK RANKS",
-                                 new Vector2(-margin - 2f * step, buttonY));
-        breakButton.onClick.AddListener(OnBreakRanksClicked);
+        chargeButton = MakeButton(panelT, "ChargeButton", "CHARGE",
+                                  new Vector2(-margin - 2f * step, buttonY));
+        chargeButton.onClick.AddListener(OnChargeClicked);
 
         reformButton = MakeButton(panelT, "ReformButton", "REFORM",
                                   new Vector2(-margin - step, buttonY));

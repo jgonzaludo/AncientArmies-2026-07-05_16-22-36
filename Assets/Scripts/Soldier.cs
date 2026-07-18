@@ -174,10 +174,12 @@ public class Soldier : MonoBehaviour
 
         Vector3 pos = transform.position;
         float w = formation.GetSlotWeight(this);
+        // charging formations sprint: every desired velocity scales together
+        float ms = S.moveSpeed * formation.SpeedMultiplier;
 
         Vector3 toSlot = formation.GetSlotWorldPos(slotIndex) - pos;
         toSlot.y = 0f;
-        Vector3 slotDesire = Arrive(toSlot, S.moveSpeed);
+        Vector3 slotDesire = Arrive(toSlot, ms);
 
         Vector3 desired;
         if (target != null && target.Alive)
@@ -188,11 +190,11 @@ public class Soldier : MonoBehaviour
             Vector3 combatDesire = Vector3.zero;
             if (S.isRanged && d > S.rangedMinRange)
             {
-                if (d > S.rangedRange * 0.9f) combatDesire = toT.normalized * S.moveSpeed;
+                if (d > S.rangedRange * 0.9f) combatDesire = toT.normalized * ms;
             }
             else
             {
-                if (d > S.strikeRange * 0.8f) combatDesire = toT.normalized * S.moveSpeed;
+                if (d > S.strikeRange * 0.8f) combatDesire = toT.normalized * ms;
             }
             desired = Vector3.Lerp(combatDesire, slotDesire, w);
         }
@@ -216,11 +218,12 @@ public class Soldier : MonoBehaviour
         else lockRecovery = Mathf.Min(1f, lockRecovery + Time.fixedDeltaTime / LockRampSeconds);
         desired *= lockRecovery;
 
-        // never stray past the leash, even with broken ranks
+        // never stray past the leash, even with broken ranks; the leash
+        // tightens (and its center moves) while pursuing
         Vector3 fromAnchor = pos - formation.AnchorPos;
         fromAnchor.y = 0f;
-        if (fromAnchor.magnitude > formation.brokenLeash)
-            desired = -fromAnchor.normalized * S.moveSpeed;
+        if (fromAnchor.magnitude > formation.EffectiveLeash)
+            desired = -fromAnchor.normalized * ms;
 
         // soft same-team separation: recomputed every 4th tick (staggered),
         // cached in between; biases the desired velocity, never overpowers it.
@@ -349,7 +352,11 @@ public class Soldier : MonoBehaviour
                 }
                 else
                 {
-                    float dmg = S.attackDamage * skill * dirMult * (S.isRanged ? 0.4f : 1f);
+                    // charge impact bonus bakes in at commit time, exactly like
+                    // the directional multiplier — a deferred hit that lands
+                    // after the window closes still carries the charge's force
+                    float dmg = S.attackDamage * skill * dirMult * (S.isRanged ? 0.4f : 1f)
+                                * formation.ChargeDamageMultiplier;
                     if (deferMeleeImpact && !S.isRanged)
                     {
                         // damage lands on the clip's contact frame; everything
@@ -399,7 +406,7 @@ public class Soldier : MonoBehaviour
         Soldier best = null;
         // ranged units must be able to acquire anything inside their own range,
         // even when it stands beyond the broken-ranks leash around the anchor
-        float leash = formation.brokenLeash;
+        float leash = formation.EffectiveLeash;
         if (S.isRanged) leash = Mathf.Max(leash, S.rangedRange + 2f);
         float leash2 = leash * leash;
         Vector3 p = transform.position;
