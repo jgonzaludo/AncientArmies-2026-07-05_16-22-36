@@ -4,7 +4,7 @@ using UnityEngine;
 // One adaptive floating banner per formation, built from the supplied badge
 // artwork (UI_Banner_<Faction>_<Class> sprites). Purely presentational: it
 // reads the formation's authoritative state (anchor, dominant cluster,
-// AnchorForward facing, health, count, selection) and the shared
+// AnchorForward facing, health, selection) and the shared
 // FormationBannerManager (detail level, visibility mode, info hold, overlap
 // lift) and never owns simulation logic. The whole hierarchy is created once
 // and blended between presentations — nothing is rebuilt on zoom changes, and
@@ -42,10 +42,8 @@ public class FormationBannerController : MonoBehaviour
     [SerializeField] private float orderFeedbackSeconds = 1.5f;
 
     [Header("Info elements")]
-    [SerializeField] private float barWidth = 2.3f;
-    [SerializeField] private float barHeight = 0.24f;
-    [Tooltip("TextMesh character size for the remaining-count readout")]
-    [SerializeField] private float countCharacterSize = 0.24f;
+    [SerializeField] private float barWidth = 3.1f;
+    [SerializeField] private float barHeight = 0.45f;
 
     private static readonly Color HealthHigh = new Color(0.38f, 0.86f, 0.38f);
     private static readonly Color HealthLow = new Color(0.95f, 0.7f, 0.15f);
@@ -74,8 +72,6 @@ public class FormationBannerController : MonoBehaviour
 
     private Transform root, scaleContainer;
     private SpriteRenderer baseSR, stateIconSR, healthBgSR, healthFillSR;
-    private TextMesh countTM;
-    private MeshRenderer countMR;
 
     private float shownAlpha;            // 0..1 master visibility blend
     private float currentScale = 1f;
@@ -83,7 +79,6 @@ public class FormationBannerController : MonoBehaviour
     private bool hasPos;
     private float orderFeedbackUntil = -1f;
     private float infoTimer;             // interval for value refresh
-    private int lastCount = -1;
     private FormationState lastState = (FormationState)(-1);
     private float overlapLiftPx;
     private bool overlapFaded;
@@ -228,7 +223,6 @@ public class FormationBannerController : MonoBehaviour
     private void ApplyPresentation(FormationBannerDetailLevel level, bool selected, float alpha)
     {
         bool bars = level != FormationBannerDetailLevel.Close;
-        bool count = bars || selected;
 
         // broken ranks = damaged flag: grey and faded until reforming restores it
         bool broken = f.State == FormationState.BrokenRanks;
@@ -243,30 +237,17 @@ public class FormationBannerController : MonoBehaviour
         bool icon = bars && stateIconSR.sprite != null;
         SetSpriteAlpha(stateIconSR, Color.white, icon ? alpha : 0f);
 
-        if (countMR != null)
-        {
-            countMR.enabled = count;
-            if (count) countTM.color = new Color(1f, 1f, 1f, alpha);
-        }
-
         int order = 10 + (selected ? selectedSortingBoost : (int)(Priority * 10f));
         baseSR.sortingOrder = order;
         healthBgSR.sortingOrder = order + 1;
         healthFillSR.sortingOrder = order + 2;
         stateIconSR.sortingOrder = order + 2;
-        if (countMR != null) countMR.sortingOrder = order + 3;
     }
 
-    // Interval refresh of gameplay values (count text only rebuilt on change —
-    // no per-frame string construction).
+    // Interval refresh: only the state icon needs polling now — strength is
+    // communicated entirely by the health bar (v0.9.1: count text removed).
     private void RefreshValues(FormationBannerDetailLevel level)
     {
-        int n = f.soldiers.Count;
-        if (n != lastCount)
-        {
-            lastCount = n;
-            countTM.text = $"{n} / {f.TotalSpawned}";
-        }
         if (f.State != lastState || (f.State == FormationState.Ordered))
         {
             lastState = f.State;
@@ -315,21 +296,6 @@ public class FormationBannerController : MonoBehaviour
                                   new Vector3(barWidth, barHeight, 1f));
         stateIconSR = MakeSprite("StateIcon", null, new Vector3(0f, 2.6f, -0.02f),
                                  Vector3.one * 0.9f);
-
-        var countGO = new GameObject("CountText");
-        countGO.transform.SetParent(scaleContainer, false);
-        countGO.transform.localPosition = new Vector3(0f, -2.6f, -0.02f);
-        countTM = countGO.AddComponent<TextMesh>();
-        var font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-        countTM.font = font;
-        countMR = countGO.GetComponent<MeshRenderer>();
-        countMR.sharedMaterial = font.material;
-        countMR.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-        countTM.anchor = TextAnchor.MiddleCenter;
-        countTM.alignment = TextAlignment.Center;
-        countTM.characterSize = countCharacterSize;
-        countTM.fontSize = 64;
-        countTM.text = "";
 
         root.gameObject.SetActive(false);
     }
