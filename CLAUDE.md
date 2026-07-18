@@ -4,6 +4,15 @@ Mobile-first real-time tactical game built in Unity 6 using URP.
 
 The player commands formations of individually simulated ancient soldiers.
 
+## Git, Versions, and the Test Gate
+
+`docs/VERSIONING.md` is binding: work on `dev`, `main` only receives
+owner-tested bundles, versions are `0.MINOR.PATCH` git tags on `main` with a
+CHANGELOG entry, commits use Conventional Commits with game scopes.
+**Never commit/push/merge/tag a gameplay change until the owner has manually
+tested it in Play Mode and explicitly approved.** Docs-only changes still ask
+first. Design milestones (V0/V1/V2) are phase names, never version numbers.
+
 ## Before Substantial Work
 
 Read:
