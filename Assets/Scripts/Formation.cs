@@ -124,6 +124,31 @@ public class Formation : MonoBehaviour
     public void NotifyRangedShot() { lastRangedShotTime = Time.time; }
     public bool IsFiring => stats != null && stats.isRanged &&
                             Time.time - lastRangedShotTime < 2f;
+
+    // ---- volley fire (v1.9) ----
+    // Ranged formations loose as a FORMATION: a volley window opens every
+    // volleyInterval and each archer fires once inside it at its own
+    // deterministic offset — Total War-style readable volleys with lulls,
+    // instead of 80 independent timers drizzling arrows. Clocks are staggered
+    // per formation so centuries don't sync with each other.
+    [Header("Volley fire (v1.9, ranged formations only)")]
+    [Tooltip("Seconds between volleys; governs archer output (keep archer attackCooldown below this)")]
+    public float volleyInterval = 8f;
+    [Tooltip("Seconds the loose window stays open — arrows spread across it")]
+    public float volleyWindow = 1.5f;
+
+    private float volleyClock;
+    public bool VolleyOpen { get; private set; } = true;   // melee formations never gate
+    public float VolleyPhase { get; private set; }         // seconds since the window opened
+
+    private void UpdateVolley()
+    {
+        if (stats == null || !stats.isRanged) return;
+        volleyClock += Time.deltaTime;
+        if (volleyClock >= volleyInterval) volleyClock -= volleyInterval;
+        VolleyOpen = volleyClock < volleyWindow;
+        VolleyPhase = volleyClock;
+    }
     public event System.Action OnFacingSnapped;            // Rotate command executed (visual hook)
     public event System.Action OnOrderIssued;               // any successful player/AI order (visual hook)
     public bool CanReform { get; private set; }
@@ -205,6 +230,8 @@ public class Formation : MonoBehaviour
 
     public void Init(Team team, string name, UnitStats stats, Vector3 pos, float yawDeg, int columns, bool autoPilot)
     {
+        // stagger volley clocks so archer centuries don't fire in unison
+        volleyClock = Mathf.Abs(name.GetHashCode() % 1000) * 0.001f * volleyInterval;
         this.team = team;
         displayName = name;
         this.stats = stats;
@@ -736,6 +763,7 @@ public class Formation : MonoBehaviour
         UpdateManeuver();
         UpdateAnchorMovement();
         UpdateEngagement();
+        UpdateVolley();
         UpdateDominantGroup();
         UpdateEngagedFacing();
         UpdateStateMachine();
