@@ -107,9 +107,17 @@ public class Formation : MonoBehaviour
     // facing) — what the destination previews render.
     public Vector3 GetPlannedSlotWorldPos(int slot)
     {
-        if (slot < 0 || slot >= slotOffsets.Length) return destination;
-        Vector3 fwd = DestinationFacing.sqrMagnitude > 0.01f ? DestinationFacing : AnchorForward;
-        return destination + Quaternion.LookRotation(fwd, Vector3.up) * slotOffsets[slot];
+        return GetSlotWorldPosAt(destination, DestinationFacing, slot);
+    }
+
+    // Same slot math at an ARBITRARY pose: the live drag preview renders
+    // un-issued candidate destinations through the exact grid a released
+    // order will fill, so preview and outcome cannot disagree.
+    public Vector3 GetSlotWorldPosAt(Vector3 dest, Vector3 facing, int slot)
+    {
+        if (slot < 0 || slot >= slotOffsets.Length) return dest;
+        Vector3 fwd = facing.sqrMagnitude > 0.01f ? facing : AnchorForward;
+        return dest + Quaternion.LookRotation(fwd, Vector3.up) * slotOffsets[slot];
     }
 
     // ---- break/reform rally (Phase 3) ----

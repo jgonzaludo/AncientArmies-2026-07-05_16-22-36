@@ -3,13 +3,16 @@ using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.InputSystem;
 
-// Mobile-first control grammar (docs/MOBILE_CONTROLS.md, V1.2 selection rules):
-//   tap friendly = select that formation EXCLUSIVELY (any prior selection drops)
-//   tap empty ground = clear all selection
-//   drag from the selected formation = command drag (move or attack), then the
-//   formation auto-deselects — issuing an order ends the interaction
+// Mobile-first control grammar (docs/MOBILE_CONTROLS.md):
+//   tap friendly = select that formation EXCLUSIVELY; a quick second tap adds
+//   another century to the group; tapping a selected century removes it
+//   tap empty ground = clear all selection      tap enemy = inspect
+//   drag from a selected formation = command drag: a move drag previews the
+//   destination slot dots live and a second finger twists the final facing;
+//   dragging onto an enemy shows the attack line + ring instead
 //   drag on empty ground = camera pan       pinch / scroll = zoom
-// Mouse input in the editor mirrors the touch model 1:1 (click = tap, etc.).
+// Mouse input in the editor mirrors the touch model 1:1 (click = tap, etc.);
+// with no second pointer, a move's facing defaults to the travel direction.
 public class PlayerCommander : MonoBehaviour
 {
     private enum PointerMode { Idle, Pending, CameraPan, CommandDrag, RotateDrag }
@@ -65,8 +68,27 @@ public class PlayerCommander : MonoBehaviour
     private Formation dragOrigin;          // selected formation a command drag started from
     private Formation dragEnemyTarget;     // enemy currently under the command drag
 
+    // Place-and-twist facing: during a move drag the SECOND finger aims the
+    // group's final facing. Once past the deadzone the facing LOCKS — lifting
+    // the second finger keeps it so position can still be adjusted one-handed;
+    // only starting a new drag clears the lock. Unlocked moves fall back to
+    // facing the direction of travel.
+    private bool dragFacingLocked;
+    private Vector3 dragLockedFacing = Vector3.forward;
+
+    // candidate-preview plumbing: per-formation components resolved lazily
+    // (no per-frame GetComponent), plus the previews currently holding a
+    // candidate pose so cancel / attack-hover can clear exactly those
+    private readonly Dictionary<Formation, FormationDestinationPreview> previewCache =
+        new Dictionary<Formation, FormationDestinationPreview>();
+    private readonly List<FormationDestinationPreview> fedCandidates =
+        new List<FormationDestinationPreview>();
+
+    // group-building taps: a quick follow-up tap ADDS instead of replacing
+    private const float MultiTapWindow = 0.35f;
+    private float lastFriendlyTapTime = -999f;
+
     private LineRenderer commandLine;
-    private GameObject destMarker;
     private GameObject enemyRing;
     private Transform rotatePreviewArrow;
     private float lastPinchDist = -1f;
@@ -262,7 +284,15 @@ public class PlayerCommander : MonoBehaviour
         }
         if (f.team == Team.Blue)
         {
-            ToggleSelect(f);
+            // Tap grammar: exclusive select by default; a rapid follow-up tap
+            // (inside the multi-tap window, with something already selected)
+            // ADDS to the group instead; tapping an already-selected century
+            // always removes it, regardless of timing.
+            bool quickAdd = selection.Count > 0 &&
+                            Time.unscaledTime - lastFriendlyTapTime < MultiTapWindow;
+            lastFriendlyTapTime = Time.unscaledTime;
+            if (selection.Contains(f) || quickAdd) ToggleSelect(f);
+            else SelectOnly(f);
         }
         else
         {
@@ -270,10 +300,9 @@ public class PlayerCommander : MonoBehaviour
         }
     }
 
-    // V1 overhaul selection model (Phase 2C): taps toggle membership — tap an
-    // unselected friendly century to add it, tap a selected one to remove it,
-    // tap empty ground to clear everything. Selection persists through orders
-    // so destination previews stay attached to moving centuries.
+    // Selection-membership primitive behind the tap grammar; HUD and scripted
+    // tests drive it directly. Selection persists through orders so
+    // destination previews stay attached to moving centuries.
     public void ToggleSelect(Formation f)
     {
         InspectedEnemy = null;
@@ -335,10 +364,10 @@ public class PlayerCommander : MonoBehaviour
             mode = PointerMode.CommandDrag;
             dragOrigin = f;
             dragEnemyTarget = null;
+            dragFacingLocked = false;   // the facing lock is per-drag
             if (commandLine == null) commandLine = BattleVisuals.CreateCommandLine();
-            if (destMarker == null) destMarker = BattleVisuals.CreateGroundDisc("DestPreview", 1.6f, false);
-            commandLine.gameObject.SetActive(true);
-            destMarker.SetActive(true);
+            // visibility is owned by UpdateCommandDrag: only ATTACK drags show
+            // the line — move drags show the destination slot dots instead
         }
         else
         {
@@ -403,31 +432,141 @@ public class PlayerCommander : MonoBehaviour
         // no attack orders during deployment — combat starts at Start Battle
         dragEnemyTarget = (!Deploying && over != null && over.team == Team.Red) ? over : null;
 
-        Vector3 from = dragOrigin.AnchorPos + Vector3.up * 0.15f;
-        Vector3 to = dragEnemyTarget != null
-            ? dragEnemyTarget.AnchorPos + Vector3.up * 0.15f
-            : new Vector3(pt.x, 0.15f, pt.z);
-
-        commandLine.SetPosition(0, from);
-        commandLine.SetPosition(1, to);
-        BattleVisuals.SetLineAttackStyle(commandLine, dragEnemyTarget != null);
-
         if (dragEnemyTarget != null)
         {
-            destMarker.SetActive(false);
+            // ATTACK drag: red line to the target plus a ring around it. The
+            // slot-dot preview is a move-only readout — an attack has no
+            // planned arrival grid to show.
+            ClearCandidates();
+            commandLine.gameObject.SetActive(true);
+            commandLine.SetPosition(0, dragOrigin.AnchorPos + Vector3.up * 0.15f);
+            commandLine.SetPosition(1, dragEnemyTarget.AnchorPos + Vector3.up * 0.15f);
+            BattleVisuals.SetLineAttackStyle(commandLine, true);
             if (enemyRing == null) enemyRing = BattleVisuals.CreateGroundDisc("EnemyTarget", 1f, true);
             enemyRing.SetActive(true);
             float dia = dragEnemyTarget.BoundingRadius * 2.1f;
             enemyRing.transform.localScale = new Vector3(dia, 0.02f, dia);
             enemyRing.transform.position = new Vector3(dragEnemyTarget.AnchorPos.x, 0.06f,
                                                        dragEnemyTarget.AnchorPos.z);
+            return;
         }
-        else
+
+        // MOVE drag: no line, no ground disc — the live candidate slot dots
+        // ARE the preview. Fed through the same arrangement math the release
+        // will issue, so the dots never lie.
+        commandLine.gameObject.SetActive(false);
+        if (enemyRing != null) enemyRing.SetActive(false);
+        UpdateDragFacing(pt);
+        if (!ComputeGroupArrangement(pt, out Vector3 pivot, out Quaternion arrange,
+                                     out Vector3 facing)) return;
+        GetDestBoundsZ(out float zMin, out float zMax);
+        foreach (var f in selection)
         {
-            if (enemyRing != null) enemyRing.SetActive(false);
-            destMarker.SetActive(true);
-            destMarker.transform.position = new Vector3(pt.x, 0.06f, pt.z);
+            if (f == null || f.soldiers.Count == 0) continue;
+            var preview = PreviewFor(f);
+            if (preview == null) continue;
+            preview.SetCandidate(ClampDest(pt + arrange * (f.AnchorPos - pivot), zMin, zMax),
+                                 facing);
+            if (!fedCandidates.Contains(preview)) fedCandidates.Add(preview);
         }
+    }
+
+    // Second-finger facing (place-and-twist): project the second touch to the
+    // ground and aim the group from the candidate destination toward it.
+    // Inside the deadzone the direction is unstable — keep the previous
+    // facing (locked or travel-derived) rather than jitter.
+    private void UpdateDragFacing(Vector3 groupDest)
+    {
+        var ts = Touchscreen.current;
+        if (ts == null) return;   // editor mouse: no second pointer exists
+        int primaryId = ts.primaryTouch.touchId.ReadValue();
+        for (int i = 0; i < ts.touches.Count; i++)
+        {
+            var t = ts.touches[i];
+            if (!t.press.isPressed || t.touchId.ReadValue() == primaryId) continue;
+            if (!GroundPoint(t.position.ReadValue(), out Vector3 gp)) return;
+            Vector3 dir = gp - groupDest;
+            dir.y = 0f;
+            if (dir.sqrMagnitude < RotateDeadzone * RotateDeadzone) return;
+            dragFacingLocked = true;   // survives lifting the second finger
+            dragLockedFacing = dir.normalized;
+            return;
+        }
+    }
+
+    // Single source of truth for the group move pose (Phase 2E math): the
+    // live drag preview and the issued order both run THIS, so the dots the
+    // player sees are exactly the slots the order fills. Pivot at the
+    // selected anchors' center; relative offsets rigidly rotated so the whole
+    // arrangement faces the group facing — the direction of travel, unless
+    // the second finger has locked an explicit facing. (Selected centuries
+    // with different individual facings are aligned to the common group
+    // facing — documented simplification.)
+    private bool ComputeGroupArrangement(Vector3 pt, out Vector3 pivot,
+                                         out Quaternion arrange, out Vector3 groupFacing)
+    {
+        pivot = Vector3.zero;
+        arrange = Quaternion.identity;
+        groupFacing = Vector3.forward;
+        Vector3 avgFwd = Vector3.zero;
+        int live = 0;
+        foreach (var f in selection)
+        {
+            if (f == null || f.soldiers.Count == 0) continue;
+            pivot += f.AnchorPos;
+            avgFwd += f.AnchorForward;
+            live++;
+        }
+        if (live == 0) return false;
+        pivot /= live;
+
+        Vector3 travel = pt - pivot;
+        travel.y = 0f;
+        bool fwdOk = avgFwd.sqrMagnitude > 0.01f;
+        Vector3 fwd = fwdOk ? new Vector3(avgFwd.x, 0f, avgFwd.z).normalized : Vector3.forward;
+        groupFacing = dragFacingLocked ? dragLockedFacing
+            : travel.sqrMagnitude > 0.04f ? travel.normalized : fwd;
+        // a locked facing is stable by construction; an inferred travel
+        // facing needs a meaningful drag distance before it may rotate the
+        // arrangement
+        if (live > 1 && fwdOk && (dragFacingLocked || travel.sqrMagnitude > 1f))
+            arrange = Quaternion.FromToRotation(fwd, groupFacing);
+        return true;
+    }
+
+    // destination clamps shared by preview and order; deployment destinations
+    // stay inside the friendly zone (Phase 6C)
+    private void GetDestBoundsZ(out float zMin, out float zMax)
+    {
+        zMin = -FieldZ;
+        zMax = FieldZ;
+        var bs = BattleSetup.Instance;
+        if (Deploying && bs != null)
+            zMax = -bs.fieldHalfZ + bs.deploymentZoneDepth;   // blue deploys south
+    }
+
+    private static Vector3 ClampDest(Vector3 dest, float zMin, float zMax)
+    {
+        dest.x = Mathf.Clamp(dest.x, -FieldX, FieldX);
+        dest.z = Mathf.Clamp(dest.z, zMin, zMax);
+        return dest;
+    }
+
+    private FormationDestinationPreview PreviewFor(Formation f)
+    {
+        if (!previewCache.TryGetValue(f, out var p) || p == null)
+        {
+            p = f.GetComponent<FormationDestinationPreview>();
+            previewCache[f] = p;
+        }
+        return p;
+    }
+
+    private void ClearCandidates()
+    {
+        for (int i = 0; i < fedCandidates.Count; i++)
+            if (fedCandidates[i] != null) fedCandidates[i].ClearCandidate();
+        fedCandidates.Clear();
     }
 
     private void EndCommandDrag(Vector2 pos)
@@ -435,7 +574,7 @@ public class PlayerCommander : MonoBehaviour
         var origin = dragOrigin;
         var enemy = dragEnemyTarget;
         bool hasPoint = GroundPoint(pos, out Vector3 pt);
-        CancelCommandDrag();
+        CancelCommandDrag();   // the facing lock survives — the order below reads it
         if (origin == null || origin.soldiers.Count == 0 || !hasPoint) return;
 
         // dragging back onto the origin formation cancels the command
@@ -448,46 +587,15 @@ public class PlayerCommander : MonoBehaviour
         }
         else
         {
-            // Group order snapshot (Phase 2E): pivot at the selected anchors'
-            // center, relative offsets preserved and rigidly rotated so the
-            // whole arrangement faces the direction of travel. (Selected
-            // centuries with different individual facings are aligned to the
-            // common group destination facing — documented simplification.)
-            Vector3 pivot = Vector3.zero;
-            Vector3 avgFwd = Vector3.zero;
-            int live = 0;
+            // Group order snapshot: the same arrangement math that drove the
+            // candidate preview all drag long — release issues what was shown.
+            if (!ComputeGroupArrangement(pt, out Vector3 pivot, out Quaternion arrange,
+                                         out Vector3 groupFacing)) return;
+            GetDestBoundsZ(out float zMin, out float zMax);
             foreach (var f in selection)
             {
                 if (f == null || f.soldiers.Count == 0) continue;
-                pivot += f.AnchorPos;
-                avgFwd += f.AnchorForward;
-                live++;
-            }
-            if (live == 0) return;
-            pivot /= live;
-
-            Vector3 travel = pt - pivot;
-            travel.y = 0f;
-            Quaternion arrange = Quaternion.identity;
-            if (live > 1 && travel.sqrMagnitude > 1f && avgFwd.sqrMagnitude > 0.01f)
-                arrange = Quaternion.FromToRotation(
-                    new Vector3(avgFwd.x, 0f, avgFwd.z).normalized, travel.normalized);
-            Vector3 groupFacing = travel.sqrMagnitude > 0.04f
-                ? travel.normalized : new Vector3(avgFwd.x, 0f, avgFwd.z).normalized;
-
-            // deployment destinations stay inside the friendly zone (Phase 6C)
-            var bs = BattleSetup.Instance;
-            float zMin = -FieldZ, zMax = FieldZ;
-            if (Deploying && bs != null)
-                zMax = -bs.fieldHalfZ + bs.deploymentZoneDepth;   // blue deploys south
-
-            foreach (var f in selection)
-            {
-                if (f == null || f.soldiers.Count == 0) continue;
-                Vector3 dest = pt + arrange * (f.AnchorPos - pivot);
-                dest.x = Mathf.Clamp(dest.x, -FieldX, FieldX);
-                dest.z = Mathf.Clamp(dest.z, zMin, zMax);
-                f.IssueMove(dest);
+                f.IssueMove(ClampDest(pt + arrange * (f.AnchorPos - pivot), zMin, zMax));
                 f.SetDestinationFacing(groupFacing);
             }
             BattleVisuals.SpawnPulse(pt, false);
@@ -500,8 +608,8 @@ public class PlayerCommander : MonoBehaviour
     {
         dragOrigin = null;
         dragEnemyTarget = null;
+        ClearCandidates();
         if (commandLine != null) commandLine.gameObject.SetActive(false);
-        if (destMarker != null) destMarker.SetActive(false);
         if (enemyRing != null) enemyRing.SetActive(false);
     }
 
@@ -654,6 +762,10 @@ public class PlayerCommander : MonoBehaviour
 
     private bool HandlePinch()
     {
+        // an active move drag owns the second finger (place-and-twist facing)
+        // — never steal it for zoom mid-order; two fingers on empty ground
+        // still pinch-zoom as before
+        if (mode == PointerMode.CommandDrag) return false;
         var ts = Touchscreen.current;
         if (ts == null || ts.touches.Count < 2) { lastPinchDist = -1f; return false; }
         var t0 = ts.touches[0];

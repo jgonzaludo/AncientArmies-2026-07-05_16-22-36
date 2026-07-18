@@ -2,8 +2,9 @@ using UnityEngine;
 using UnityEngine.Rendering;
 
 // Pooled destination preview, one per formation: while the formation is
-// selected with a pending Move order, every planned destination slot is shown
-// as a small ground circle plus one facing arrow at the destination pose.
+// selected with a pending Move order — or while PlayerCommander feeds a live
+// drag CANDIDATE pose — every planned destination slot is shown as a small
+// ground circle plus one facing arrow at the destination pose.
 // Circles are one combined world-space mesh — a triangle-fan disc per slot —
 // on an ordinary MeshRenderer with one shared transparent material, the same
 // non-instanced runtime-material path the arrows and command discs use.
@@ -47,7 +48,25 @@ public class FormationDestinationPreview : MonoBehaviour
     private Vector3 cachedFacing;
     private OrderType cachedOrder = OrderType.None;
     private int cachedSlotCount = -1;
+    private bool cachedCandidate;
     private float refreshTimer;
+
+    // Candidate pose: fed every frame by PlayerCommander while a move drag is
+    // in progress, before any order exists. While set, it overrides the
+    // selection/order gates — the player must see the exact grid the release
+    // will issue, even though the formation has no Move order yet.
+    private bool hasCandidate;
+    private Vector3 candidateDest;
+    private Vector3 candidateFacing;
+
+    public void SetCandidate(Vector3 dest, Vector3 facing)
+    {
+        hasCandidate = true;
+        candidateDest = dest;
+        candidateFacing = facing;
+    }
+
+    public void ClearCandidate() { hasCandidate = false; }
 
     private static Material CircleMat
     {
@@ -103,8 +122,10 @@ public class FormationDestinationPreview : MonoBehaviour
     {
         if (f == null || arrow == null) return;
         if (commander == null) commander = FindAnyObjectByType<PlayerCommander>();
-        bool show = f.IsSelected && f.CurrentOrderType == OrderType.Move &&
-                    f.HasMoveDestination && f.soldiers.Count > 0;
+        bool candidate = hasCandidate && f.soldiers.Count > 0;
+        bool show = candidate ||
+                    (f.IsSelected && f.CurrentOrderType == OrderType.Move &&
+                     f.HasMoveDestination && f.soldiers.Count > 0);
         // Single-arrow ownership: while the rotate session edits this
         // formation, its yellow arrow IS the direction readout — hide this
         // one. The slot circles stay and rotate live under the drag.
@@ -117,30 +138,36 @@ public class FormationDestinationPreview : MonoBehaviour
             return;
         }
 
+        Vector3 dest = candidate ? candidateDest : f.DestinationPosition;
+        Vector3 facing = candidate ? candidateFacing : f.DestinationFacing;
+
         // Rebuild the mesh when the plan changes (new order, destination drag,
-        // facing drag in rotation-edit mode, headcount change) or on the slow
-        // interval; otherwise the renderer keeps drawing the cached mesh.
+        // facing drag in rotation-edit mode, candidate motion, mode switch,
+        // headcount change) or on the slow interval; otherwise the renderer
+        // keeps drawing the cached mesh.
         refreshTimer -= Time.deltaTime;
         bool dirty = cachedOrder != OrderType.Move ||
+                     cachedCandidate != candidate ||
                      cachedSlotCount != f.SlotCount ||
-                     (f.DestinationPosition - cachedDest).sqrMagnitude > ChangeEpsilonSq ||
-                     (f.DestinationFacing - cachedFacing).sqrMagnitude > ChangeEpsilonSq ||
+                     (dest - cachedDest).sqrMagnitude > ChangeEpsilonSq ||
+                     (facing - cachedFacing).sqrMagnitude > ChangeEpsilonSq ||
                      refreshTimer <= 0f;
-        if (dirty) RebuildMesh();
+        if (dirty) RebuildMesh(dest, facing, candidate);
     }
 
-    private void RebuildMesh()
+    private void RebuildMesh(Vector3 dest, Vector3 facing, bool candidate)
     {
         refreshTimer = RefreshInterval;
         cachedOrder = OrderType.Move;
+        cachedCandidate = candidate;
         cachedSlotCount = f.SlotCount;
-        cachedDest = f.DestinationPosition;
-        cachedFacing = f.DestinationFacing;
+        cachedDest = dest;
+        cachedFacing = facing;
 
         int circleCount = Mathf.Min(f.SlotCount, MaxCircles);
         for (int c = 0; c < circleCount; c++)
         {
-            Vector3 p = f.GetPlannedSlotWorldPos(c);
+            Vector3 p = f.GetSlotWorldPosAt(dest, facing, c);
             p.y = CircleY;
             int v = c * VertsPerCircle;
             for (int i = 0; i < VertsPerCircle; i++)
@@ -155,12 +182,12 @@ public class FormationDestinationPreview : MonoBehaviour
 
         // Arrow just ahead of the destination front rank, mirroring the live
         // FormationArrow offset with sqrt(SlotCount)*0.7 as the bounding radius.
-        Vector3 facing = cachedFacing.sqrMagnitude > 0.0001f
-            ? cachedFacing.normalized : Vector3.forward;
+        Vector3 arrowFacing = facing.sqrMagnitude > 0.0001f
+            ? facing.normalized : Vector3.forward;
         float boundingRadius = Mathf.Sqrt(Mathf.Max(1, f.SlotCount)) * 0.7f;
-        arrow.position = cachedDest + facing * (boundingRadius * 0.55f + 1.0f)
+        arrow.position = dest + arrowFacing * (boundingRadius * 0.55f + 1.0f)
                          + Vector3.up * ArrowY;
-        arrow.rotation = Quaternion.LookRotation(facing, Vector3.up);
+        arrow.rotation = Quaternion.LookRotation(arrowFacing, Vector3.up);
     }
 
     private void OnDestroy()
