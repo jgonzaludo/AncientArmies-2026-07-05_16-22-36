@@ -599,11 +599,15 @@ public class BattleHUD : MonoBehaviour
     // The corner radius stays small (square-ish, not pill) and a subtle darker
     // rim is baked just inside the edge — it survives per-use tinting because
     // the sprite is still near-white.
+    // The sprite's pixelsPerUnit must match the canvas's referencePixelsPerUnit
+    // (100) and the 9-slice border must be exactly the corner radius — any
+    // mismatch rescales the corner slices per-axis and the buttons distort
+    // into ovals instead of keeping a fixed corner radius at every size.
     private static Sprite RoundedSprite()
     {
         if (roundedSprite != null) return roundedSprite;
         const int size = 64;
-        const int radius = 12;
+        const int radius = 16;
         var tex = new Texture2D(size, size, TextureFormat.RGBA32, false);
         for (int y = 0; y < size; y++)
         {
@@ -620,9 +624,9 @@ public class BattleHUD : MonoBehaviour
         tex.wrapMode = TextureWrapMode.Clamp;
         tex.Apply();
         roundedSprite = Sprite.Create(tex, new Rect(0f, 0f, size, size),
-                                      new Vector2(0.5f, 0.5f), 1f, 0,
+                                      new Vector2(0.5f, 0.5f), 100f, 0,
                                       SpriteMeshType.FullRect,
-                                      new Vector4(radius + 2, radius + 2, radius + 2, radius + 2));
+                                      new Vector4(radius, radius, radius, radius));
         return roundedSprite;
     }
 }
