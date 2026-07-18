@@ -17,8 +17,9 @@ public class FormationBannerManager : MonoBehaviour
 {
     public static FormationBannerManager Instance { get; private set; }
 
-    [Header("Adaptive zoom thresholds (soldier height in screen pixels)")]
-    // Calibrated to this game's camera: at 1080p the orthographic zoom range
+    [Header("Adaptive zoom thresholds (soldier height in 1080p-reference pixels)")]
+    // Calibrated to this game's camera against SoldierScreenPixels, which is
+    // normalized to a 1080-tall reference screen: the orthographic zoom range
     // (BattleCamera 5.5-36) puts a soldier between ~28 px (max zoom-out) and
     // ~186 px (max zoom-in); default framing (ortho 26) is ~39 px. The bands
     // below make Close/Compact/Expanded all reachable with the default view
@@ -35,11 +36,11 @@ public class FormationBannerManager : MonoBehaviour
     [Header("Overlap avoidance (screen space)")]
     [Tooltip("Seconds between overlap resolutions (banners interpolate in between)")]
     [SerializeField] private float overlapInterval = 0.15f;
-    [Tooltip("Banners closer than this horizontally (px) can collide")]
+    [Tooltip("Banners closer than this horizontally (1080p-reference px) can collide")]
     [SerializeField] private float overlapPaddingX = 95f;
-    [Tooltip("Banners closer than this vertically (px) collide")]
+    [Tooltip("Banners closer than this vertically (1080p-reference px) collide")]
     [SerializeField] private float overlapPaddingY = 80f;
-    [Tooltip("Vertical push per collision step (px)")]
+    [Tooltip("Vertical push per collision step (1080p-reference px)")]
     [SerializeField] private float overlapStepPx = 70f;
     [Tooltip("More than this many banners stacked in one spot fades the extras")]
     [SerializeField] private int maxStackCount = 3;
@@ -53,6 +54,8 @@ public class FormationBannerManager : MonoBehaviour
     public float SoldierScreenPixels { get; private set; }
     // world meters covered by one screen pixel at the current zoom
     public float WorldPerPixel { get; private set; } = 0.05f;
+    // raw device pixels per 1080p-reference pixel
+    public float PixelScale => Mathf.Max(0.5f, Screen.height / 1080f);
 
     private Camera cam;
     private bool externalInfoHeld;   // future mobile button hook
@@ -91,12 +94,14 @@ public class FormationBannerManager : MonoBehaviour
     {
         if (cam == null) { cam = Camera.main; if (cam == null) return; }
 
-        // Soldier screen height at the camera's center-screen ground focus —
-        // resolution/aspect independent, unlike raw orthographic size.
+        // Soldier screen height at the camera's center-screen ground focus.
+        // WorldToScreenPoint returns raw device pixels, so divide by PixelScale
+        // to express the value in 1080p-reference pixels — the thresholds above
+        // then hold on any screen height.
         Vector3 focus = FocusPoint();
         Vector3 a = cam.WorldToScreenPoint(focus);
         Vector3 b = cam.WorldToScreenPoint(focus + Vector3.up * SoldierWorldHeight);
-        SoldierScreenPixels = Mathf.Abs(b.y - a.y);
+        SoldierScreenPixels = Mathf.Abs(b.y - a.y) / PixelScale;
         WorldPerPixel = cam.orthographicSize * 2f / Mathf.Max(1, Screen.height);
 
         // hysteretic level transitions: stable while the camera dawdles near a
@@ -150,6 +155,12 @@ public class FormationBannerManager : MonoBehaviour
             if (banners[i] != null && banners[i].IsShown) visibleScratch.Add(banners[i]);
         visibleScratch.Sort(ByPriorityDesc);
 
+        // Paddings/steps are tuned in 1080p-reference pixels; the solver works
+        // in raw device pixels (WorldToScreenPoint space), so scale them here.
+        float padX = overlapPaddingX * PixelScale;
+        float padY = overlapPaddingY * PixelScale;
+        float step = overlapStepPx * PixelScale;
+
         for (int i = 0; i < visibleScratch.Count; i++)
         {
             var c = visibleScratch[i];
@@ -163,10 +174,10 @@ public class FormationBannerManager : MonoBehaviour
                 for (int j = 0; j < i; j++)
                 {
                     var other = visibleScratch[j];
-                    if (Mathf.Abs(sp.x - other.ResolvedScreenPos.x) < overlapPaddingX &&
-                        Mathf.Abs(sp.y + lift - other.ResolvedScreenPos.y) < overlapPaddingY)
+                    if (Mathf.Abs(sp.x - other.ResolvedScreenPos.x) < padX &&
+                        Mathf.Abs(sp.y + lift - other.ResolvedScreenPos.y) < padY)
                     {
-                        lift += overlapStepPx;
+                        lift += step;
                         steps++;
                         collided = true;
                         break;
