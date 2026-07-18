@@ -5,6 +5,28 @@ versions are git tags on `main` per `docs/VERSIONING.md`.
 
 ## [Unreleased]
 
+### 0.12.0 candidate — Charge (on `dev`, awaiting owner Play Mode test)
+
+#### Added
+- CHARGE replaces Break Ranks: the century sprints as a loose pack (1.3×) at
+  a target within 45 m, hits with a 1.5× melee impact bonus for a 2 s window
+  after first contact (stacks with flank/rear multipliers; archers may
+  charge as a last resort but get no bonus), then dissolves into pursuit on
+  the broken-ranks machinery — individuals hunting, the pack flowing to the
+  next enemy within 35 m and never map-chasing, under a tighter moving 18 m
+  leash whose center follows the pack.
+- Plant-the-standard reform: a pursuing century's banner rides with the
+  dominant cluster (historically the signifer's standard moved with the
+  men); pressing REFORM strikes it into the ground wherever the pack stands
+  now, and the survivors form up there. A reform that aborts leaves the
+  standard planted.
+- Charging legionaries run (broken-ranks sprint animation) instead of
+  marching; the charge shows the movement banner icon.
+- The button greys out with "No enemy in charge range" when nothing is
+  within reach — a formation can never dissolve itself for free.
+- Enemy AI charges sparingly: only at targets already badly under strength
+  or broken, and only within charge reach — discipline is a resource.
+
 ### 0.11.0 candidate — Controls & UI revamp (on `dev`, awaiting owner Play Mode test)
 
 #### Added
