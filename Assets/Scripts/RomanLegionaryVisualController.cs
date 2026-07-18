@@ -117,6 +117,16 @@ public class RomanLegionaryVisualController : MonoBehaviour
         if (formation != null) formation.OnFacingSnapped -= OnPivot;
     }
 
+    // Fires on LOD-in when the impostor layer re-activates VisualRoot (on the
+    // first activation soldier is still null — Start owns setup). Damage taken
+    // while imposted must be visible immediately, and a hit flash interrupted
+    // by the swap must not leave the palette stuck at white.
+    private void OnEnable()
+    {
+        if (soldier == null || dead) return;
+        ApplyPalette(Health01(), 0f);
+    }
+
     // ---------------- animation-role driving ----------------
 
     private void Update()
@@ -187,6 +197,8 @@ public class RomanLegionaryVisualController : MonoBehaviour
     private void OnAttack()
     {
         if (dead || !soldier.Alive) return;
+        // dormant while imposted: the impostor quads present combat
+        if (!isActiveAndEnabled) return;
         // Gameplay picks the variant (weighted thrust/over-shield/diagonal)
         // so the displayed clip and the deferred damage frame always agree.
         animator.SetInteger(AttackVariantId, soldier.MeleeAttackVariant);
@@ -196,6 +208,9 @@ public class RomanLegionaryVisualController : MonoBehaviour
     private void OnHurt()
     {
         if (dead || !soldier.Alive) return;
+        // dormant while imposted: the impostor layer flashes the quad instead,
+        // and coroutines cannot start on an inactive object
+        if (!isActiveAndEnabled) return;
         // Skip the body reaction while mid-attack (committed strike), but the
         // flash below always shows the hit landed.
         var info = animator.GetCurrentAnimatorStateInfo(0);
@@ -207,9 +222,14 @@ public class RomanLegionaryVisualController : MonoBehaviour
 
     private void OnDeath()
     {
+        // Bookkeeping and tinting must run even while imposted — the dead flag
+        // gates every other handler, and SetPropertyBlock works on inactive
+        // renderers so the corpse is correctly darkened if it ever LODs in.
         dead = true;
         if (flashRoutine != null) { StopCoroutine(flashRoutine); flashRoutine = null; }
         ApplyDeathTint();
+        // only the animator part is display work the impostor layer replaces
+        if (!isActiveAndEnabled) return;
         animator.SetInteger(DeathVariantId, Random.value < 0.5f ? 0 : 1);
         animator.SetTrigger(DieId);
     }
@@ -217,6 +237,7 @@ public class RomanLegionaryVisualController : MonoBehaviour
     private void OnPivot()
     {
         if (dead || soldier == null || !soldier.Alive) return;
+        if (!isActiveAndEnabled) return;   // dormant while imposted
         if (formation.State != FormationState.Ordered || isMoving) return;
         animator.SetTrigger(PivotId);
     }

@@ -283,6 +283,7 @@ public class BattleSetup : MonoBehaviour
         go.AddComponent<FormationBannerController>();
         go.AddComponent<FormationArrow>();
         go.AddComponent<FormationDestinationPreview>();
+        go.AddComponent<FormationImposterRenderer>();
         formations.Add(f);
         return f;
     }

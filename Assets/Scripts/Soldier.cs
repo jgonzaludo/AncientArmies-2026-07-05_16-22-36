@@ -35,6 +35,11 @@ public class Soldier : MonoBehaviour
     // the damage moment moves. Capsule melee (flag off) keeps instant damage.
     [System.NonSerialized] public bool deferMeleeImpact;
 
+    // Far-zoom impostor LOD: the formation impostor renderer hides this
+    // soldier's visual hierarchy behind a merged billboard quad. Simulation
+    // is untouched — only presentation goes dormant.
+    [System.NonSerialized] public bool Imposted;
+
     // 0 thrust / 1 over-shield / 2 diagonal slash — chosen by gameplay so the
     // damage timing and the displayed clip can never disagree.
     public int MeleeAttackVariant { get; private set; }
@@ -62,6 +67,9 @@ public class Soldier : MonoBehaviour
     private GameObject selectionDisc;
     private MaterialPropertyBlock mpb;
     private Color baseColor;
+    private GameObject[] visualParts;      // "VisualRoot", or the Body/Weapon primitives
+    private Renderer[] shadowRenderers;    // child renderers minus the selection disc
+    private bool castsShadows = true;
 
     // Contact-line saturation (Phase 4): melee attackers register on their
     // victim so scoring can spread strikes along the boundary instead of the
@@ -652,7 +660,79 @@ public class Soldier : MonoBehaviour
 
     public void SetSelected(bool sel)
     {
-        if (selectionDisc != null) selectionDisc.SetActive(sel);
+        // imposted soldiers show selection through the impostor quad tint,
+        // never through 80 individual discs the quads would z-fight with
+        if (selectionDisc != null) selectionDisc.SetActive(sel && !Imposted);
+    }
+
+    // Swap between the full visual hierarchy and the formation impostor quad.
+    // Gameplay (movement, targeting, damage, death timing) is untouched; only
+    // the skinned mesh / animator / primitive stack goes dormant.
+    public void SetImpostor(bool on)
+    {
+        if (Imposted == on) return;
+        Imposted = on;
+        // Disabling the animator mid-draw would silently swallow an archer's
+        // validated shot — the release frame never arrives. Let it fly first
+        // (same rule the archer controller applies in OnDestroy).
+        if (on) ReleasePendingShot();
+        // A soldier that died while imposted never gets its visuals back; the
+        // impostor layer already presented the death.
+        if (!on && !Alive) return;
+        if (visualParts == null) CacheVisualParts();
+        for (int i = 0; i < visualParts.Length; i++)
+            if (visualParts[i] != null) visualParts[i].SetActive(!on);
+        // re-apply selection under the new impostor state so discs hide at
+        // LOD-in and restore on LOD-out
+        SetSelected(formation != null && formation.IsSelected);
+    }
+
+    // The Roman prefab instantiates as a single "VisualRoot" child; the
+    // capsule fallback splits into "Body" and "Weapon" primitives. Cached
+    // once — the visual hierarchy never changes after spawn.
+    private void CacheVisualParts()
+    {
+        Transform vis = transform.Find("VisualRoot");
+        if (vis != null)
+        {
+            visualParts = new[] { vis.gameObject };
+            return;
+        }
+        Transform body = transform.Find("Body");
+        Transform wpn = transform.Find("Weapon");
+        int n = (body != null ? 1 : 0) + (wpn != null ? 1 : 0);
+        visualParts = new GameObject[n];
+        int k = 0;
+        if (body != null) visualParts[k++] = body.gameObject;
+        if (wpn != null) visualParts[k] = wpn.gameObject;
+    }
+
+    // Mid-zoom shadow tier: soldier shadows roughly double the army's drawn
+    // geometry, and below the tier threshold they stop reading as shadows.
+    // Renderer list cached once, state-guarded so redundant calls are free.
+    public void SetShadowCasting(bool on)
+    {
+        if (castsShadows == on) return;
+        castsShadows = on;
+        if (shadowRenderers == null) CacheShadowRenderers();
+        var mode = on ? UnityEngine.Rendering.ShadowCastingMode.On
+                      : UnityEngine.Rendering.ShadowCastingMode.Off;
+        for (int i = 0; i < shadowRenderers.Length; i++)
+            if (shadowRenderers[i] != null) shadowRenderers[i].shadowCastingMode = mode;
+    }
+
+    private void CacheShadowRenderers()
+    {
+        // the selection disc already never casts; everything else toggles
+        var all = GetComponentsInChildren<Renderer>(true);
+        int n = 0;
+        for (int i = 0; i < all.Length; i++)
+            if (selectionDisc == null || all[i].gameObject != selectionDisc) n++;
+        shadowRenderers = new Renderer[n];
+        int k = 0;
+        for (int i = 0; i < all.Length; i++)
+            if (selectionDisc == null || all[i].gameObject != selectionDisc)
+                shadowRenderers[k++] = all[i];
     }
 
     private IEnumerator LungeAnim()
