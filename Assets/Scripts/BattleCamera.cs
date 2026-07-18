@@ -25,9 +25,10 @@ public class BattleCamera : MonoBehaviour
     public float focusHalfX = 40f;
     public float focusHalfZ = 38f;
 
-    // camera-position clamps derived once in Awake from the camera's actual
-    // pitch and height, so the FOCUS point is what gets clamped — pan bounds
-    // stay correct if the fixed angle is ever tuned again (Patch 5)
+    // camera-position clamps derived from the camera's actual pitch, height,
+    // and current zoom, so the FOCUS point is what gets clamped and the whole
+    // visible ground rectangle stays on the field — pan bounds stay correct
+    // if the fixed angle is ever tuned again
     private float minX, maxX, minZ, maxZ;
 
     public bool IsPanning { get; private set; }
@@ -39,12 +40,14 @@ public class BattleCamera : MonoBehaviour
     private Vector3 inputVelocity;      // smoothed finger velocity while panning
     private float targetZoom;
     private float zoomVel;
+    private float lastAspect;
 
     private void Awake()
     {
         cam = GetComponent<Camera>();
         targetPos = transform.position;
-        targetZoom = cam.orthographicSize;
+        lastAspect = cam.aspect;
+        targetZoom = Mathf.Clamp(cam.orthographicSize, zoomMin, EffectiveZoomMax());
         RecomputeBounds();
     }
 
@@ -58,18 +61,35 @@ public class BattleCamera : MonoBehaviour
         zoomMax = maxZoom;
         if (cam == null) cam = GetComponent<Camera>();
         targetPos = transform.position;
-        targetZoom = Mathf.Clamp(cam.orthographicSize, zoomMin, zoomMax);
+        targetZoom = Mathf.Clamp(cam.orthographicSize, zoomMin, EffectiveZoomMax());
         RecomputeBounds();
+    }
+
+    // at ortho size S the view covers a ground rectangle of half-width
+    // S * aspect and half-depth S / sin(pitch); the configured zoomMax may
+    // exceed the largest S that still fits the field, so cap it — zoomMin
+    // wins if even that is too big, keeping the camera usable
+    private float EffectiveZoomMax()
+    {
+        float sinPitch = Mathf.Max(0.1f, Mathf.Sin(transform.eulerAngles.x * Mathf.Deg2Rad));
+        float fitMax = Mathf.Min(focusHalfX / Mathf.Max(0.1f, cam.aspect),
+                                 focusHalfZ * sinPitch);
+        return Mathf.Max(zoomMin, Mathf.Min(zoomMax, fitMax));
     }
 
     private void RecomputeBounds()
     {
         // focus = cameraPos + forward * (height / sin(pitch)); its ground
-        // offset from the camera is height / tan(pitch) along +Z (yaw 0)
+        // offset from the camera is height / tan(pitch) along +Z (yaw 0).
+        // the focus may only travel until the view edge reaches the field
+        // edge, so its room shrinks as the visible rectangle grows with zoom
         float pitch = transform.eulerAngles.x * Mathf.Deg2Rad;
         float zOffset = transform.position.y / Mathf.Max(0.1f, Mathf.Tan(pitch));
-        minX = -focusHalfX; maxX = focusHalfX;
-        minZ = -focusHalfZ - zOffset; maxZ = focusHalfZ - zOffset;
+        float limX = Mathf.Max(0f, focusHalfX - targetZoom * cam.aspect);
+        float limZ = Mathf.Max(0f, focusHalfZ - targetZoom / Mathf.Max(0.1f, Mathf.Sin(pitch)));
+        minX = -limX; maxX = limX;
+        minZ = -limZ - zOffset; maxZ = limZ - zOffset;
+        targetPos = ClampPos(targetPos);
     }
 
     // ---------------- input feed (called by PlayerCommander) ----------------
@@ -108,13 +128,23 @@ public class BattleCamera : MonoBehaviour
 
     public void ZoomBy(float factor)
     {
-        targetZoom = Mathf.Clamp(targetZoom * factor, zoomMin, zoomMax);
+        targetZoom = Mathf.Clamp(targetZoom * factor, zoomMin, EffectiveZoomMax());
+        RecomputeBounds();
     }
 
     // ---------------- motion ----------------
 
     private void LateUpdate()
     {
+        // aspect shifts on rotation/resize and changes both the zoom cap and
+        // how much ground the view covers
+        if (!Mathf.Approximately(cam.aspect, lastAspect))
+        {
+            lastAspect = cam.aspect;
+            targetZoom = Mathf.Clamp(targetZoom, zoomMin, EffectiveZoomMax());
+            RecomputeBounds();
+        }
+
         if (!IsPanning && glideVelocity.sqrMagnitude > 0.04f)
         {
             targetPos = ClampPos(targetPos + glideVelocity * Time.deltaTime);
