@@ -3,6 +3,42 @@
 All notable changes to Ancient Armies. Format follows Keep a Changelog;
 versions are git tags on `main` per `docs/VERSIONING.md`.
 
+## [Unreleased]
+
+### 0.10.0 candidate — Mobile presentation (on `dev`, awaiting owner Play Mode test)
+
+#### Added
+- Far-zoom imposter LOD: below ~34 reference-px soldier height each century
+  swaps its 80 animated soldiers for one merged mesh of team-colored
+  billboard quads (16 draws for the whole battle). Quads flash white on
+  hits, fall flat and shrink on deaths, brighten while selected; swaps are
+  staggered across formations and pending archer shots are released before
+  the animator sleeps so no validated arrow is ever swallowed.
+- Mid-zoom shadow tier: soldier shadow casting (a full second draw of the
+  army) turns off below ~50 reference-px soldier height, well before the
+  imposter swap.
+
+#### Fixed
+- Max zoom-out no longer shows off-field ground: the camera derives its true
+  fit-max zoom from field size, aspect, and pitch (≈95 at 19.5:9 vs the old
+  hard 120), and pan bounds now shrink with zoom so the visible rectangle
+  can never slide past the battlefield edge.
+- Banners no longer drift off their centuries on high-DPI phones: soldier
+  screen height and all declutter paddings/steps are normalized to a
+  1080p-reference pixel space.
+- The 80-circle destination preview now renders on device: replaced the
+  runtime-instanced draw (its shader variant is stripped from builds) with
+  one combined mesh on the proven non-instanced path.
+- Buttons render as true rounded rectangles at every size: the 9-slice
+  sprite's pixelsPerUnit now matches the canvas (100) with the border equal
+  to the corner radius.
+- Touch slop and formation tap padding no longer shrink physically on dense
+  screens (expressed in 1080p-reference pixels / screen-height fractions).
+
+### 0.9.1 candidate — Banner strength readout (on `dev`)
+- Removed the 80/80 strength text from banners; the health bar (now 3.1 ×
+  0.45) carries remaining strength alone.
+
 ## [0.9.0] — 2026-07-18
 
 First tag under the new versioning scheme (see `docs/VERSIONING.md`).
