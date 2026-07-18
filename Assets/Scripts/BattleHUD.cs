@@ -5,10 +5,13 @@ using UnityEngine.UI;
 using UnityEngine.EventSystems;
 using UnityEngine.InputSystem.UI;
 
-// Minimal runtime-built HUD: a top-left control hint plus a contextual bottom
-// panel that shows friendly formation info + commands (single or multi
-// selection) or read-only enemy inspection info. Everything is constructed in
-// code at Start() against PlayerCommander/Formation — no prefabs, no scene UI.
+// Minimal runtime-built HUD: a top-left control hint, floating command buttons
+// bottom-right, and a compact info chip bottom-left showing friendly formation
+// info (single or multi selection) or read-only enemy inspection info. There is
+// no full-width bar — only button background Images are raycast targets, so
+// battlefield taps near the bottom edge always reach the units. Everything is
+// constructed in code at Start() against PlayerCommander/Formation — no
+// prefabs, no scene UI.
 public class BattleHUD : MonoBehaviour
 {
     private const float ButtonWidth = 215f;
@@ -315,7 +318,7 @@ public class BattleHUD : MonoBehaviour
 
         // ---- Hint text (top-left) ----
         hintText = MakeText(canvasT, "HintText", 24, TextAnchor.UpperLeft, new Color(1f, 1f, 1f, 0.7f));
-        hintText.text = "Tap: select unit · Drag from unit: move / attack (then deselects) · Drag ground: pan · Pinch: zoom";
+        hintText.text = "Tap: select · quick 2nd tap: add to group · Drag from unit: move (2nd finger turns) · Drag ground: pan · Pinch: zoom";
         RectTransform hintRT = hintText.rectTransform;
         hintRT.anchorMin = new Vector2(0f, 1f);
         hintRT.anchorMax = new Vector2(0f, 1f);
@@ -475,6 +478,9 @@ public class BattleHUD : MonoBehaviour
 
     private void BuildBottomPanel(Transform canvasT)
     {
+        // Show/hide container only — no Image, no raycast footprint. The chip
+        // and buttons float inside it; taps between them must fall through to
+        // the battlefield.
         panelGO = new GameObject("BottomPanel");
         panelGO.transform.SetParent(canvasT, false);
 
@@ -485,22 +491,36 @@ public class BattleHUD : MonoBehaviour
         panelRT.anchoredPosition = Vector2.zero;
         panelRT.sizeDelta = new Vector2(0f, 170f);
 
-        var panelImage = panelGO.AddComponent<Image>();
-        panelImage.color = new Color(0.09f, 0.1f, 0.14f, 0.94f);
-
         Transform panelT = panelGO.transform;
 
-        // ---- Info text (left-middle) ----
-        infoText = MakeText(panelT, "InfoText", 32, TextAnchor.MiddleLeft, Color.white);
+        // ---- Info chip (bottom-left): compact rounded backdrop sized for the
+        // three-line info block. Purely visual — it sits over the battlefield,
+        // so neither the chip nor its text may intercept taps.
+        var chipGO = new GameObject("InfoChip");
+        chipGO.transform.SetParent(panelT, false);
+        var chipRT = chipGO.AddComponent<RectTransform>();
+        chipRT.anchorMin = new Vector2(0f, 0f);
+        chipRT.anchorMax = new Vector2(0f, 0f);
+        chipRT.pivot = new Vector2(0f, 0f);
+        chipRT.anchoredPosition = new Vector2(25f, 25f);
+        chipRT.sizeDelta = new Vector2(560f, 150f);
+        var chipImage = chipGO.AddComponent<Image>();
+        chipImage.sprite = RoundedSprite();
+        chipImage.type = Image.Type.Sliced;
+        chipImage.color = new Color(0.09f, 0.1f, 0.14f, 0.72f);
+        chipImage.raycastTarget = false;
+
+        infoText = MakeText(chipGO.transform, "InfoText", 32, TextAnchor.MiddleLeft, Color.white);
         infoText.lineSpacing = 1.15f;   // breathing room between the three info lines
         RectTransform infoRT = infoText.rectTransform;
-        infoRT.anchorMin = new Vector2(0f, 0.5f);
-        infoRT.anchorMax = new Vector2(0f, 0.5f);
-        infoRT.pivot = new Vector2(0f, 0.5f);
-        infoRT.anchoredPosition = new Vector2(30f, 0f);
-        infoRT.sizeDelta = new Vector2(700f, 150f);
+        infoRT.anchorMin = Vector2.zero;
+        infoRT.anchorMax = Vector2.one;
+        infoRT.offsetMin = new Vector2(25f, 12f);
+        infoRT.offsetMax = new Vector2(-25f, -12f);
 
-        // ---- Command buttons: a right-aligned row with uniform spacing ----
+        // ---- Command buttons: a right-aligned floating row with uniform
+        // spacing. Their background Images are the only raycast targets in the
+        // bottom layout — both button taps and PointerOverUI depend on that.
         const float margin = 25f;
         float buttonY = (170f - ButtonHeight) * 0.5f;
         float step = ButtonWidth + ButtonGap;
@@ -544,6 +564,9 @@ public class BattleHUD : MonoBehaviour
         text.color = color;
         text.horizontalOverflow = HorizontalWrapMode.Overflow;
         text.verticalOverflow = VerticalWrapMode.Overflow;
+        // No Text in this HUD is ever a tap target — buttons hit-test on their
+        // background Image, and free-floating text must not block the field.
+        text.raycastTarget = false;
 
         if (shadow)
         {
