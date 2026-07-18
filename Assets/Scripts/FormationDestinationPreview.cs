@@ -25,6 +25,7 @@ public class FormationDestinationPreview : MonoBehaviour
 
     private Formation f;
     private Transform arrow;
+    private PlayerCommander commander;
 
     // cached instance matrices — rebuilt on order change / drag / interval,
     // rendered every frame in between
@@ -91,9 +92,14 @@ public class FormationDestinationPreview : MonoBehaviour
     private void LateUpdate()
     {
         if (f == null || arrow == null) return;
+        if (commander == null) commander = FindAnyObjectByType<PlayerCommander>();
         bool show = f.IsSelected && f.CurrentOrderType == OrderType.Move &&
                     f.HasMoveDestination && f.soldiers.Count > 0;
-        if (arrow.gameObject.activeSelf != show) arrow.gameObject.SetActive(show);
+        // Single-arrow ownership (v1.8.2): while the rotate session edits this
+        // formation, its yellow arrow IS the direction readout — hide this
+        // one. The slot circles stay and rotate live under the drag.
+        bool arrowShown = show && !(commander != null && commander.IsRotating(f));
+        if (arrow.gameObject.activeSelf != arrowShown) arrow.gameObject.SetActive(arrowShown);
         if (!show)
         {
             cachedOrder = OrderType.None;   // force a rebuild when the preview returns

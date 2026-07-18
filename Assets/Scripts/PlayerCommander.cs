@@ -41,11 +41,20 @@ public class PlayerCommander : MonoBehaviour
     private Vector3 rotatePivot;
     private Vector3 rotateInitialDir;
     private Vector3 rotateEditDir;
+    private bool rotateEdited;   // arrow stays white until the first real drag
     private float rotateArrowRadius = 6f;
     private readonly List<Formation> rotateMovers = new List<Formation>();
     private readonly List<Vector3> rotateDestOffsets = new List<Vector3>();
     private readonly List<Formation> rotateStationary = new List<Formation>();
     private const float RotateDeadzone = 1.5f;   // meters around the pivot: ignore unstable input
+
+    // Arrow ownership (v1.8.2): while a formation participates in the rotate
+    // session, the yellow rotate arrow is THE arrow — FormationArrow and the
+    // destination-preview arrow both consult this and hide.
+    public bool IsRotating(Formation f)
+    {
+        return RotateMode && (rotateMovers.Contains(f) || rotateStationary.Contains(f));
+    }
 
     private readonly List<Formation> selection = new List<Formation>();
     private Camera cam;
@@ -538,13 +547,19 @@ public class PlayerCommander : MonoBehaviour
         rotateInitialDir = initial.sqrMagnitude > 0.01f
             ? new Vector3(initial.x, 0f, initial.z).normalized : Vector3.forward;
         rotateEditDir = rotateInitialDir;
-        rotateArrowRadius = radius * 0.55f + 1.5f;
+        // same offset as FormationArrow so the handoff is seamless (no jump)
+        rotateArrowRadius = radius * 0.55f + 1.0f;
         foreach (var f in rotateMovers)
             rotateDestOffsets.Add(f.DestinationPosition - pivot);
 
         RotateMode = true;
+        rotateEdited = false;
         if (rotatePreviewArrow == null)
             rotatePreviewArrow = BattleVisuals.CreateArrow("RotatePreview", preview: true);
+        // v1.8.2 color flow: entering rotate mode changes NOTHING visually —
+        // the arrow stays white at the current facing until the player
+        // actually starts dragging a new direction, then it turns yellow.
+        BattleVisuals.SetArrowPreviewStyle(rotatePreviewArrow, false);
         rotatePreviewArrow.gameObject.SetActive(true);
         UpdateRotatePreview(rotateEditDir);
     }
@@ -566,6 +581,11 @@ public class PlayerCommander : MonoBehaviour
         dir.y = 0f;
         if (dir.sqrMagnitude < RotateDeadzone * RotateDeadzone) return;   // unstable near pivot
         rotateEditDir = dir.normalized;
+        if (!rotateEdited)
+        {
+            rotateEdited = true;   // first real edit: the arrow goes yellow
+            BattleVisuals.SetArrowPreviewStyle(rotatePreviewArrow, true);
+        }
         UpdateRotatePreview(rotateEditDir);
         // live preview: moving centuries' planned facing follows the arrow so
         // the destination slot previews rotate under the finger

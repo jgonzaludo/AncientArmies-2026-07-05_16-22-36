@@ -44,7 +44,6 @@ public class FormationBannerController : MonoBehaviour
     [Header("Info elements")]
     [SerializeField] private float barWidth = 2.3f;
     [SerializeField] private float barHeight = 0.24f;
-    [SerializeField] private float facingWedgeSize = 0.6f;
     [Tooltip("TextMesh character size for the remaining-count readout")]
     [SerializeField] private float countCharacterSize = 0.24f;
 
@@ -67,7 +66,6 @@ public class FormationBannerController : MonoBehaviour
 
     private static readonly Dictionary<string, Sprite> spriteCache = new Dictionary<string, Sprite>();
     private static Sprite whiteSprite;
-    private static Sprite wedgeSprite;
     private static Sprite iconMoving, iconEngaged, iconBroken, iconReforming;
 
     private Formation f;
@@ -75,7 +73,7 @@ public class FormationBannerController : MonoBehaviour
     private Camera cam;
 
     private Transform root, scaleContainer;
-    private SpriteRenderer baseSR, stateIconSR, healthBgSR, healthFillSR, facingSR;
+    private SpriteRenderer baseSR, stateIconSR, healthBgSR, healthFillSR;
     private TextMesh countTM;
     private MeshRenderer countMR;
 
@@ -203,7 +201,6 @@ public class FormationBannerController : MonoBehaviour
             infoTimer = 0.25f;
             RefreshValues(level);
         }
-        UpdateFacingWedge(alpha);
     }
 
     private bool ResolveVisibility(FormationBannerManager mgr, FormationBannerDetailLevel level,
@@ -225,7 +222,7 @@ public class FormationBannerController : MonoBehaviour
     }
 
     // Child-element visibility per detail level: Close (selected marker) shows
-    // badge + selection + wedge only; Compact and Expanded add health bar,
+    // badge + selection only; Compact and Expanded add health bar,
     // state icon, and the strength readout. Selection also forces the strength
     // readout at Close — a selected formation always answers "how many left".
     private void ApplyPresentation(FormationBannerDetailLevel level, bool selected, float alpha)
@@ -257,7 +254,6 @@ public class FormationBannerController : MonoBehaviour
         healthBgSR.sortingOrder = order + 1;
         healthFillSR.sortingOrder = order + 2;
         stateIconSR.sortingOrder = order + 2;
-        facingSR.sortingOrder = order + 2;
         if (countMR != null) countMR.sortingOrder = order + 3;
     }
 
@@ -292,30 +288,6 @@ public class FormationBannerController : MonoBehaviour
         }
     }
 
-    // The separate facing wedge orbits the badge, rotated to the formation's
-    // authoritative facing after camera projection. The baked gold pointer on
-    // the artwork stays static (it marks the formation location). Hidden while
-    // broken (no coherent facing), muted while auto-facing steers the anchor.
-    private void UpdateFacingWedge(float alpha)
-    {
-        bool valid = f.State != FormationState.BrokenRanks && f.soldiers.Count > 0;
-        if (!valid) { SetSpriteAlpha(facingSR, Color.white, 0f); return; }
-
-        Vector3 a = cam.WorldToScreenPoint(f.AnchorPos);
-        Vector3 b = cam.WorldToScreenPoint(f.AnchorPos + f.AnchorForward * 4f);
-        Vector2 d = new Vector2(b.x - a.x, b.y - a.y);
-        if (d.sqrMagnitude < 1f) { SetSpriteAlpha(facingSR, Color.white, 0f); return; }
-        float ang = Mathf.Atan2(d.y, d.x) * Mathf.Rad2Deg;   // 0 = screen right
-
-        float radius = 1.75f;
-        Quaternion spin = Quaternion.Euler(0f, 0f, ang - 90f);   // wedge points +Y
-        facingSR.transform.localRotation = spin;
-        facingSR.transform.localPosition =
-            spin * new Vector3(0f, radius, -0.02f) + new Vector3(0f, -0.55f, 0f);
-        float mute = f.IsAutoFacing ? 0.6f : 1f;
-        SetSpriteAlpha(facingSR, Color.white, alpha * mute);
-    }
-
     private static void SetSpriteAlpha(SpriteRenderer sr, Color baseColor, float a)
     {
         baseColor.a *= a;
@@ -343,8 +315,6 @@ public class FormationBannerController : MonoBehaviour
                                   new Vector3(barWidth, barHeight, 1f));
         stateIconSR = MakeSprite("StateIcon", null, new Vector3(0f, 2.6f, -0.02f),
                                  Vector3.one * 0.9f);
-        facingSR = MakeSprite("FacingIndicator", wedgeSprite, new Vector3(0f, 1.2f, -0.02f),
-                              Vector3.one * facingWedgeSize);
 
         var countGO = new GameObject("CountText");
         countGO.transform.SetParent(scaleContainer, false);
@@ -397,7 +367,6 @@ public class FormationBannerController : MonoBehaviour
         tex.Apply();
         whiteSprite = Sprite.Create(tex, new Rect(0, 0, 4, 4), new Vector2(0.5f, 0.5f), 4f);
 
-        wedgeSprite = DrawIcon(48, (x, y) => y > -0.7f && Mathf.Abs(x) < (1f - (y + 0.7f) / 1.7f) * 0.55f);
         iconMoving = DrawIcon(48, (x, y) =>
         {
             float yy = Mathf.Repeat(y + 1f, 0.8f) - 0.4f;   // two stacked chevrons

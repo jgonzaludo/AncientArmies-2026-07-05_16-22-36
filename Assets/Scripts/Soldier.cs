@@ -68,6 +68,17 @@ public class Soldier : MonoBehaviour
     // whole rear rank swarming one enemy.
     [System.NonSerialized] public int meleeAttackerCount;
     private const int MaxMeleeAttackersPerTarget = 3;
+    private float volleyJitter01;   // fixed loose offset inside the volley window
+
+    // Volley spread (v1.8.2): ranged attackers register too, with a GRADUATED
+    // score penalty instead of a hard cap — 160 archers distribute in
+    // proportion to who is already being shot at, instead of every archer
+    // resolving the identical nearest-first argmin and massacring one man.
+    // A tiny deterministic per-soldier salt breaks residual lockstep between
+    // archers that see identical counts and distances. No RNG, no allocs.
+    [System.NonSerialized] public int rangedAttackerCount;
+    private const float RangedSpreadPenaltyPerAttacker = 0.35f;
+    private float targetSalt = 1f;   // 0.97..1.03, fixed per soldier
 
     // grid query scratch (Phase 6F): shared, main-thread only
     private static readonly Soldier[] sepBuffer = new Soldier[24];
@@ -135,6 +146,8 @@ public class Soldier : MonoBehaviour
         retargetTimer = Random.value * 0.3f;
         attackTimer = Random.value * 0.5f;
         sepTick = sepStagger++;               // spread separation recomputes across ticks
+        targetSalt = 0.97f + ((slot * 31) % 7) * 0.01f;   // deterministic volley tiebreak
+        volleyJitter01 = ((slot * 29) % 16) / 16f;        // spread shots across the window
         RefreshTint();
     }
 
@@ -296,7 +309,13 @@ public class Soldier : MonoBehaviour
             float d = toT.magnitude;
             bool shoot = S.isRanged && d > S.rangedMinRange;
             float reach = shoot ? S.rangedRange : S.strikeRange;
-            if (d <= reach && attackTimer <= 0f)
+            // volley discipline (v1.9): arrows loose only inside the
+            // formation's volley window, each archer at its own offset —
+            // melee and the sidearm are never gated
+            bool volleyReady = !shoot ||
+                (formation.VolleyOpen &&
+                 formation.VolleyPhase >= volleyJitter01 * formation.volleyWindow);
+            if (d <= reach && attackTimer <= 0f && volleyReady)
             {
                 attackTimer = S.attackCooldown * Random.Range(0.9f, 1.15f);
                 // formation-level tactical truth: front 1x, flank 1.5x, rear 2x
@@ -394,13 +413,19 @@ public class Soldier : MonoBehaviour
             // position along the boundary instead of piling on
             if (!S.isRanged && e.meleeAttackerCount >= MaxMeleeAttackersPerTarget)
                 score *= 3f;
+            // volley spread (v1.8.2): graduated penalty per archer already on
+            // this victim + per-soldier salt so a century's arrows distribute
+            if (S.isRanged)
+                score *= (1f + RangedSpreadPenaltyPerAttacker * e.rangedAttackerCount)
+                         * targetSalt;
             if (score < bestScore) { bestScore = score; best = e; }
         }
         SetTarget(best);
     }
 
-    // Central target setter: keeps the victim's melee attacker count honest
-    // (Phase 4 saturation). Ranged attackers don't reserve contact positions.
+    // Central target setter: keeps the victim's attacker counts honest —
+    // melee reservations bound the contact line (Phase 4), ranged counts
+    // drive the graduated volley-spread penalty (v1.8.2).
     private void SetTarget(Soldier t)
     {
         if (target == t) return;
@@ -409,6 +434,12 @@ public class Soldier : MonoBehaviour
             if (target != null)
                 target.meleeAttackerCount = Mathf.Max(0, target.meleeAttackerCount - 1);
             if (t != null) t.meleeAttackerCount++;
+        }
+        else
+        {
+            if (target != null)
+                target.rangedAttackerCount = Mathf.Max(0, target.rangedAttackerCount - 1);
+            if (t != null) t.rangedAttackerCount++;
         }
         target = t;
     }
