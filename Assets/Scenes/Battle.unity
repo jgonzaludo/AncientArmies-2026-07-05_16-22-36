@@ -307,7 +307,7 @@ MonoBehaviour:
     maxHealth: 35
     moveSpeed: 2.7
     attackDamage: 12
-    attackCooldown: 1.4
+    attackCooldown: 4
     strikeRange: 1.7
     rangedRange: 14
     rangedPreferredRange: 12
@@ -319,22 +319,30 @@ MonoBehaviour:
     maxHealth: 22
     moveSpeed: 3
     attackDamage: 10
-    attackCooldown: 3
+    attackCooldown: 6.5
     strikeRange: 1.6
     rangedRange: 48
     rangedPreferredRange: 40.8
     rangedMinRange: 2.5
     projectileSpeed: 20
-  meleeCount: 50
-  archerCount: 30
-  formationColumns: 10
+  soldiersPerCentury: 80
+  meleeCenturiesPerSide: 6
+  archerCenturiesPerSide: 2
+  centuryColumns: 10
+  archerColumns: 10
   meleeSpacing: 1.15
   archerSpacing: 1.75
   formationGapFactor: 1.1
-  formationsPerSide: 5
-  archerChance: 0.33333334
-  lineZ: 24
   lineSpacingX: 16
+  reserveLineOffset: 40
+  archerLineOffset: 20
+  fieldHalfX: 205
+  fieldHalfZ: 170
+  armySeparation: 240
+  deploymentZoneDepth: 60
+  separationFractionOrdered: 0.85
+  separationFractionPacked: 0.72
+  separationMaxPush: 1.2
   frontDamageMultiplier: 1
   flankDamageMultiplier: 1.5
   rearDamageMultiplier: 2

@@ -24,7 +24,11 @@ public class BattleSetup : MonoBehaviour
         maxHealth = 35f,
         moveSpeed = 3.2f,
         attackDamage = 12f,
-        attackCooldown = 1.4f,
+        // v1.9 pacing: kills stay lethal (3-4 hits) but exchanges happen every
+        // ~4 s — a shield line measuring strikes, not a blender. This is what
+        // stretches a century-vs-century grind to ~1.5-2 minutes.
+        // NOTE: scene-pinned in Battle.unity — change it there too.
+        attackCooldown = 4f,
         strikeRange = 1.7f
     };
     public UnitStats archerStats = new UnitStats
@@ -33,8 +37,13 @@ public class BattleSetup : MonoBehaviour
         isRanged = true,
         maxHealth = 22f,
         moveSpeed = 3f,
+        // v1.9 pacing: with spread targeting eliminating overkill waste,
+        // cadence governs output — damage back to 10 (4 front arrows per
+        // kill), cooldown under the 8 s volley interval so every archer is
+        // ready each volley (jitter 0.9-1.15 keeps 5.85-7.5 < 8).
+        // NOTE: Battle.unity pins both — change them there too.
         attackDamage = 10f,
-        attackCooldown = 3f,
+        attackCooldown = 6.5f,
         strikeRange = 1.6f,
         rangedRange = 48f,            // capped at the melee-line spawn separation (2 x lineZ)
         rangedPreferredRange = 40.8f, // 85% of max range: a visible second line
@@ -65,10 +74,13 @@ public class BattleSetup : MonoBehaviour
     // an archer century ~13 m (8 rows x 1.75), so the lines need real gaps —
     // archers clear of the front line's rear rank, reserves clear of the
     // archers' rear rank.
+    // Depth gaps must survive the 40-degree camera: a ~1.9 m soldier model
+    // consumes ~2.3 m of PERCEIVED ground depth, so the flat-footprint gap
+    // needs ~2.3 m of visual allowance on top of the physical clearance.
     [Tooltip("How far behind the front line the two reserve centuries deploy")]
-    public float reserveLineOffset = 32f;
+    public float reserveLineOffset = 40f;
     [Tooltip("How far behind the front line the archer centuries deploy")]
-    public float archerLineOffset = 16f;
+    public float archerLineOffset = 20f;
 
     // Battlefield scale (Phase 6). ~410x280 = roughly 11x the old 120x80 area:
     // room for wings, reserves, and maneuver without empty-travel tedium. At
@@ -76,7 +88,10 @@ public class BattleSetup : MonoBehaviour
     // and advancing on each other meet in armySeparation / 5.2 ≈ 46 s.
     [Header("V1 battlefield scale (Phase 6)")]
     public float fieldHalfX = 205f;
-    public float fieldHalfZ = 140f;
+    // 170 (was 140): armySeparation 240 + the deeper line offsets put the
+    // reserve rear rank at z=-164.6 — the old 140 left it 16.6 m OFF the
+    // ground plane, jamming the rear lines against the map edge.
+    public float fieldHalfZ = 170f;
     [Tooltip("Starting anchor-to-anchor separation of the two front lines")]
     public float armySeparation = 240f;
     [Tooltip("Depth of each side's deployment zone, measured from its map edge")]
