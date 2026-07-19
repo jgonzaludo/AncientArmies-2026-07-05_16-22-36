@@ -34,10 +34,14 @@ public class UnitStats
     public float projectileSpeed = 13f;
 
     // Data-driven century composition: one of each command role, remainder
-    // ordinary. Slot preferences: centurion front-right of center, signifer
-    // beside him (the signum anchors the front), cornicen behind the signifer,
+    // ordinary. Slot preferences: centurion at the front-right corner (his
+    // historical post on the right of the first rank), signifer right of
+    // center (the signum anchors the front), cornicen behind the signifer,
     // optio rear-center (his historical post), tesserarius indistinguishable
-    // in the ranks. Returns one role per slot index (front row = low indices).
+    // in the ranks. Returns one role per slot index (front row = low indices,
+    // higher column = further right). The centurion REPLACES a legionary —
+    // melee centuries only, never archers — and is written last so exactly
+    // one exists even when a narrow frontage collides with another staff slot.
     public SoldierRole[] BuildCenturyRoles(int count, int columns)
     {
         var roles = new SoldierRole[count];
@@ -47,11 +51,11 @@ public class UnitStats
 
         int frontCenter = columns / 2;
         int rows = Mathf.CeilToInt(count / (float)columns);
-        roles[frontCenter] = SoldierRole.Centurion;
         roles[Mathf.Min(frontCenter + 1, columns - 1)] = SoldierRole.Signifer;
         roles[Mathf.Min(frontCenter + 1 + columns, count - 1)] = SoldierRole.Cornicen;
         roles[Mathf.Min((rows - 1) * columns + frontCenter, count - 1)] = SoldierRole.Optio;
         roles[Mathf.Min(columns + 1, count - 1)] = SoldierRole.Tesserarius;
+        if (!isRanged) roles[columns - 1] = SoldierRole.Centurion;
         return roles;
     }
 }

@@ -806,6 +806,30 @@ public class Formation : MonoBehaviour
             unassigned[best].slotIndex = slot;
             unassigned.RemoveAt(best);
         }
+        PinCenturionSlot();
+    }
+
+    // The centurion owns the front-right corner slot (columns - 1). The
+    // nearest-slot pass assigns by pure distance, so after every remap
+    // (about-face, auto-close, reform) he swaps back with whoever landed
+    // there. No living centurion => no-op — he is never promoted or respawned.
+    // Engaged rank replacement may still pull him off the corner mid-melee;
+    // that is combat disorder and is left alone.
+    private void PinCenturionSlot()
+    {
+        int want = columns - 1;
+        if (want < 0 || want >= slotOffsets.Length) return;
+        Soldier centurion = null;
+        foreach (var s in soldiers)
+            if (s.role == SoldierRole.Centurion) { centurion = s; break; }
+        if (centurion == null || centurion.slotIndex == want) return;
+        foreach (var s in soldiers)
+            if (s != centurion && s.slotIndex == want)
+            {
+                s.slotIndex = centurion.slotIndex;
+                break;
+            }
+        centurion.slotIndex = want;
     }
 
     public void NotifyDeath(Soldier s)
