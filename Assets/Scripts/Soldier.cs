@@ -70,6 +70,8 @@ public class Soldier : MonoBehaviour
     private GameObject[] visualParts;      // "VisualRoot", or the Body/Weapon primitives
     private Renderer[] shadowRenderers;    // child renderers minus the selection disc
     private bool castsShadows = true;
+    private Animator visualAnimator;       // pose-evaluated on impostor wake
+    private bool animatorCached;
 
     // Contact-line saturation (Phase 4): melee attackers register on their
     // victim so scoring can spread strikes along the boundary instead of the
@@ -689,6 +691,18 @@ public class Soldier : MonoBehaviour
         if (visualParts == null) CacheVisualParts();
         for (int i = 0; i < visualParts.Length; i++)
             if (visualParts[i] != null) visualParts[i].SetActive(!on);
+        if (!on)
+        {
+            // A re-enabled Animator holds an unevaluated bind pose until its
+            // next update — one frame of 80 T-poses reads as a flicker at the
+            // LOD boundary. Evaluate a real pose on the wake frame.
+            if (!animatorCached)
+            {
+                animatorCached = true;
+                visualAnimator = GetComponentInChildren<Animator>(true);
+            }
+            if (visualAnimator != null) visualAnimator.Update(0f);
+        }
         // re-apply selection under the new impostor state so discs hide at
         // LOD-in and restore on LOD-out
         SetSelected(formation != null && formation.IsSelected);

@@ -56,8 +56,8 @@ public class FormationImposterRenderer : MonoBehaviour
     private Camera cam;
 
     private bool impostorActive;     // desired/committed tier
-    private bool soldiersImposted;   // animated stack actually asleep
     private float fade01;            // 0 = soldiers only, 1 = quads fully in
+    private float appliedFade01 = -1f;   // last fade the soldier loop applied
     private bool swapArmed;
     private float swapTime;
     private bool shadowsCast = true;
@@ -146,9 +146,8 @@ public class FormationImposterRenderer : MonoBehaviour
     }
 
     // The swap is a cross-fade, not a cut: entering only turns the quad layer
-    // on (soldiers keep animating underneath); the animated stack goes
-    // dormant when the fade completes. Leaving wakes the soldiers first and
-    // lets the quads fade out over them.
+    // on (soldiers keep animating underneath); soldiers then sleep in
+    // staggered batches as the fade progresses. Leaving reverses the order.
     private void SetImpostorActive(bool on)
     {
         impostorActive = on;
@@ -161,39 +160,41 @@ public class FormationImposterRenderer : MonoBehaviour
         }
         else
         {
+            // models take over new deaths/flashes immediately; the quad layer
+            // (and any dying quads) finishes fading out on its own
             UnsubscribeAll();
-            if (soldiersImposted)
-            {
-                soldiersImposted = false;
-                // living soldiers get their visuals back (their controllers'
-                // OnEnable re-applies the accumulated damage tint)
-                for (int i = 0; i < soldiers.Count; i++) soldiers[i].SetImpostor(false);
-            }
             flashUntil.Clear();
-            dying.Clear();
         }
     }
 
     private void UpdateFade()
     {
         float want = impostorActive ? 1f : 0f;
-        if (fade01 == want && (soldiersImposted == impostorActive || !impostorActive))
-        {
-            if (!impostorActive && fade01 == 0f && meshGO != null && meshGO.activeSelf)
-                meshGO.SetActive(false);
-            return;
-        }
-        fade01 = Mathf.MoveTowards(fade01, want, Time.deltaTime / Mathf.Max(0.05f, fadeSeconds));
+        if (fade01 != want)
+            fade01 = Mathf.MoveTowards(fade01, want, Time.deltaTime / Mathf.Max(0.05f, fadeSeconds));
 
-        if (impostorActive && fade01 >= 1f && !soldiersImposted)
+        // Per-soldier staggered sleep/wake spread across the middle of the
+        // fade window: 80 models toggling on one frame reads as a blink even
+        // under the quad layer, so each soldier crosses at its own
+        // deterministic threshold — waking soldiers appear under near-opaque
+        // quads first, the last few as the quads are almost gone.
+        if (fade01 != appliedFade01)
         {
-            // quads fully cover the view: NOW the animated stack may sleep
-            soldiersImposted = true;
+            appliedFade01 = fade01;
             var soldiers = formation.soldiers;
-            for (int i = 0; i < soldiers.Count; i++) soldiers[i].SetImpostor(true);
+            for (int i = 0; i < soldiers.Count; i++)
+            {
+                Soldier s = soldiers[i];
+                float threshold = 0.15f + ((s.slotIndex * 53) & 15) / 15f * 0.7f;
+                s.SetImpostor(fade01 > threshold);
+            }
         }
-        if (!impostorActive && fade01 <= 0f && meshGO != null)
-            meshGO.SetActive(false);
+
+        if (!impostorActive && fade01 <= 0f)
+        {
+            dying.Clear();
+            if (meshGO != null && meshGO.activeSelf) meshGO.SetActive(false);
+        }
     }
 
     // ---------------- soldier events ----------------
@@ -231,15 +232,15 @@ public class FormationImposterRenderer : MonoBehaviour
 
     // The handler-table check guards a death surfacing for a soldier already
     // processed (a swap can race the death event mid-frame) so the dying
-    // quad appends exactly once; the handler then retires itself. While the
-    // cross-fade is still running the real soldier plays its own death —
-    // adding a ghost quad on top would double the corpse.
+    // quad appends exactly once; the handler then retires itself. A soldier
+    // whose model is still awake plays its own death — adding a ghost quad
+    // on top would double the corpse.
     private void HandleDeath(Soldier s)
     {
         if (!deathHandlers.ContainsKey(s)) return;
         UnsubscribeSoldier(s);
         flashUntil.Remove(s);
-        if (!soldiersImposted) return;
+        if (!s.Imposted) return;
         Vector3 p = s.transform.position;
         p.y = 0f;
         dying.Add(new DyingQuad { pos = p, start = Time.time });
