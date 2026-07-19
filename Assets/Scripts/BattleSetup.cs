@@ -120,6 +120,17 @@ public class BattleSetup : MonoBehaviour
     [Tooltip("Attacks within this many degrees of the defender's rear count as rear attacks")]
     public float rearArcHalfAngleDeg = 60f;
 
+    // The battle-length lever. A NEW field on purpose: Battle.unity serializes
+    // the older stat blocks, so per-unit damage/health edits require in-editor
+    // scene stamping — this multiplier is unserialized and the C# default
+    // simply wins. Scaling all damage preserves every relative combat
+    // relationship (skill band, front/flank/rear, charge bonus); only the
+    // attrition rate changes. Consciously retires the "3-4 hits kills a man"
+    // anchor in favor of century-level grinds.
+    [Header("Battle pacing")]
+    [Tooltip("Global multiplier on ALL damage dealt — lower = longer battles; cadence and animations are untouched")]
+    public float globalDamageScale = 0.25f;
+
     private readonly List<Soldier> blue = new List<Soldier>();
     private readonly List<Soldier> red = new List<Soldier>();
     public readonly List<Formation> formations = new List<Formation>();

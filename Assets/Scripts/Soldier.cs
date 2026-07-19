@@ -337,7 +337,8 @@ public class Soldier : MonoBehaviour
                 if (shoot)
                 {
                     formation.NotifyRangedShot();   // archer IsFiring window
-                    float dmg = S.attackDamage * skill * dirMult;
+                    float dmg = S.attackDamage * skill * dirMult *
+                                BattleSetup.Instance.globalDamageScale;
                     if (deferRangedRelease)
                     {
                         ReleasePendingShot();   // an unreleased previous shot flies now
@@ -358,7 +359,8 @@ public class Soldier : MonoBehaviour
                     // the directional multiplier — a deferred hit that lands
                     // after the window closes still carries the charge's force
                     float dmg = S.attackDamage * skill * dirMult * (S.isRanged ? 0.4f : 1f)
-                                * formation.ChargeDamageMultiplier;
+                                * formation.ChargeDamageMultiplier
+                                * BattleSetup.Instance.globalDamageScale;
                     if (deferMeleeImpact && !S.isRanged)
                     {
                         // damage lands on the clip's contact frame; everything
