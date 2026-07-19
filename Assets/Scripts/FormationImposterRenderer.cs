@@ -12,17 +12,24 @@ using UnityEngine;
 // 1080p-reference soldier pixel height with dual-threshold hysteresis, and
 // the impostor swaps are staggered a few frames apart per formation so the
 // sixteen centuries never exchange 1,280 soldiers' visuals in one frame.
+// The swap itself CROSS-FADES: the quads alpha-blend in over the still-
+// visible soldiers before the animated stack sleeps, and blend out after it
+// wakes — never a single-frame pop.
 public class FormationImposterRenderer : MonoBehaviour
 {
     [Header("Tier thresholds (soldier height in 1080p-reference pixels)")]
-    [Tooltip("Enter impostor mode at or below this soldier pixel height (aligned with the banner's Expanded band)")]
-    [SerializeField] private float impostorEnterPixels = 34f;
+    [Tooltip("Enter impostor mode at or below this soldier pixel height")]
+    [SerializeField] private float impostorEnterPixels = 12f;
     [Tooltip("Leave impostor mode above this (hysteresis)")]
-    [SerializeField] private float impostorExitPixels = 40f;
+    [SerializeField] private float impostorExitPixels = 15f;
     [Tooltip("Soldier shadow casting turns off below this")]
     [SerializeField] private float shadowsOffPixels = 50f;
     [Tooltip("Soldier shadow casting returns at or above this (hysteresis)")]
     [SerializeField] private float shadowsOnPixels = 56f;
+
+    [Header("Transition")]
+    [Tooltip("Seconds the quad layer takes to fade in/out across the swap")]
+    [SerializeField] private float fadeSeconds = 0.35f;
 
     private const float QuadWidth = 0.95f;
     private const float QuadHeight = 1.75f;
@@ -33,17 +40,24 @@ public class FormationImposterRenderer : MonoBehaviour
     // living + dying quads can never exceed TotalSpawned; headroom is safety
     private const int QuadHeadroom = 8;
 
-    // Quad materials (team base, brightened selected variant, hit flash) —
-    // static so every formation shares the same handful of materials and the
-    // sixteen impostor meshes stay at sixteen distinct material sets total.
-    private static Material blueMeleeMat, blueArcherMat, redMeleeMat, redArcherMat;
-    private static Material blueMeleeSel, blueArcherSel, redMeleeSel, redArcherSel;
-    private static Material flashMat;
+    // One shared transparent material serves every impostor mesh; the actual
+    // team / selection / flash colors (and the cross-fade alpha) come from a
+    // per-renderer MaterialPropertyBlock per submesh, so sixteen formations
+    // still share a single material.
+    private static Material quadMat;
+    private static readonly int BaseColorId = Shader.PropertyToID("_BaseColor");
+
+    private static readonly Color BlueMelee = new Color(0.2f, 0.4f, 0.95f);
+    private static readonly Color BlueArcher = new Color(0.45f, 0.7f, 1f);
+    private static readonly Color RedMelee = new Color(0.9f, 0.22f, 0.18f);
+    private static readonly Color RedArcher = new Color(1f, 0.6f, 0.45f);
 
     private Formation formation;
     private Camera cam;
 
-    private bool impostorActive;
+    private bool impostorActive;     // desired/committed tier
+    private bool soldiersImposted;   // animated stack actually asleep
+    private float fade01;            // 0 = soldiers only, 1 = quads fully in
     private bool swapArmed;
     private float swapTime;
     private bool shadowsCast = true;
@@ -51,9 +65,8 @@ public class FormationImposterRenderer : MonoBehaviour
     private GameObject meshGO;
     private Mesh mesh;
     private MeshRenderer meshRenderer;
-    private Material baseMat, selMat;
-    private readonly Material[] matPair = new Material[2];
-    private bool selectedApplied;
+    private Color baseColor, selColor;
+    private MaterialPropertyBlock bodyBlock, flashBlock;
 
     private List<Vector3> verts;
     private List<int> trisBase, trisFlash;   // submesh 0 normal, submesh 1 flashing
@@ -92,7 +105,8 @@ public class FormationImposterRenderer : MonoBehaviour
 
         UpdateShadowTier(px);
         UpdateImpostorTier(px);
-        if (impostorActive) RebuildMesh();
+        UpdateFade();
+        if (fade01 > 0f) RebuildMesh();
     }
 
     // ---------------- tier transitions ----------------
@@ -110,8 +124,8 @@ public class FormationImposterRenderer : MonoBehaviour
 
     // Dual-threshold hysteresis plus a small per-formation delay before the
     // swap actually runs: sixteen formations crossing one camera threshold
-    // would otherwise toggle 1,280 soldiers' hierarchies in a single frame.
-    // The entity-id hash spreads the swaps over ~0.3 s; re-crossing the
+    // would otherwise start 1,280 cross-fades in a single frame. The
+    // entity-id hash spreads the swaps over ~0.3 s; re-crossing the
     // threshold during the delay cancels the armed swap.
     private void UpdateImpostorTier(float px)
     {
@@ -131,6 +145,10 @@ public class FormationImposterRenderer : MonoBehaviour
         SetImpostorActive(want);
     }
 
+    // The swap is a cross-fade, not a cut: entering only turns the quad layer
+    // on (soldiers keep animating underneath); the animated stack goes
+    // dormant when the fade completes. Leaving wakes the soldiers first and
+    // lets the quads fade out over them.
     private void SetImpostorActive(bool on)
     {
         impostorActive = on;
@@ -138,23 +156,44 @@ public class FormationImposterRenderer : MonoBehaviour
         if (on)
         {
             EnsureMeshObject();
-            for (int i = 0; i < soldiers.Count; i++)
-            {
-                soldiers[i].SetImpostor(true);
-                Subscribe(soldiers[i]);
-            }
+            for (int i = 0; i < soldiers.Count; i++) Subscribe(soldiers[i]);
             meshGO.SetActive(true);
         }
         else
         {
             UnsubscribeAll();
-            // living soldiers get their visuals back (their controllers'
-            // OnEnable re-applies the accumulated damage tint)
-            for (int i = 0; i < soldiers.Count; i++) soldiers[i].SetImpostor(false);
+            if (soldiersImposted)
+            {
+                soldiersImposted = false;
+                // living soldiers get their visuals back (their controllers'
+                // OnEnable re-applies the accumulated damage tint)
+                for (int i = 0; i < soldiers.Count; i++) soldiers[i].SetImpostor(false);
+            }
             flashUntil.Clear();
             dying.Clear();
-            if (meshGO != null) meshGO.SetActive(false);
         }
+    }
+
+    private void UpdateFade()
+    {
+        float want = impostorActive ? 1f : 0f;
+        if (fade01 == want && (soldiersImposted == impostorActive || !impostorActive))
+        {
+            if (!impostorActive && fade01 == 0f && meshGO != null && meshGO.activeSelf)
+                meshGO.SetActive(false);
+            return;
+        }
+        fade01 = Mathf.MoveTowards(fade01, want, Time.deltaTime / Mathf.Max(0.05f, fadeSeconds));
+
+        if (impostorActive && fade01 >= 1f && !soldiersImposted)
+        {
+            // quads fully cover the view: NOW the animated stack may sleep
+            soldiersImposted = true;
+            var soldiers = formation.soldiers;
+            for (int i = 0; i < soldiers.Count; i++) soldiers[i].SetImpostor(true);
+        }
+        if (!impostorActive && fade01 <= 0f && meshGO != null)
+            meshGO.SetActive(false);
     }
 
     // ---------------- soldier events ----------------
@@ -192,12 +231,15 @@ public class FormationImposterRenderer : MonoBehaviour
 
     // The handler-table check guards a death surfacing for a soldier already
     // processed (a swap can race the death event mid-frame) so the dying
-    // quad appends exactly once; the handler then retires itself.
+    // quad appends exactly once; the handler then retires itself. While the
+    // cross-fade is still running the real soldier plays its own death —
+    // adding a ghost quad on top would double the corpse.
     private void HandleDeath(Soldier s)
     {
         if (!deathHandlers.ContainsKey(s)) return;
         UnsubscribeSoldier(s);
         flashUntil.Remove(s);
+        if (!soldiersImposted) return;
         Vector3 p = s.transform.position;
         p.y = 0f;
         dying.Add(new DyingQuad { pos = p, start = Time.time });
@@ -208,18 +250,21 @@ public class FormationImposterRenderer : MonoBehaviour
     private void EnsureMeshObject()
     {
         if (meshGO != null) return;
-        EnsureMaterials();
+        if (quadMat == null)
+        {
+            // white base; every real color (and the fade alpha) is a
+            // per-renderer property block so the material stays shared
+            quadMat = BattleVisuals.TransparentUnlit(Color.white);
+        }
         bool ranged = formation.stats != null && formation.stats.isRanged;
-        if (formation.team == Team.Blue)
-        {
-            baseMat = ranged ? blueArcherMat : blueMeleeMat;
-            selMat = ranged ? blueArcherSel : blueMeleeSel;
-        }
-        else
-        {
-            baseMat = ranged ? redArcherMat : redMeleeMat;
-            selMat = ranged ? redArcherSel : redMeleeSel;
-        }
+        baseColor = formation.team == Team.Blue
+            ? (ranged ? BlueArcher : BlueMelee)
+            : (ranged ? RedArcher : RedMelee);
+        // selection brightens toward white because the per-soldier discs are
+        // hidden while imposted
+        selColor = Color.Lerp(baseColor, Color.white, 0.35f);
+        bodyBlock = new MaterialPropertyBlock();
+        flashBlock = new MaterialPropertyBlock();
 
         int quadCap = formation.TotalSpawned + QuadHeadroom;
         maxVerts = quadCap * 4;
@@ -236,39 +281,8 @@ public class FormationImposterRenderer : MonoBehaviour
         meshRenderer = meshGO.AddComponent<MeshRenderer>();
         meshRenderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
         meshRenderer.receiveShadows = false;
-        matPair[1] = flashMat;
-        ApplySelectionMaterial(true);
+        meshRenderer.sharedMaterials = new[] { quadMat, quadMat };
         meshGO.SetActive(false);
-    }
-
-    private static void EnsureMaterials()
-    {
-        if (flashMat != null) return;
-        // Solid team colors matched to SoldierFactory's palette so the quads
-        // read as the same army; selection brightens toward white because the
-        // per-soldier discs are hidden while imposted.
-        Color blueMelee = new Color(0.2f, 0.4f, 0.95f);
-        Color blueArcher = new Color(0.45f, 0.7f, 1f);
-        Color redMelee = new Color(0.9f, 0.22f, 0.18f);
-        Color redArcher = new Color(1f, 0.6f, 0.45f);
-        blueMeleeMat = SoldierFactory.Unlit(blueMelee);
-        blueArcherMat = SoldierFactory.Unlit(blueArcher);
-        redMeleeMat = SoldierFactory.Unlit(redMelee);
-        redArcherMat = SoldierFactory.Unlit(redArcher);
-        blueMeleeSel = SoldierFactory.Unlit(Color.Lerp(blueMelee, Color.white, 0.35f));
-        blueArcherSel = SoldierFactory.Unlit(Color.Lerp(blueArcher, Color.white, 0.35f));
-        redMeleeSel = SoldierFactory.Unlit(Color.Lerp(redMelee, Color.white, 0.35f));
-        redArcherSel = SoldierFactory.Unlit(Color.Lerp(redArcher, Color.white, 0.35f));
-        flashMat = SoldierFactory.Unlit(Color.white);
-    }
-
-    private void ApplySelectionMaterial(bool force)
-    {
-        bool sel = formation.IsSelected;
-        if (!force && sel == selectedApplied) return;
-        selectedApplied = sel;
-        matPair[0] = sel ? selMat : baseMat;
-        meshRenderer.sharedMaterials = matPair;
     }
 
     private void RebuildMesh()
@@ -278,7 +292,6 @@ public class FormationImposterRenderer : MonoBehaviour
             cam = Camera.main;
             if (cam == null) return;
         }
-        ApplySelectionMaterial(false);
 
         // Camera-yaw billboard for the fixed-tilt orthographic camera: quads
         // stand on world up and span the camera's horizontal right.
@@ -328,6 +341,14 @@ public class FormationImposterRenderer : MonoBehaviour
         mesh.SetTriangles(trisBase, 0, false);
         mesh.SetTriangles(trisFlash, 1, false);
         mesh.RecalculateBounds();
+
+        // team / selection color and the cross-fade alpha, per submesh
+        Color body = formation.IsSelected ? selColor : baseColor;
+        body.a = fade01;
+        bodyBlock.SetColor(BaseColorId, body);
+        meshRenderer.SetPropertyBlock(bodyBlock, 0);
+        flashBlock.SetColor(BaseColorId, new Color(1f, 1f, 1f, fade01));
+        meshRenderer.SetPropertyBlock(flashBlock, 1);
     }
 
     // Two triangles wound clockwise toward the camera (Unity front faces).

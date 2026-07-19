@@ -318,7 +318,13 @@ public class BattleSetup : MonoBehaviour
             cam.transform.rotation = Quaternion.Euler(40f, 0f, 0f);
             cam.clearFlags = CameraClearFlags.SolidColor;
             cam.backgroundColor = new Color(0.12f, 0.14f, 0.17f);
-            cam.nearClipPlane = 0.3f;
+            // Negative near plane (legal for orthographic cameras): at full
+            // zoom-out the BOTTOM of the tilted frustum meets the ground
+            // behind the camera plane (ray distance goes negative once
+            // orthoSize * cos(pitch) exceeds the camera height), and a
+            // positive near clips that strip to background void. -100 covers
+            // the fit-max zoom with margin.
+            cam.nearClipPlane = -100f;
             cam.farClipPlane = 600f;      // reaches the far corners of the big field
             var rig = cam.GetComponent<BattleCamera>();
             if (rig == null) rig = cam.gameObject.AddComponent<BattleCamera>();

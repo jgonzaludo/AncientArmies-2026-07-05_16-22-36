@@ -50,6 +50,16 @@ versions are git tags on `main` per `docs/VERSIONING.md`.
 
 ### 0.10.0 candidate — Mobile presentation (on `dev`, awaiting owner Play Mode test)
 
+#### Changed (post-test feedback)
+- Bottom-of-screen void at max zoom-out fixed: the tilted frustum's bottom
+  edge met the ground behind the camera plane at large ortho sizes; the
+  orthographic near plane is now negative (-100) so that strip renders.
+- Soldiers stay fully animated much further out: imposter thresholds lowered
+  from 34/40 to 12/15 reference px — the marker quads now only take over
+  near absolute max zoom.
+- The model→marker swap cross-fades (~0.35 s alpha blend) instead of
+  cutting; soldiers keep animating under the quads until the fade completes.
+
 #### Added
 - Far-zoom imposter LOD: below ~34 reference-px soldier height each century
   swaps its 80 animated soldiers for one merged mesh of team-colored
