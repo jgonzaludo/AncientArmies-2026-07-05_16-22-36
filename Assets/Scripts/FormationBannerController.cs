@@ -80,13 +80,7 @@ public class FormationBannerController : MonoBehaviour
     private float orderFeedbackUntil = -1f;
     private float infoTimer;             // interval for value refresh
     private FormationState lastState = (FormationState)(-1);
-    private float overlapLiftPx;
-    private bool overlapFaded;
 
-    // read by the manager's overlap solver
-    public bool IsShown => shownAlpha > 0.05f && f != null && f.soldiers.Count > 0;
-    public Vector3 DesiredWorldAnchor { get; private set; }
-    public Vector2 ResolvedScreenPos { get; private set; }
     public float Priority
     {
         get
@@ -106,26 +100,15 @@ public class FormationBannerController : MonoBehaviour
         f.OnOrderIssued += OnOrder;
         EnsureShared();
         Build();
-        if (FormationBannerManager.Instance != null)
-            FormationBannerManager.Instance.RegisterBanner(this);
     }
 
     private void OnDestroy()
     {
         if (f != null) f.OnOrderIssued -= OnOrder;
-        if (FormationBannerManager.Instance != null)
-            FormationBannerManager.Instance.UnregisterBanner(this);
         if (root != null) Destroy(root.gameObject);
     }
 
     private void OnOrder() { orderFeedbackUntil = Time.unscaledTime + orderFeedbackSeconds; }
-
-    public void SetOverlapResolution(Vector2 screenPos, float liftPx, bool faded)
-    {
-        ResolvedScreenPos = screenPos;
-        overlapLiftPx = liftPx;
-        overlapFaded = faded;
-    }
 
     // ---------------- per-frame presentation ----------------
 
@@ -168,8 +151,6 @@ public class FormationBannerController : MonoBehaviour
         else
             target = f.AnchorPos - f.AnchorForward * rearOffset;
         target.y = hoverHeight;
-        DesiredWorldAnchor = target;
-        target.y += overlapLiftPx * mgr.WorldPerPixel;   // de-clutter lift
 
         if (!hasPos) { pos = target; hasPos = true; }
         else pos = Vector3.Lerp(pos, target, 1f - Mathf.Exp(-followSmoothing * Time.deltaTime));
@@ -190,9 +171,7 @@ public class FormationBannerController : MonoBehaviour
         // selection reads as focus: everything NOT selected drops opacity
         bool anySelection = commander != null && commander.Selection.Count > 0;
         float dim = anySelection && !selected ? unselectedDimFactor : 1f;
-        float alpha = shownAlpha * dim *
-                      (overlapFaded && !selected && !targeted ? 0.25f : 1f);
-        ApplyPresentation(level, selected, alpha);
+        ApplyPresentation(level, selected, shownAlpha * dim);
 
         infoTimer -= Time.unscaledDeltaTime;
         if (infoTimer <= 0f)
