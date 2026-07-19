@@ -51,6 +51,16 @@ versions are git tags on `main` per `docs/VERSIONING.md`.
 ### 0.10.0 candidate — Mobile presentation (on `dev`, awaiting owner Play Mode test)
 
 #### Changed (post-test feedback)
+- Banners now anchor rigidly to their formation — the screen-space declutter
+  solver (and its stack-fade) is removed entirely; overlap at far zoom is
+  accepted over banners drifting off their century.
+- The model→marker cross-fade staggers each soldier's sleep/wake across the
+  fade window and primes the Animator pose on wake — no century-wide blink,
+  no one-frame T-pose flicker.
+- Sand battlefield replaces the tiled grass (whose contrast read as an
+  obvious repeating pattern at full zoom-out): Meshy-toned seamless sand
+  with fine grain and subtle ripples that mips to a clean uniform at
+  distance.
 - Bottom-of-screen void at max zoom-out fixed: the tilted frustum's bottom
   edge met the ground behind the camera plane at large ortho sizes; the
   orthographic near plane is now negative (-100) so that strip renders.
