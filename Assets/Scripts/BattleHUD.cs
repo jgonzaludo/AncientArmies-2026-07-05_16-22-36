@@ -328,7 +328,7 @@ public class BattleHUD : MonoBehaviour
 
         // ---- Hint text (top-left) ----
         hintText = MakeText(canvasT, "HintText", 24, TextAnchor.UpperLeft, new Color(1f, 1f, 1f, 0.7f));
-        hintText.text = "Tap: select · quick 2nd tap: add to group · Drag from unit: move (2nd finger turns) · Drag ground: pan · Pinch: zoom";
+        hintText.text = "Tap: select · double-tap: add to group · Drag from unit: move (2nd finger turns) · Drag ground: pan · Pinch: zoom";
         RectTransform hintRT = hintText.rectTransform;
         hintRT.anchorMin = new Vector2(0f, 1f);
         hintRT.anchorMax = new Vector2(0f, 1f);

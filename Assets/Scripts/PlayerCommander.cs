@@ -4,8 +4,9 @@ using UnityEngine.EventSystems;
 using UnityEngine.InputSystem;
 
 // Mobile-first control grammar (docs/MOBILE_CONTROLS.md):
-//   tap friendly = select that formation EXCLUSIVELY; a quick second tap adds
-//   another century to the group; tapping a selected century removes it
+//   tap friendly = select that formation EXCLUSIVELY (single taps hop between
+//   centuries; tapping the sole selected century deselects); DOUBLE-tapping a
+//   century adds it to the existing group — keep double-tapping to build it
 //   tap empty ground = clear all selection      tap enemy = inspect
 //   drag from a selected formation = command drag: a move drag previews the
 //   destination slot dots live and a second finger twists the final facing;
@@ -84,9 +85,15 @@ public class PlayerCommander : MonoBehaviour
     private readonly List<FormationDestinationPreview> fedCandidates =
         new List<FormationDestinationPreview>();
 
-    // group-building taps: a quick follow-up tap ADDS instead of replacing
-    private const float MultiTapWindow = 0.35f;
-    private float lastFriendlyTapTime = -999f;
+    // Double-tap group building: the FIRST tap on a century acts immediately
+    // (exclusive switch — no laggy delayed selection); a second tap on the
+    // SAME century inside the window upgrades it to a group add by restoring
+    // the selection snapshotted before the first tap and keeping the century
+    // in it. Two taps on DIFFERENT centuries are just two switches.
+    private const float DoubleTapWindow = 0.35f;
+    private Formation lastTapFormation;
+    private float lastTapTime = -999f;
+    private readonly List<Formation> preTapSelection = new List<Formation>();
 
     private LineRenderer commandLine;
     private GameObject enemyRing;
@@ -284,15 +291,33 @@ public class PlayerCommander : MonoBehaviour
         }
         if (f.team == Team.Blue)
         {
-            // Tap grammar: exclusive select by default; a rapid follow-up tap
-            // (inside the multi-tap window, with something already selected)
-            // ADDS to the group instead; tapping an already-selected century
-            // always removes it, regardless of timing.
-            bool quickAdd = selection.Count > 0 &&
-                            Time.unscaledTime - lastFriendlyTapTime < MultiTapWindow;
-            lastFriendlyTapTime = Time.unscaledTime;
-            if (selection.Contains(f) || quickAdd) ToggleSelect(f);
-            else SelectOnly(f);
+            // Tap grammar: single tap SWITCHES (exclusive select; tapping the
+            // sole selected century deselects it), a true double tap on one
+            // century ADDS it to the group that existed before the first tap
+            // — so "select A, then double-tap B, double-tap C" builds
+            // {A,B,C}, while single taps just hop between centuries.
+            float now = Time.unscaledTime;
+            bool doubleTap = f == lastTapFormation && now - lastTapTime < DoubleTapWindow;
+            if (doubleTap)
+            {
+                // restore the pre-first-tap selection with this century in it;
+                // double-tapping an existing member is a harmless no-op
+                DeselectAll();
+                foreach (var p in preTapSelection)
+                    if (p != null && p.soldiers.Count > 0 && !selection.Contains(p))
+                        ToggleSelect(p);
+                if (!selection.Contains(f)) ToggleSelect(f);
+                lastTapFormation = null;   // consume: a third tap starts fresh
+            }
+            else
+            {
+                preTapSelection.Clear();
+                preTapSelection.AddRange(selection);
+                if (selection.Count == 1 && selection[0] == f) DeselectAll();
+                else SelectOnly(f);
+                lastTapFormation = f;
+                lastTapTime = now;
+            }
         }
         else
         {
