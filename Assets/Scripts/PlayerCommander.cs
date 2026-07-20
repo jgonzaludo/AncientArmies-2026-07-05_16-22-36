@@ -101,8 +101,10 @@ public class PlayerCommander : MonoBehaviour
     private float lastPinchDist = -1f;
 
     // order destination clamps read the parameterized battlefield (Phase 6)
-    private static float FieldX => BattleSetup.Instance != null ? BattleSetup.Instance.fieldHalfX - 4f : 54f;
-    private static float FieldZ => BattleSetup.Instance != null ? BattleSetup.Instance.fieldHalfZ - 4f : 36f;
+    private static float FieldX => BattleSetup.Instance != null
+        ? BattleSetup.Instance.fieldHalfX - BattleSetup.Instance.fieldEdgeMargin : 54f;
+    private static float FieldZ => BattleSetup.Instance != null
+        ? BattleSetup.Instance.fieldHalfZ - BattleSetup.Instance.fieldEdgeMargin : 36f;
 
     // 1080p-reference pixels expressed at the current resolution
     private static float RefPx(float px) => px / 1080f * Screen.height;

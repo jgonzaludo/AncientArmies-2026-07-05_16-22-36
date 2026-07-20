@@ -102,6 +102,11 @@ versions are git tags on `main` per `docs/VERSIONING.md`.
 - Removed the 80/80 strength text from banners; the health bar (now 3.1 ×
   0.45) carries remaining strength alone.
 
+### Tuned (on `main`)
+- Starting deployment pulled 20 m inward from each map edge; order and AI
+  destination clamps use a 12 m field margin (was 4–5 m) so rear centuries
+  and drag orders stay clear of the boundary.
+
 ## [0.9.0] — 2026-07-18
 
 First tag under the new versioning scheme (see `docs/VERSIONING.md`).

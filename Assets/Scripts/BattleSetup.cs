@@ -96,6 +96,10 @@ public class BattleSetup : MonoBehaviour
     public float armySeparation = 240f;
     [Tooltip("Depth of each side's deployment zone, measured from its map edge")]
     public float deploymentZoneDepth = 60f;
+    [Tooltip("Minimum clearance from the field boundary for orders and AI moves")]
+    public float fieldEdgeMargin = 12f;
+    [Tooltip("Pull starting deployment inward from each map edge so rear ranks clear the boundary")]
+    public float spawnEdgeInset = 20f;
 
     // Centralized soldier-spacing tuning (Phase 4). Soldiers read these so
     // the whole contact feel is adjustable in one place; the melee opponent
@@ -140,8 +144,9 @@ public class BattleSetup : MonoBehaviour
         Instance = this;
         Application.runInBackground = true;
         EnsureEnvironment();
-        SpawnSide(Team.Blue, -armySeparation * 0.5f, 0f, false);
-        SpawnSide(Team.Red, armySeparation * 0.5f, 180f, true);
+        float blueLineZ = -armySeparation * 0.5f + spawnEdgeInset;
+        SpawnSide(Team.Blue, blueLineZ, 0f, false);
+        SpawnSide(Team.Red, armySeparation * 0.5f - spawnEdgeInset, 180f, true);
         if (GetComponent<EnemyCommander>() == null)
             gameObject.AddComponent<EnemyCommander>();
         if (GetComponent<FormationBannerManager>() == null)
@@ -324,7 +329,7 @@ public class BattleSetup : MonoBehaviour
             // Pitch 40 degrees; position = focus - forward * (height/sin40),
             // height 42. Initial focus sits over the BLUE deployment line so
             // the player starts looking at their own army.
-            float focusZ = -armySeparation * 0.5f;
+            float focusZ = -armySeparation * 0.5f + spawnEdgeInset;
             cam.transform.position = new Vector3(0f, 42f, focusZ - 42f / Mathf.Tan(40f * Mathf.Deg2Rad));
             cam.transform.rotation = Quaternion.Euler(40f, 0f, 0f);
             cam.clearFlags = CameraClearFlags.SolidColor;
