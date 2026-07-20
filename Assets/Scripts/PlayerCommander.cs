@@ -72,8 +72,10 @@ public class PlayerCommander : MonoBehaviour
     private float lastPinchDist = -1f;
 
     // order destination clamps read the parameterized battlefield (Phase 6)
-    private static float FieldX => BattleSetup.Instance != null ? BattleSetup.Instance.fieldHalfX - 4f : 54f;
-    private static float FieldZ => BattleSetup.Instance != null ? BattleSetup.Instance.fieldHalfZ - 4f : 36f;
+    private static float FieldX => BattleSetup.Instance != null
+        ? BattleSetup.Instance.fieldHalfX - BattleSetup.Instance.fieldEdgeMargin : 54f;
+    private static float FieldZ => BattleSetup.Instance != null
+        ? BattleSetup.Instance.fieldHalfZ - BattleSetup.Instance.fieldEdgeMargin : 36f;
 
     // Touch slop: small finger movement after touch-down must not instantly
     // commit the gesture to a drag. ~1.5mm on a real screen, 22px fallback

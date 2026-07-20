@@ -199,8 +199,9 @@ public class EnemyCommander : MonoBehaviour
     private Vector3 ClampToField(Vector3 p)
     {
         var bs = BattleSetup.Instance;
-        p.x = Mathf.Clamp(p.x, -bs.fieldHalfX + 5f, bs.fieldHalfX - 5f);
-        p.z = Mathf.Clamp(p.z, -bs.fieldHalfZ + 5f, bs.fieldHalfZ - 5f);
+        float m = bs.fieldEdgeMargin;
+        p.x = Mathf.Clamp(p.x, -bs.fieldHalfX + m, bs.fieldHalfX - m);
+        p.z = Mathf.Clamp(p.z, -bs.fieldHalfZ + m, bs.fieldHalfZ - m);
         return p;
     }
 

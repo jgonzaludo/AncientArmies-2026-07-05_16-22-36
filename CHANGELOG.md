@@ -3,6 +3,13 @@
 All notable changes to Ancient Armies. Format follows Keep a Changelog;
 versions are git tags on `main` per `docs/VERSIONING.md`.
 
+## [Unreleased]
+
+### Tuned
+- Starting deployment pulled 20 m inward from each map edge; order and AI
+  destination clamps use a 12 m field margin (was 4–5 m) so rear centuries
+  and drag orders stay clear of the boundary.
+
 ## [0.9.0] — 2026-07-18
 
 First tag under the new versioning scheme (see `docs/VERSIONING.md`).
