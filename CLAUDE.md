@@ -1,86 +1,132 @@
-# Ancient Armies
+# Ancient Armies — agent working rules
 
-Mobile-first real-time tactical game built in Unity 6 using URP.
+Unity 6 (6000.4.8f1), URP, mobile-first landscape, fixed isometric-style
+orthographic camera. Mobile-first real-time tactical game.
 
-The player commands formations of individually simulated ancient soldiers.
+## Source of truth
 
-## Git, Versions, and the Test Gate
+Read these before substantial work; they override any assumption:
 
-`docs/VERSIONING.md` is binding: work on `dev`, `main` only receives
-owner-tested bundles, versions are `0.MINOR.PATCH` git tags on `main` with a
-CHANGELOG entry, commits use Conventional Commits with game scopes.
-**Never commit/push/merge/tag a gameplay change until the owner has manually
-tested it in Play Mode and explicitly approved.** Docs-only changes still ask
-first. Design milestones (V0/V1/V2) are phase names, never version numbers.
+- `Docs/CURRENT_GAME_SPEC.md` — implemented gameplay, controls, states
+- `Docs/TECHNICAL_ARCHITECTURE.md` — systems and responsibilities
+- `Docs/ART_DIRECTION.md` — visual target
+- `Docs/ART_PIPELINE.md` — the active art pipeline and its approval gates
+- `Docs/DECISIONS.md` — recorded decisions and their dates
 
-## Before Substantial Work
+Do not expand scope beyond the current spec without explicit approval.
 
-Read:
+## Project structure
 
-* `docs/GAME_VISION.md`
-* `docs/V0_PROTOTYPE.md` (historical V0 contract)
-* `docs/V1_RELEASE.md` (V1 contract and manual test suite)
-* `docs/V1_2_COMBAT_CONTROL.md` (current release contract and manual test suite)
-* `docs/NEXT_RELEASE.md` (deferred future scope — do not implement without approval)
+```
+Assets/Scripts/       all runtime gameplay code (flat, one class per file)
+Assets/Editor/        editor-only validation tools; never referenced at runtime
+Assets/Scenes/        Battle.unity is the only scene in Build Settings
+Assets/Art/           current runtime art actually referenced by the game
+Assets/Settings/      URP pipeline assets and volume profiles
+Assets/AncientArmies/ clean destination tree for NEW production work
+ArtSource/            art production source, outside Assets/ — never shipped
+ThirdPartyPackages/   local Unity packages (Tripo Unity DCC Bridge)
+```
 
-Do not expand the project beyond the current release requirements without explicit approval.
+## Core invariants
 
-## Codebase Knowledge Graph (RAG)
+These are design law, not preferences:
 
-`graphify-out/` (project root, local-only, not committed) holds a prebuilt
-knowledge graph of this codebase and its docs. When searching for how systems
-relate, what calls what, or where a concept lives, query it before grepping
-broadly:
+- Player control is formation-level.
+- Soldiers are real, individually simulated entities.
+- Formations are a behavioral and tactical harness, not a rendering trick.
+- Ordered formations are predictable; combat creates local disorder.
+- Breaking ranks increases individual freedom and chaos.
+- Reforming requires sufficient disengagement from melee.
+- Dead soldiers are removed; survivors close ranks when reforming.
+- Outcomes are understandable, not dominated by invisible randomness.
 
-* `graphify query "<question>"` — traversal answer from the graph
-* `graphify-out/graph.json` — raw nodes/edges (GraphRAG-ready)
-* `graphify-out/GRAPH_REPORT.md` — communities, god nodes, audit trail
-* `graphify-out/graph.html` — interactive visualization (open in a browser)
-* `graphify-out/obsidian/` — Obsidian vault of the same graph
+## Gameplay code boundaries
 
-After substantial code changes, refresh it with `/graphify . --update`.
+- `Formation` owns the state machine, the anchor (position + facing), and the
+  slot grid. It is the only writer of `AnchorPos` / `AnchorRot`.
+- `Soldier` owns individual movement and combat. It reads formation state
+  through `GetSlotWeight` / `GetAcquireRadius` — it never drives the formation.
+- `PlayerCommander` and `EnemyCommander` only ever call the public `Issue*`
+  command methods. They never mutate formation internals directly.
+- `BattleSetup` owns spawning, the battle lifecycle, and the team registries.
+- Visual controllers (`Roman*VisualController`, banners, arrows, previews,
+  impostors) are presentation only. Gameplay stays authoritative: never let a
+  visual read drive a gameplay decision, and never gate gameplay timing on
+  Animator state names.
 
-## Core Invariants
+Do not rewrite these systems to add a feature. Extend at the seams.
 
-* Player control is formation-level.
-* Soldiers are real individual simulated entities.
-* Formations act as a behavioral and tactical harness.
-* Ordered formations should be predictable.
-* Combat can create local disorder.
-* Breaking ranks intentionally increases individual freedom and chaos.
-* Reforming requires sufficient disengagement from melee.
-* Dead soldiers are removed and survivors close ranks when reforming.
-* Tactical outcomes should be understandable rather than dominated by invisible randomness.
+## Validating changes
 
-## Current State
+- Compile: the Unity Editor is the authority. `Assets/Editor/*Validation.cs`
+  holds the existing static checks; run them from the editor menus.
+- Behavior: **Play mode in `Assets/Scenes/Battle.unity`.** Verify in Unity
+  rather than assuming code works.
+- **`Battle.unity` serializes values that override C# field defaults.** Before
+  changing a default in a `MonoBehaviour`, grep the scene for the field — if
+  it is pinned there, editing the C# default alone changes nothing. Adding a
+  *new* field is the reliable way to make a C# default win.
 
-V0 (formation systems sandbox), V1 (first real battle vs. an autonomous enemy:
-larger formations, enemy AI, archer preferred range, directional combat),
-V1.1 (coordinated commander AI with target scoring; 5v5 battles with a random
-melee/archer mix each round; wider battlefield), and V1.2 (exclusive tap
-selection with auto-deselect after orders; forgiving formation touch targets;
-dense melee spacing; auto-close and rear-rank pressure; edge engagement;
-pivot-in-place rotation; farther archer range; defeated-label fix; mid-match
-restart; UI tidy-up) are complete.
-See `docs/V1_RELEASE.md`, `docs/V1_1_CHANGES.md`, and
-`docs/V1_2_COMBAT_CONTROL.md` for shipped scope and manual test suites.
+## Naming conventions
 
-## Technical Direction
+- Scripts: `PascalCase.cs`, one public type per file, matching the filename.
+- Runtime prefabs loaded by name: `VIS_*` (soldier visuals), `PROP_*` (props),
+  `UI_*` (sprites), `TEX_*` (textures), `MAT_*` (materials), `AC_*` (Animator
+  Controllers).
+- Anything loaded via `Resources.Load` must sit in a `Resources/` folder and
+  keep its exact name — renaming silently breaks runtime loading. Current
+  string loads live in `SoldierFactory`, `Projectile`, `BattlefieldDecor`, and
+  `FormationBannerController`.
 
-* Unity 6
-* Universal Render Pipeline
-* Real 3D world
-* Fixed isometric-style orthographic camera
-* Mobile-first landscape presentation
-* Simple placeholder 3D characters for V0
-* Use the Unity MCP when editor inspection or manipulation is useful
+## Unity `.meta` handling
 
-## Engineering Rules
+- Every asset has exactly one `.meta`. Delete or move an asset and its `.meta`
+  **together**, never one alone.
+- Never leave an orphaned `.meta`, and never delete a `.meta` while keeping the
+  asset — both break GUID references in scenes and prefabs.
+- Before deleting anything under `Assets/`, confirm it is unreferenced: grep
+  its GUID across scenes, prefabs, materials, controllers, and ScriptableObjects.
+- Never hand-edit a GUID in an existing `.meta`.
 
-* Prototype before polish.
-* Prefer the smallest implementation that proves the gameplay thesis.
-* Do not introduce systems solely for hypothetical future needs.
-* Do not add morale, terrain, progression, multiplayer, or advanced enemy tactics without approval.
-* Inspect the current project before proposing architecture.
-* Make changes in runnable checkpoints.
-* Verify behavior in Unity rather than assuming code works.
+## Art pipeline rules
+
+- Tripo Studio Pro generates; Blender owns rigs and masters; Unity receives FBX.
+- **Raw Tripo output is not production-ready.** It is a starting point.
+- **`.blend` is the editable source of truth** for characters, rigs, and
+  animation. Unity assets are exports, not originals.
+- **Production character exports normally enter Unity as FBX.**
+- **Generated assets may not enter production runtime folders without explicit
+  approval.** The Tripo Unity Bridge drops assets in for preview and testing
+  only; approved production art is placed deliberately.
+- Never put raw Tripo exports, reference images, Blender working files, Mixamo
+  downloads, or review renders under `Assets/` — they belong in `ArtSource/`.
+- **Do not revive Meshy or AssetHub as the active pipeline without an explicit
+  decision** recorded in `Docs/DECISIONS.md`.
+
+## Do not modify casually
+
+- `ProjectSettings/` — especially input, graphics, and quality settings
+- `Packages/manifest.json` and `Packages/packages-lock.json`
+- `Assets/Settings/` — URP renderer and pipeline assets
+- `ThirdPartyPackages/` — vendored third-party code; do not edit its source
+- `Assets/Scenes/Battle.unity` — serialized tuning lives here
+
+## Git and the test gate
+
+Work on `dev`. Versions are `0.MINOR.PATCH` git tags on `main`. Commits follow
+Conventional Commits with game scopes.
+
+**Never commit, push, merge, or tag a gameplay change until the owner has
+manually tested it in Play mode and explicitly approved it.** Ask first even
+for docs-only changes.
+
+## Knowledge graph
+
+`graphify-out/` (local-only, not committed) holds a prebuilt knowledge graph of
+this codebase. Query it before grepping broadly:
+
+- `graphify query "<question>"` — traversal answer
+- `graphify-out/GRAPH_REPORT.md` — communities, god nodes, audit trail
+
+Refresh after substantial code changes: `graphify . --update`.

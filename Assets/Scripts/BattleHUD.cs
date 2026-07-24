@@ -5,10 +5,13 @@ using UnityEngine.UI;
 using UnityEngine.EventSystems;
 using UnityEngine.InputSystem.UI;
 
-// Minimal runtime-built HUD: a top-left control hint plus a contextual bottom
-// panel that shows friendly formation info + commands (single or multi
-// selection) or read-only enemy inspection info. Everything is constructed in
-// code at Start() against PlayerCommander/Formation — no prefabs, no scene UI.
+// Minimal runtime-built HUD: a top-left control hint, floating command buttons
+// bottom-right, and a compact info chip bottom-left showing friendly formation
+// info (single or multi selection) or read-only enemy inspection info. There is
+// no full-width bar — only button background Images are raycast targets, so
+// battlefield taps near the bottom edge always reach the units. Everything is
+// constructed in code at Start() against PlayerCommander/Formation — no
+// prefabs, no scene UI.
 public class BattleHUD : MonoBehaviour
 {
     private const float ButtonWidth = 215f;
@@ -29,7 +32,7 @@ public class BattleHUD : MonoBehaviour
     private Text reasonText;
     private Text hintText;
 
-    private Button breakButton;
+    private Button chargeButton;
     private Button reformButton;
     private Button rotateButton;
     private Button restartMiniButton;   // persistent: restart before/during a battle
@@ -112,12 +115,12 @@ public class BattleHUD : MonoBehaviour
         panelGO.SetActive(true);
 
         // A fully broken selection has exactly one meaningful order — REFORM.
-        // Offering BREAK RANKS or ROTATE there is noise; hide them entirely.
+        // Offering CHARGE or ROTATE there is noise; hide them entirely.
         // Mixed selections keep the full row so the coherent formations stay
         // commandable.
         bool allBroken = AllLiveBroken(selection);
         SetCommandButtonsVisible(true);
-        if (allBroken) breakButton.gameObject.SetActive(false);
+        if (allBroken) chargeButton.gameObject.SetActive(false);
         UpdateButtonInteractivity(selection);
 
         if (liveCount == 1)
@@ -178,7 +181,8 @@ public class BattleHUD : MonoBehaviour
 
     private void UpdateButtonInteractivity(IReadOnlyList<Formation> selection)
     {
-        bool breakInteractable = false;
+        bool chargeInteractable = false;
+        bool anyChargeNoTarget = false;
         bool anyCanReform = false;
         bool anyBlockingState = false;
         int considered = 0;
@@ -189,7 +193,9 @@ public class BattleHUD : MonoBehaviour
             if (f == null || f.soldiers.Count == 0) continue;
             considered++;
 
-            if (f.State != FormationState.BrokenRanks) breakInteractable = true;
+            Formation.ChargeBlock block = f.GetChargeBlock();
+            if (block == Formation.ChargeBlock.None) chargeInteractable = true;
+            else if (block == Formation.ChargeBlock.NoTarget) anyChargeNoTarget = true;
             if (f.CanReform) anyCanReform = true;
             if (f.State == FormationState.Engaged ||
                 f.State == FormationState.BrokenRanks ||
@@ -197,9 +203,16 @@ public class BattleHUD : MonoBehaviour
                 anyBlockingState = true;
         }
 
-        SetButtonEnabled(breakButton, breakInteractable);
+        SetButtonEnabled(chargeButton, chargeInteractable);
         SetButtonEnabled(reformButton, anyCanReform);
-        reasonText.text = (considered > 0 && !anyCanReform && anyBlockingState) ? "Too close to enemy" : "";
+        // One reason line: the reform story wins when it applies; otherwise
+        // explain a charge blocked purely by distance.
+        if (considered > 0 && !anyCanReform && anyBlockingState)
+            reasonText.text = "Too close to enemy";
+        else if (considered > 0 && !chargeInteractable && anyChargeNoTarget)
+            reasonText.text = "No enemy in charge range";
+        else
+            reasonText.text = "";
     }
 
     private void UpdateRotateButton()
@@ -221,7 +234,7 @@ public class BattleHUD : MonoBehaviour
 
     private void SetCommandButtonsVisible(bool visible)
     {
-        breakButton.gameObject.SetActive(visible);
+        chargeButton.gameObject.SetActive(visible);
         reformButton.gameObject.SetActive(visible);
     }
 
@@ -263,11 +276,11 @@ public class BattleHUD : MonoBehaviour
 
     // ---------------- button commands ----------------
 
-    private void OnBreakRanksClicked()
+    private void OnChargeClicked()
     {
         if (commander == null || commander.Selection == null) return;
         foreach (var f in commander.Selection)
-            if (f != null && f.soldiers.Count > 0) f.IssueBreakRanks();
+            if (f != null && f.soldiers.Count > 0) f.IssueCharge();
     }
 
     private void OnReformClicked()
@@ -315,7 +328,7 @@ public class BattleHUD : MonoBehaviour
 
         // ---- Hint text (top-left) ----
         hintText = MakeText(canvasT, "HintText", 24, TextAnchor.UpperLeft, new Color(1f, 1f, 1f, 0.7f));
-        hintText.text = "Tap: select unit · Drag from unit: move / attack (then deselects) · Drag ground: pan · Pinch: zoom";
+        hintText.text = "Tap: select · double-tap: add to group · Drag from unit: move (2nd finger turns) · Drag ground: pan · Pinch: zoom";
         RectTransform hintRT = hintText.rectTransform;
         hintRT.anchorMin = new Vector2(0f, 1f);
         hintRT.anchorMax = new Vector2(0f, 1f);
@@ -475,6 +488,9 @@ public class BattleHUD : MonoBehaviour
 
     private void BuildBottomPanel(Transform canvasT)
     {
+        // Show/hide container only — no Image, no raycast footprint. The chip
+        // and buttons float inside it; taps between them must fall through to
+        // the battlefield.
         panelGO = new GameObject("BottomPanel");
         panelGO.transform.SetParent(canvasT, false);
 
@@ -485,29 +501,43 @@ public class BattleHUD : MonoBehaviour
         panelRT.anchoredPosition = Vector2.zero;
         panelRT.sizeDelta = new Vector2(0f, 170f);
 
-        var panelImage = panelGO.AddComponent<Image>();
-        panelImage.color = new Color(0.09f, 0.1f, 0.14f, 0.94f);
-
         Transform panelT = panelGO.transform;
 
-        // ---- Info text (left-middle) ----
-        infoText = MakeText(panelT, "InfoText", 32, TextAnchor.MiddleLeft, Color.white);
+        // ---- Info chip (bottom-left): compact rounded backdrop sized for the
+        // three-line info block. Purely visual — it sits over the battlefield,
+        // so neither the chip nor its text may intercept taps.
+        var chipGO = new GameObject("InfoChip");
+        chipGO.transform.SetParent(panelT, false);
+        var chipRT = chipGO.AddComponent<RectTransform>();
+        chipRT.anchorMin = new Vector2(0f, 0f);
+        chipRT.anchorMax = new Vector2(0f, 0f);
+        chipRT.pivot = new Vector2(0f, 0f);
+        chipRT.anchoredPosition = new Vector2(25f, 25f);
+        chipRT.sizeDelta = new Vector2(560f, 150f);
+        var chipImage = chipGO.AddComponent<Image>();
+        chipImage.sprite = RoundedSprite();
+        chipImage.type = Image.Type.Sliced;
+        chipImage.color = new Color(0.09f, 0.1f, 0.14f, 0.72f);
+        chipImage.raycastTarget = false;
+
+        infoText = MakeText(chipGO.transform, "InfoText", 32, TextAnchor.MiddleLeft, Color.white);
         infoText.lineSpacing = 1.15f;   // breathing room between the three info lines
         RectTransform infoRT = infoText.rectTransform;
-        infoRT.anchorMin = new Vector2(0f, 0.5f);
-        infoRT.anchorMax = new Vector2(0f, 0.5f);
-        infoRT.pivot = new Vector2(0f, 0.5f);
-        infoRT.anchoredPosition = new Vector2(30f, 0f);
-        infoRT.sizeDelta = new Vector2(700f, 150f);
+        infoRT.anchorMin = Vector2.zero;
+        infoRT.anchorMax = Vector2.one;
+        infoRT.offsetMin = new Vector2(25f, 12f);
+        infoRT.offsetMax = new Vector2(-25f, -12f);
 
-        // ---- Command buttons: a right-aligned row with uniform spacing ----
+        // ---- Command buttons: a right-aligned floating row with uniform
+        // spacing. Their background Images are the only raycast targets in the
+        // bottom layout — both button taps and PointerOverUI depend on that.
         const float margin = 25f;
         float buttonY = (170f - ButtonHeight) * 0.5f;
         float step = ButtonWidth + ButtonGap;
 
-        breakButton = MakeButton(panelT, "BreakRanksButton", "BREAK RANKS",
-                                 new Vector2(-margin - 2f * step, buttonY));
-        breakButton.onClick.AddListener(OnBreakRanksClicked);
+        chargeButton = MakeButton(panelT, "ChargeButton", "CHARGE",
+                                  new Vector2(-margin - 2f * step, buttonY));
+        chargeButton.onClick.AddListener(OnChargeClicked);
 
         reformButton = MakeButton(panelT, "ReformButton", "REFORM",
                                   new Vector2(-margin - step, buttonY));
@@ -544,6 +574,9 @@ public class BattleHUD : MonoBehaviour
         text.color = color;
         text.horizontalOverflow = HorizontalWrapMode.Overflow;
         text.verticalOverflow = VerticalWrapMode.Overflow;
+        // No Text in this HUD is ever a tap target — buttons hit-test on their
+        // background Image, and free-floating text must not block the field.
+        text.raycastTarget = false;
 
         if (shadow)
         {
@@ -599,11 +632,15 @@ public class BattleHUD : MonoBehaviour
     // The corner radius stays small (square-ish, not pill) and a subtle darker
     // rim is baked just inside the edge — it survives per-use tinting because
     // the sprite is still near-white.
+    // The sprite's pixelsPerUnit must match the canvas's referencePixelsPerUnit
+    // (100) and the 9-slice border must be exactly the corner radius — any
+    // mismatch rescales the corner slices per-axis and the buttons distort
+    // into ovals instead of keeping a fixed corner radius at every size.
     private static Sprite RoundedSprite()
     {
         if (roundedSprite != null) return roundedSprite;
         const int size = 64;
-        const int radius = 12;
+        const int radius = 16;
         var tex = new Texture2D(size, size, TextureFormat.RGBA32, false);
         for (int y = 0; y < size; y++)
         {
@@ -620,9 +657,9 @@ public class BattleHUD : MonoBehaviour
         tex.wrapMode = TextureWrapMode.Clamp;
         tex.Apply();
         roundedSprite = Sprite.Create(tex, new Rect(0f, 0f, size, size),
-                                      new Vector2(0.5f, 0.5f), 1f, 0,
+                                      new Vector2(0.5f, 0.5f), 100f, 0,
                                       SpriteMeshType.FullRect,
-                                      new Vector4(radius + 2, radius + 2, radius + 2, radius + 2));
+                                      new Vector4(radius, radius, radius, radius));
         return roundedSprite;
     }
 }

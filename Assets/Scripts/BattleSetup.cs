@@ -124,6 +124,17 @@ public class BattleSetup : MonoBehaviour
     [Tooltip("Attacks within this many degrees of the defender's rear count as rear attacks")]
     public float rearArcHalfAngleDeg = 60f;
 
+    // The battle-length lever. A NEW field on purpose: Battle.unity serializes
+    // the older stat blocks, so per-unit damage/health edits require in-editor
+    // scene stamping — this multiplier is unserialized and the C# default
+    // simply wins. Scaling all damage preserves every relative combat
+    // relationship (skill band, front/flank/rear, charge bonus); only the
+    // attrition rate changes. Consciously retires the "3-4 hits kills a man"
+    // anchor in favor of century-level grinds.
+    [Header("Battle pacing")]
+    [Tooltip("Global multiplier on ALL damage dealt — lower = longer battles; cadence and animations are untouched")]
+    public float globalDamageScale = 0.25f;
+
     private readonly List<Soldier> blue = new List<Soldier>();
     private readonly List<Soldier> red = new List<Soldier>();
     public readonly List<Formation> formations = new List<Formation>();
@@ -288,6 +299,7 @@ public class BattleSetup : MonoBehaviour
         go.AddComponent<FormationBannerController>();
         go.AddComponent<FormationArrow>();
         go.AddComponent<FormationDestinationPreview>();
+        go.AddComponent<FormationImposterRenderer>();
         formations.Add(f);
         return f;
     }
@@ -322,7 +334,13 @@ public class BattleSetup : MonoBehaviour
             cam.transform.rotation = Quaternion.Euler(40f, 0f, 0f);
             cam.clearFlags = CameraClearFlags.SolidColor;
             cam.backgroundColor = new Color(0.12f, 0.14f, 0.17f);
-            cam.nearClipPlane = 0.3f;
+            // Negative near plane (legal for orthographic cameras): at full
+            // zoom-out the BOTTOM of the tilted frustum meets the ground
+            // behind the camera plane (ray distance goes negative once
+            // orthoSize * cos(pitch) exceeds the camera height), and a
+            // positive near clips that strip to background void. -100 covers
+            // the fit-max zoom with margin.
+            cam.nearClipPlane = -100f;
             cam.farClipPlane = 600f;      // reaches the far corners of the big field
             var rig = cam.GetComponent<BattleCamera>();
             if (rig == null) rig = cam.gameObject.AddComponent<BattleCamera>();

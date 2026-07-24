@@ -17,6 +17,14 @@
       },
       "hash": "de30e09c92d02a644b896b432408411c4a77c483"
     },
+    "com.tripo3d.unitybridge": {
+      "version": "file:../ThirdPartyPackages/TripoUnityBridge",
+      "depth": 0,
+      "source": "local",
+      "dependencies": {
+        "com.unity.modules.jsonserialize": "1.0.0"
+      }
+    },
     "com.unity.2d.sprite": {
       "version": "1.0.0",
       "depth": 1,

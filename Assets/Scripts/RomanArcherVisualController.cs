@@ -117,6 +117,21 @@ public class RomanArcherVisualController : MonoBehaviour
         if (formation != null) formation.OnFacingSnapped -= OnPivot;
     }
 
+    // Fires on LOD-in when the impostor layer re-activates VisualRoot (on the
+    // first activation soldier is still null — Start owns setup). Damage taken
+    // while imposted must be visible immediately, a hit flash interrupted by
+    // the swap must not stick at white, and a draw interrupted by the swap
+    // already released its shot — clear the stale firing-cycle visual state
+    // before it re-shows the hand arrow.
+    private void OnEnable()
+    {
+        if (soldier == null || dead) return;
+        shotPendingVisual = false;
+        handArrowShown = false;
+        if (handArrow != null) handArrow.SetActive(false);
+        ApplyPalette(Health01(), 0f);
+    }
+
     private void Update()
     {
         if (dead || soldier == null || !soldier.Alive) return;
@@ -213,6 +228,15 @@ public class RomanArcherVisualController : MonoBehaviour
     private void OnAttack()
     {
         if (dead || !soldier.Alive) return;
+        if (!isActiveAndEnabled)
+        {
+            // Imposted: no release frame will ever come, and an unreleased
+            // pending shot would freeze the archer (the pending lock never
+            // clears) — the validated shot flies immediately instead,
+            // matching the capsule fallback's timing.
+            soldier.ReleasePendingShot();
+            return;
+        }
         var stats = formation != null ? formation.stats : null;
         bool melee = stats != null && soldier.NearestEnemyDist <= stats.rangedMinRange + 0.5f;
         if (melee)
@@ -269,6 +293,9 @@ public class RomanArcherVisualController : MonoBehaviour
     private void OnHurt()
     {
         if (dead || !soldier.Alive) return;
+        // dormant while imposted: the impostor layer flashes the quad instead
+        // (no draw can be in progress — imposted attacks release immediately)
+        if (!isActiveAndEnabled) return;
         // A hit cancels the visible draw; the already-validated shot flies
         // immediately so gameplay balance is unchanged.
         if (shotPendingVisual) FinishRelease();
@@ -281,12 +308,18 @@ public class RomanArcherVisualController : MonoBehaviour
 
     private void OnDeath()
     {
+        // Bookkeeping must run even while imposted: the dead flag gates every
+        // other handler, the pending-shot cancel is a gameplay rule (the dying
+        // archer's arrow is lost), and SetPropertyBlock works on inactive
+        // renderers so the corpse is correctly darkened if it ever LODs in.
         dead = true;
         shotPendingVisual = false;
         if (handArrow != null) handArrow.SetActive(false);
-        soldier.CancelPendingShot();           // the dying archer's arrow is lost
+        soldier.CancelPendingShot();
         if (flashRoutine != null) { StopCoroutine(flashRoutine); flashRoutine = null; }
         ApplyDeathTint();
+        // only the animator part is display work the impostor layer replaces
+        if (!isActiveAndEnabled) return;
         animator.SetInteger(DeathVariantId, Random.value < 0.5f ? 0 : 1);
         animator.SetTrigger(DieId);
     }
@@ -294,6 +327,7 @@ public class RomanArcherVisualController : MonoBehaviour
     private void OnPivot()
     {
         if (dead || soldier == null || !soldier.Alive) return;
+        if (!isActiveAndEnabled) return;   // dormant while imposted
         if (formation.State != FormationState.Ordered || isMoving) return;
         animator.SetTrigger(PivotId);
     }
