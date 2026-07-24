@@ -36,5 +36,7 @@ reference:
 
 The unit-by-unit written description of all eight sprites (shared visual
 language, per-unit equipment, poses, and modeling priorities) was supplied
-alongside the images and is incorporated into
-`../specifications/ROMAN_MODULAR_EQUIPMENT_SPEC.md`.
+alongside the images. The reference images plus `../ROMAN_CHARACTER_STYLE.md`
+are now the authority for that description — the former
+`ROMAN_MODULAR_EQUIPMENT_SPEC.md` it was folded into has been removed
+(modularity abandoned; every unit is an independent full Meshy character).

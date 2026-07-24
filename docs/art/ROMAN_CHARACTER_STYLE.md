@@ -6,11 +6,17 @@ against this document and the two references in `references/`.
 
 Companion specifications:
 
-* `specifications/ROMAN_BASE_BODY_SPEC.md`
-* `specifications/ROMAN_MODULAR_EQUIPMENT_SPEC.md`
 * `specifications/ROMAN_ASSET_NAMING_STANDARD.md`
 * `specifications/ROMAN_UNITY_INTEGRATION_SPEC.md`
 * `specifications/ROMAN_CHARACTER_PERFORMANCE_BUDGET.md`
+
+> **Modularity abandoned (2026-07-20).** Every unit is an independent,
+> fully Meshy-generated character — its own model and its own animation —
+> not a shared base body plus interchangeable equipment modules. The former
+> `ROMAN_BASE_BODY_SPEC.md` and `ROMAN_MODULAR_EQUIPMENT_SPEC.md` have been
+> removed. This document (proportions, palette, style) remains authoritative
+> across the whole family so independently generated units still look
+> related.
 
 ---
 
@@ -65,10 +71,13 @@ decision): **~2.6 heads tall** at 1.75 m.
 * Broad barrel torso; shoulders wider than hips.
 * Short thick cylindrical arms; oversized simplified hands.
 * Short thick legs; big simplified feet in chunky sandals.
-* All Roman units share this one body. **Rank is shown through equipment,
-  never body size or body shape.**
+* All Roman units share the **same proportions and silhouette**. **Rank is
+  shown through equipment, never body size or body shape** — even though each
+  unit is now generated as its own independent model.
 
-Exact measurements: see `specifications/ROMAN_BASE_BODY_SPEC.md`.
+Headline metrics (silhouette match to the turnaround is the real acceptance
+test): 1.75 m to the top of the bare head, head ~0.65 m, shoulder width
+~0.80 m, arms reaching about hip level, feet ~0.26 m long.
 
 ## 5. Color palette direction
 
