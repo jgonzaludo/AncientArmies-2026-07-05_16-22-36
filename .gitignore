@@ -113,6 +113,7 @@ InitTestScene*.unity*
 # OS / IDE / local tooling
 .DS_Store
 .vscode/
+.idea/
 .claude/
 *.slnx
 
@@ -120,7 +121,21 @@ InitTestScene*.unity*
 graphify-out/
 .env
 
-# Local-only art source (multi-hundred-MB .blend files and raw Meshy
-# downloads exceed GitHub's 100 MB file limit; exported FBX/PNG assets
-# live in Assets/Art which IS committed)
-/ArtSource/
+# Blender working/backup files (the .blend master itself IS versioned)
+*.blend1
+*.blend2
+*.blend@
+*.blend~
+
+# ---------------------------------------------------------------------------
+# Explicitly VERSIONED (negations guard against a stray broad ignore above).
+# ArtSource/ is the Tripo -> Blender source-production tree and is tracked;
+# ThirdPartyPackages/TripoUnityBridge/ is the local Unity package the manifest
+# resolves through a repository-relative file: dependency.
+# ---------------------------------------------------------------------------
+!Assets/**/*.meta
+!Packages/manifest.json
+!Packages/packages-lock.json
+!ProjectSettings/
+!ThirdPartyPackages/TripoUnityBridge/
+!ArtSource/

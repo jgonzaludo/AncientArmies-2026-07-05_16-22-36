@@ -3,7 +3,7 @@ using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.InputSystem;
 
-// Mobile-first control grammar (docs/MOBILE_CONTROLS.md):
+// Mobile-first control grammar (Docs/CURRENT_GAME_SPEC.md):
 //   tap friendly = select that formation EXCLUSIVELY (single taps hop between
 //   centuries; tapping the sole selected century deselects); DOUBLE-tapping a
 //   century adds it to the existing group — keep double-tapping to build it
