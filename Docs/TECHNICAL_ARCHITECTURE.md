@@ -123,16 +123,21 @@ out.
 
 ### Presentation layer
 
-Gameplay-authoritative, visuals subordinate:
+Gameplay-authoritative, visuals subordinate. **All character art is currently
+placeholder primitives** — `SoldierFactory` builds a capsule body plus a cube
+weapon directly, with no prefab, Animator, or rig involved.
 
-- `RomanLegionaryVisualController`, `RomanArcherVisualController` — animator
-  driving, keyed off gameplay state, never the reverse
-- `EquipmentVisualSlot`, `CenturionCommandGestures`
 - `FormationBannerManager` / `FormationBannerController` — banners tracking the
   dominant group, with visibility modes
 - `FormationArrow`, `FormationDestinationPreview` — order feedback
 - `FormationImposterRenderer` — merged-billboard LOD at far zoom
-- `BattleVisuals`, `BattlefieldDecor`, `Projectile`
+- `BattleVisuals`, `BattlefieldDecor` (flat sand colour), `Projectile` (sphere)
+
+`Soldier` retains the hooks animated visuals used — `deferMeleeImpact`,
+`deferRangedRelease`, `suppressTint`, `suppressFallRotation`. Nothing sets them
+now, so they stay `false` and damage/release resolve immediately. They are the
+seam for reattaching animated visuals later; `Soldier.CacheVisualParts` already
+handles both a single `VisualRoot` child and the Body/Weapon primitive pair.
 
 ## Data structures
 
@@ -143,28 +148,23 @@ Gameplay-authoritative, visuals subordinate:
   `FormationManeuverState`, `RotateBlock`, `ChargeBlock` — plain enums.
 
 **There are no ScriptableObjects, no Addressables, and no save system.**
-Runtime asset loading is `Resources.Load` by name only, from four call sites:
-`SoldierFactory` (soldier visuals), `Projectile` (arrow prop),
-`BattlefieldDecor` (ground texture), `FormationBannerController` (banner
-sprites).
+Runtime asset loading is `Resources.Load` by name from exactly one call site:
+`FormationBannerController` (banner sprites). Soldier visuals, the arrow, and
+the ground are all built from primitives and code-created materials.
 
 ## Runtime asset layout
 
 ```
-Assets/Art/Characters/Romans/
-  Legionary/   Models/ Animations/ Prefabs/Resources/
-  Archer/      Models/ Animations/ Prefabs/Resources/
-  Shared/Materials/    MAT_Roman_* (skin, iron, brass, leather, wood, cloth)
-Assets/Art/Environment/Resources/   TEX_Battlefield_*
 Assets/Art/UI/Banners/Resources/    UI_Banner_{Blue,Red}_{Melee,Ranged}
 Assets/Settings/                    URP pipeline assets, renderers, volumes
 Assets/AncientArmies/               clean destination tree for NEW work
 ```
 
-Every asset under `Assets/Art/` is currently referenced by a scene, prefab,
-material, or controller, or is loaded by name at runtime. They are temporary
-placeholders pending Tripo/Blender production, but the game does not run
-without them.
+The four banner sprites are the only art assets left in the project — they are
+UI readability, not character art. Everything a soldier or the battlefield
+renders is generated at runtime, so the game has no character-art dependency
+at all until Tripo/Blender production lands in
+`Assets/AncientArmies/Art/Characters/`.
 
 ## Validation and test structure
 
@@ -177,8 +177,7 @@ Validation is editor tooling in `Assets/Editor/`, run manually from menus:
 | --- | --- |
 | `FormationManeuverValidation.cs` | Wheel/redress geometry via the shipped `WheelStep` |
 | `ClusterValidation.cs` | Dominant-group clustering via the shipped `ComputeDominantGroup` |
-| `FacingValidation.cs` | Facing and directional-damage arcs |
-| `Patch6Integration.cs`, `CenturionAssetIntegration.cs` | Asset wiring |
+| `FacingValidation.cs` | Live soldier-vs-anchor facing deviation (Play mode) |
 | `BannerSpriteImport.cs` | Banner sprite import settings |
 | `McpAutoReconnect.cs` | Unity MCP editor connection |
 
