@@ -15,46 +15,24 @@ public class Projectile : MonoBehaviour
     private float t;
 
     private static Material arrowMat;
-    // Shared arrow visual (presentation only). Loaded once; null => sphere fallback.
-    private static GameObject arrowVisual;
-    private static bool arrowVisualLoaded;
-    // Measured from the imported PROP_Archer_Arrow mesh: the head is the
-    // zero-radius tip at mesh-local -Y (fletching at +Y), and the FBX importer
-    // bakes Euler(270,0,0) on the prefab root. This same rotation maps the
-    // head onto +Z, so the visual child aligns with the root's flight tangent.
-    private static readonly Quaternion ArrowAxisCorrection = Quaternion.Euler(270f, 0f, 0f);
 
     public static void Spawn(Vector3 from, Soldier target, float damage, float speed)
     {
         if (target == null) return;
 
-        if (!arrowVisualLoaded)
-        {
-            arrowVisualLoaded = true;
-            arrowVisual = Resources.Load<GameObject>("PROP_Archer_Arrow");
-        }
-        // Bare root carries flight + rotation; the mesh sits on a child so the
-        // one-time axis correction never fights the per-frame tangent LookRotation.
+        // Bare root carries flight + rotation; the primitive sits on a child so
+        // the per-frame tangent LookRotation has a clean transform to drive.
         GameObject go = new GameObject("Arrow");
-        GameObject visual;
-        if (arrowVisual != null)
-        {
-            visual = Object.Instantiate(arrowVisual, go.transform);
-        }
-        else
-        {
-            visual = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-            Object.Destroy(visual.GetComponent<Collider>());
-            visual.transform.SetParent(go.transform, false);
-            visual.transform.localScale = Vector3.one * 0.18f;
-            if (arrowMat == null)
-                arrowMat = SoldierFactory.Unlit(new Color(0.16f, 0.11f, 0.05f));
-            visual.GetComponent<Renderer>().sharedMaterial = arrowMat;
-        }
+        var visual = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+        Object.Destroy(visual.GetComponent<Collider>());
+        visual.transform.SetParent(go.transform, false);
+        visual.transform.localScale = Vector3.one * 0.18f;
+        if (arrowMat == null)
+            arrowMat = SoldierFactory.Unlit(new Color(0.16f, 0.11f, 0.05f));
+        visual.GetComponent<Renderer>().sharedMaterial = arrowMat;
         visual.name = "ArrowVisual";
         visual.transform.localPosition = Vector3.zero;
-        // Mesh-axis fixup lives here and only here, applied once at spawn.
-        visual.transform.localRotation = ArrowAxisCorrection;
+        visual.transform.localRotation = Quaternion.identity;
 
         var p = go.AddComponent<Projectile>();
         p.start = from;

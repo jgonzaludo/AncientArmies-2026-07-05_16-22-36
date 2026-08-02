@@ -120,11 +120,11 @@ while otherwise busy — the button reflects exactly this.
   flank ×1.5, rear ×2.0, with 60° front and rear arcs.
 - A **global damage scale of 0.25** stretches battles roughly 4×. It preserves
   every relative combat relationship — only the attrition rate changes.
-- **Melee**: 12 damage on a 4 s cadence, 1.7 m reach. Attacks resolve on the
-  authored contact frame of one of three variants (thrust / over-shield /
-  diagonal slash) chosen by gameplay, so displayed clip and damage timing can
-  never disagree. At most 3 attackers per target spreads strikes along the
-  contact line.
+- **Melee**: 12 damage on a 4 s cadence, 1.7 m reach. Gameplay still chooses
+  one of three attack variants (thrust / over-shield / diagonal slash), but
+  with placeholder capsules there is no clip to sync to, so damage resolves
+  immediately rather than on an authored contact frame. At most 3 attackers
+  per target spreads strikes along the contact line.
 - **Ranged**: archers fire as a formation. A volley window opens every 8 s for
   1.5 s, and each archer looses once inside it at a deterministic offset —
   readable volleys with lulls, not 80 independent drizzling timers. Volley
@@ -161,6 +161,18 @@ routines for the front line, the archers, and the reserves.
 
 ## Presentation
 
+**The build currently runs on placeholder primitives.** All character art,
+models, and animations were stripped pending Tripo/Blender production:
+
+- Soldiers are **capsules** (melee wider than archers) with a cube weapon that
+  doubles as the facing indicator, tinted by team and unit type. No Animator,
+  no rig, no equipment meshes.
+- The ground is a **flat sand colour** — no texture, no tiling, so nothing
+  repeats at max zoom-out.
+- Arrows are small dark spheres.
+
+Everything else is unchanged:
+
 - Fixed orthographic camera, 40° pitch, pan-and-zoom clamped to the field. It
   starts framed on the player's deployment zone.
 - Formation banners with a cycleable visibility mode, tracking the dominant
@@ -168,7 +180,6 @@ routines for the front line, the archers, and the reserves.
 - Ground arrows and live destination-slot previews for orders.
 - A merged-billboard **impostor LOD** hides individual soldier visuals at far
   zoom. Simulation is untouched — only presentation goes dormant.
-- Animated legionary and archer visuals with equipment slots.
 
 ## Deliberately not in this build
 
