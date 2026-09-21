@@ -37,7 +37,10 @@ These are design law, not preferences:
 - Formations are a behavioral and tactical harness, not a rendering trick.
 - Ordered formations are predictable; combat creates local disorder.
 - Breaking ranks increases individual freedom and chaos.
-- Reforming requires sufficient disengagement from melee.
+- Reforming requires sufficient disengagement from melee, and it is
+  automatic: the game reforms and rallies formations; the player never orders
+  it.
+- A routing formation cannot be ordered, by the player or the AI.
 - Dead soldiers are removed; survivors close ranks when reforming.
 - Outcomes are understandable, not dominated by invisible randomness.
 
@@ -67,6 +70,9 @@ Do not rewrite these systems to add a feature. Extend at the seams.
   changing a default in a `MonoBehaviour`, grep the scene for the field — if
   it is pinned there, editing the C# default alone changes nothing. Adding a
   *new* field is the reliable way to make a C# default win.
+- **Morale tunables live in the `MoraleConfig` ScriptableObject**, never as
+  new fields on `BattleSetup` — that sidesteps scene pinning entirely.
+  `BattleSetup` holds only the reference to the asset.
 
 ## Naming conventions
 

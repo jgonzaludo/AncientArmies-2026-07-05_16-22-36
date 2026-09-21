@@ -9,7 +9,8 @@ A single symmetric land battle: Blue (player) against Red (autonomous AI).
 The battle runs Pre → Active → Ended. Press **START** to go Active; a
 persistent **RESTART** button reloads the scene at any time before the end.
 The battle ends when one side has no living soldiers, reporting
-`BLUE WINS` / `RED WINS` / `DRAW`.
+`BLUE WINS` / `RED WINS` / `DRAW`. *A new win condition and time limit are
+approved but not built — see [Approved, not yet implemented](#approved-not-yet-implemented).*
 
 ## Scale and army composition
 
@@ -71,7 +72,8 @@ tolerance are zoom-aware and expressed in 1080p-reference pixels, so they stay
 finger-sized regardless of screen density.
 
 HUD command buttons: **CHARGE**, **REFORM**, **ROTATE**, plus persistent
-**RESTART**, **BANNERS** (cycles banner visibility) and **SCENES**.
+**RESTART**, **BANNERS** (cycles banner visibility) and **SCENES**. *Removing
+REFORM is approved but not built — see [Approved, not yet implemented](#approved-not-yet-implemented).*
 
 ## Formation states
 
@@ -86,7 +88,8 @@ HUD command buttons: **CHARGE**, **REFORM**, **ROTATE**, plus persistent
   attempt; the formation backs away without wheeling through the melee.
 - **BrokenRanks** — zero slot steering. Soldiers act as individuals with a wide
   acquisition radius, leashed to a rally point. **Reform is the only command
-  available.**
+  available.** *Approved but not built: this state is renamed "Disordered" in
+  design language and recovers automatically — see [Approved, not yet implemented](#approved-not-yet-implemented).*
 - **Reforming** — survivors walk back to a rebuilt slot grid at the frozen
   rally anchor. Completes at 75 % in place (or a 25 s timeout); **aborts back
   to Broken** if 12 % of survivors are melee-engaged. Arrow fire alone never
@@ -181,7 +184,36 @@ Everything else is unchanged:
 - A merged-billboard **impostor LOD** hides individual soldier visuals at far
   zoom. Simulation is untouched — only presentation goes dormant.
 
+## Approved, not yet implemented
+
+Decided on 2026-09-21 — see `Docs/DECISIONS.md` for the full record and the
+questions still open. **None of this is in the build yet.** When a piece
+ships, move it into the sections above and delete it here.
+
+- **Morale** — each formation has a Morale value from 0 to 100. Casualties
+  lower it. It recovers with time out of melee, up to a rest ceiling set by
+  cumulative losses; a stricter contact ceiling applies in melee. Tunables
+  live in the `MoraleConfig` ScriptableObject, referenced from `BattleSetup`
+  (a missing reference is a loud error, never a silent default).
+- **Disordered** — the design name for `BrokenRanks`. Behavior unchanged:
+  loose, agent-native combat, still fighting.
+- **Routing** — a new state, entered below 15 morale. Soldiers flee and stop
+  acquiring targets, the banner badge disappears, and the formation cannot be
+  ordered. It rallies automatically above 35 morale when not in melee.
+- **No REFORM button** — recovery is automatic for both sides, through one
+  shared rule.
+- **Automatic reform** — a disordered formation reforms whenever it is not in
+  melee (no soldier with an enemy within 3 m). Nearby enemies and arrow fire
+  do not block it. A reform under way still aborts at 12 % of survivors
+  engaged. After a charge, a century is uncontrollable until it is out of
+  melee and reformed.
+- **Win condition** — a side collapses when 50 % of its formations are Routing
+  or destroyed, counted from its actual formations (never assumed to be 8).
+  Collapse latches: the result stands even if units rally afterwards.
+- **Time limit** — a visible 10:00 countdown. On expiry, the side with more
+  intact formations wins. Draws are allowed.
+
 ## Deliberately not in this build
 
-Morale, terrain, progression, multiplayer, and advanced enemy tactics are all
-out of scope. Do not add them without explicit approval.
+Terrain, progression, multiplayer, and advanced enemy tactics are all out of
+scope. Do not add them without explicit approval.
