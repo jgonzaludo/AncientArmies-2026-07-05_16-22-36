@@ -183,8 +183,15 @@ public class Soldier : MonoBehaviour
         toSlot.y = 0f;
         Vector3 slotDesire = Arrive(toSlot, ms);
 
+        // Routing (Chunk A): flee instead of fighting or holding a slot — the
+        // formation supplies the direction and the field-edge stop
+        bool routing = formation.State == FormationState.Routing;
         Vector3 desired;
-        if (target != null && target.Alive)
+        if (routing)
+        {
+            desired = formation.GetFleeVelocity(pos, ms);
+        }
+        else if (target != null && target.Alive)
         {
             Vector3 toT = target.transform.position - pos;
             toT.y = 0f;
@@ -224,8 +231,8 @@ public class Soldier : MonoBehaviour
         // tightens (and its center moves) while pursuing
         Vector3 fromAnchor = pos - formation.AnchorPos;
         fromAnchor.y = 0f;
-        if (fromAnchor.magnitude > formation.EffectiveLeash)
-            desired = -fromAnchor.normalized * ms;
+        if (!routing && fromAnchor.magnitude > formation.EffectiveLeash)
+            desired = -fromAnchor.normalized * ms;   // routers are never leashed
 
         // soft same-team separation: recomputed every 4th tick (staggered),
         // cached in between; biases the desired velocity, never overpowers it.
@@ -236,6 +243,9 @@ public class Soldier : MonoBehaviour
         Vector3 vel = rb.linearVelocity;
         vel.y = 0f;
         rb.linearVelocity = Vector3.MoveTowards(vel, desired, Accel * Time.fixedDeltaTime);
+        // after separation and collisions have had their say: a crowd of
+        // routers at a corner must not shove anyone off the map
+        if (routing) formation.KeepRouterInField(rb);
     }
 
     private static Vector3 Arrive(Vector3 offset, float maxSpeed)
@@ -477,6 +487,15 @@ public class Soldier : MonoBehaviour
     }
 
     public void CancelPendingShot() { pendingShotTarget = null; }
+
+    // The century routed (Chunk A): let go of the fight at once, so no staged
+    // sword hit lands and no drawn arrow flies after the men have broken.
+    public void DropTarget()
+    {
+        SetTarget(null);
+        pendingMeleeTarget = null;
+        CancelPendingShot();
+    }
 
     // Resolve the staged melee hit (contact frame reached, or a new attack is
     // committing before the previous one landed). Damage was computed at

@@ -56,7 +56,7 @@ Mobile-first touch grammar. Mouse input in the editor mirrors it 1:1.
 
 | Input | Result |
 | --- | --- |
-| Tap friendly formation | Select it **exclusively** |
+| Tap friendly formation | Select it **exclusively** (a routing formation cannot be selected) |
 | Tap the sole selected formation | Deselect |
 | **Double**-tap a formation | Add it to the current selection (keep double-tapping to build a group) |
 | Tap empty ground | Clear all selection |
@@ -66,6 +66,8 @@ Mobile-first touch grammar. Mouse input in the editor mirrors it 1:1.
 | Drag onto an enemy | Attack order (line + ring preview instead of dots) |
 | Drag on empty ground | Pan the camera |
 | Pinch / scroll | Zoom |
+
+A selected formation that routs leaves the selection immediately.
 
 Touch targets are deliberately forgiving: tap padding and command-grab
 tolerance are zoom-aware and expressed in 1080p-reference pixels, so they stay
@@ -77,7 +79,7 @@ REFORM is approved but not built — see [Approved, not yet implemented](#approv
 
 ## Formation states
 
-`Ordered · Attacking · Engaged · BrokenRanks · Withdrawing · Reforming · Charging`
+`Ordered · Attacking · Engaged · BrokenRanks · Withdrawing · Reforming · Charging · Routing`
 
 - **Ordered** — full slot discipline; the parade state.
 - **Attacking** — closing with an explicit target. Melee closes to contact;
@@ -97,6 +99,13 @@ REFORM is approved but not built — see [Approved, not yet implemented](#approv
 - **Charging** — a committed sprint (1.3× speed) at a nearby enemy within 45 m.
   Grants a 1.5× impact bonus for 2 s after first contact, then dissolves into
   **pursuit** on the broken-ranks machinery.
+- **Routing** — entered from any state when morale falls below 15. Soldiers
+  stop acquiring targets and never attack. Each flees away from the nearest
+  enemy formation, bent toward its own army's back edge, at 1.2× move speed,
+  and stops at the field edge (it never leaves the map). There is no leash.
+  The formation takes **no orders** from the player, the AI, or any HUD
+  button. Enemies target routers normally — that is the pursuit. The anchor
+  follows the fleeing pack. It rallies on its own (see Morale).
 
 Break Ranks freezes the rally anchor and facing where the ranks broke. A
 pursuit has no pre-frozen rally — the standard moves with the pack until
@@ -114,8 +123,39 @@ The Rotate command classifies the shortest signed yaw delta:
   the inner front corner. The outer flank walks the long arc; nobody crosses
   the block. A wheel pauses while more than 40 % of soldiers are mid-attack.
 
-Rotate is unavailable while auto-facing (chasing or engaged), while broken, or
-while otherwise busy — the button reflects exactly this.
+Rotate is unavailable while auto-facing (chasing or engaged), while broken or
+routing, or while otherwise busy — the button reflects exactly this.
+
+## Morale
+
+Every formation has morale from 0 to 100, ticked 4× per second while the
+battle is Active. All values live in `MoraleConfig.asset`.
+
+- **Base morale** is capped by losses against starting strength. Out of melee
+  the rest ceiling is 100 − 2 × loss%. In melee (any soldier with an enemy
+  within 3 m) the contact ceiling is 100 − 4.25 × loss%, so a slow grind still
+  routs a century at about 20% losses.
+- **Shock debt**: each casualty adds 3 × its percent of starting strength, and
+  the debt decays by 5 per second at all times. Losing 10 of 80 men at once in
+  melee routs a fresh century (12.5%); losing them over a few seconds does
+  not. Arrow casualties count toward losses and shock, but arrows never count
+  as melee.
+- **Reported morale** = base − shock debt. Below 15 the formation routs.
+- **Recovery**: +3 base per second, only out of melee and only once 3 s have
+  passed without a casualty.
+- **Rally**: a routing formation rallies when morale is above 35 and the
+  shared reform rule passes — nobody within 3 m of an enemy, and not within
+  2 s of an aborted reform. Nearby enemies beyond 3 m and arrow fire do not
+  block it. It then runs the ordinary reform, facing the nearest enemy, on
+  the highest-priority officer still alive in the main pack (Signifer,
+  Centurion, Optio, Tesserarius, Cornicen — temporary ordering), or on the
+  pack's center. On rally, half of the losses so far stop counting against
+  the contact ceiling, so a rallied century can fight again.
+- A century that has lost more than 32.5% can never rally: its rest ceiling
+  sits below 35.
+- A reform that aborts on melee contact drops to BrokenRanks. Until automatic
+  reform for BrokenRanks ships, that needs the Reform button (Blue) or the
+  AI's reform (Red).
 
 ## Combat
 
@@ -183,6 +223,9 @@ Everything else is unchanged:
 - Ground arrows and live destination-slot previews for orders.
 - A merged-billboard **impostor LOD** hides individual soldier visuals at far
   zoom. Simulation is untouched — only presentation goes dormant.
+- **Debug morale overlay** (tuning only, `showDebugMorale`): each formation's
+  morale and state near its banner, and a temporary grade over each officer's
+  head (Centurion 4, Optio 3, Signifer 2, Tesserarius 1, Cornicen 1).
 
 ## Approved, not yet implemented
 
@@ -190,23 +233,20 @@ Decided on 2026-09-21 — see `Docs/DECISIONS.md` for the full record and the
 questions still open. **None of this is in the build yet.** When a piece
 ships, move it into the sections above and delete it here.
 
-- **Morale** — each formation has a Morale value from 0 to 100. Casualties
-  lower it. It recovers with time out of melee, up to a rest ceiling set by
-  cumulative losses; a stricter contact ceiling applies in melee. Tunables
-  live in the `MoraleConfig` ScriptableObject, referenced from `BattleSetup`
-  (a missing reference is a loud error, never a silent default).
 - **Disordered** — the design name for `BrokenRanks`. Behavior unchanged:
   loose, agent-native combat, still fighting.
-- **Routing** — a new state, entered below 15 morale. Soldiers flee and stop
-  acquiring targets, the banner badge disappears, and the formation cannot be
-  ordered. It rallies automatically above 35 morale when not in melee.
+- **Routing badge** — the banner badge disappears while a formation routs.
+  Routing itself is built (see Formation states and Morale); the banner
+  still shows today.
 - **No REFORM button** — recovery is automatic for both sides, through one
   shared rule.
-- **Automatic reform** — a disordered formation reforms whenever it is not in
-  melee (no soldier with an enemy within 3 m). Nearby enemies and arrow fire
-  do not block it. A reform under way still aborts at 12 % of survivors
-  engaged. After a charge, a century is uncontrollable until it is out of
-  melee and reformed.
+- **Automatic reform for BrokenRanks** — a disordered formation reforms
+  whenever it is not in melee (no soldier with an enemy within 3 m). Nearby
+  enemies and arrow fire do not block it. A reform under way still aborts at
+  12 % of survivors engaged. After a charge, a century is uncontrollable until
+  it is out of melee and reformed. The shared rule (`CanStartReform`) exists
+  and already drives the rally; the Reform button and the AI do not use it
+  yet.
 - **Win condition** — a side collapses when 50 % of its formations are Routing
   or destroyed, counted from its actual formations (never assumed to be 8).
   Collapse latches: the result stands even if units rally afterwards.

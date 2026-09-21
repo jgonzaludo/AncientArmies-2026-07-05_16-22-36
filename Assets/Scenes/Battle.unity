@@ -340,6 +340,8 @@ MonoBehaviour:
   fieldHalfZ: 170
   armySeparation: 240
   deploymentZoneDepth: 60
+  fieldEdgeMargin: 12
+  spawnEdgeInset: 20
   separationFractionOrdered: 0.85
   separationFractionPacked: 0.72
   separationMaxPush: 1.2
@@ -348,6 +350,8 @@ MonoBehaviour:
   rearDamageMultiplier: 2
   frontArcHalfAngleDeg: 60
   rearArcHalfAngleDeg: 60
+  globalDamageScale: 0.25
+  moraleConfig: {fileID: 11400000, guid: 451d952273b4e436788d480f52cd4f4c, type: 2}
 --- !u!4 &737620417
 Transform:
   m_ObjectHideFlags: 0

@@ -1,7 +1,8 @@
 using System.Collections.Generic;
 using UnityEngine;
 
-public enum FormationState { Ordered, Attacking, Engaged, BrokenRanks, Withdrawing, Reforming, Charging }
+// Routing (Chunk A) is appended last so existing values keep their numbers.
+public enum FormationState { Ordered, Attacking, Engaged, BrokenRanks, Withdrawing, Reforming, Charging, Routing }
 
 // Current strategic order (Phase 2). Stored, never inferred: a move order
 // keeps its DestinationPosition and DestinationFacing from issue to arrival,
@@ -196,7 +197,7 @@ public class Formation : MonoBehaviour
     public RotateBlock GetRotateBlock()
     {
         if (soldiers.Count == 0) return RotateBlock.Destroyed;
-        if (State == FormationState.BrokenRanks) return RotateBlock.Broken;
+        if (State == FormationState.BrokenRanks || IsRouting) return RotateBlock.Broken;
         if (IsAutoFacing) return RotateBlock.AutoFacing;
         if (State != FormationState.Ordered) return RotateBlock.Busy;
         return RotateBlock.None;
@@ -210,7 +211,8 @@ public class Formation : MonoBehaviour
     public ChargeBlock GetChargeBlock()
     {
         if (soldiers.Count == 0) return ChargeBlock.Destroyed;
-        if (State == FormationState.BrokenRanks || State == FormationState.Reforming)
+        if (State == FormationState.BrokenRanks || State == FormationState.Reforming ||
+            IsRouting)
             return ChargeBlock.Broken;
         if (State == FormationState.Withdrawing || State == FormationState.Charging ||
             Maneuver == FormationManeuverState.Wheel)
@@ -279,6 +281,20 @@ public class Formation : MonoBehaviour
     private static int[] clusterSize = new int[64];
 
     private float flankThreatTime;   // defensive-pivot reaction timer
+
+    // morale (Chunk A): the math lives in FormationMorale; this class owns the
+    // state changes it triggers (rout, rally). Null until the config exists.
+    private FormationMorale morale;
+    public FormationMorale Morale => morale;
+    private MoraleConfig MoraleCfg => BattleSetup.Instance != null ? BattleSetup.Instance.moraleConfig : null;
+    public bool IsRouting => State == FormationState.Routing;
+    private float lastReformAbortTime = -999f;
+    private Vector3 fleeThreatPos;          // the enemy formation a rout runs from
+    private bool hasFleeThreat;
+    private float fleeThreatTimer;
+    private const float FleeThreatInterval = 0.5f;
+    private const float FleeEdgeInset = 1f;  // routers stop this far inside the field edge
+    private static readonly List<bool> dominantMembers = new List<bool>(64);
 
     // charge timing: when the rush began and when it first found contact
     private float chargeStartTime;
@@ -388,8 +404,10 @@ public class Formation : MonoBehaviour
     public void IssueMove(Vector3 dest)
     {
         // Broken centuries take no movement orders — Reform is their only
-        // command (Phase 3); Reforming centuries are mid-recovery.
-        if (State == FormationState.BrokenRanks || State == FormationState.Reforming) return;
+        // command (Phase 3); Reforming centuries are mid-recovery; Routing
+        // centuries take no orders at all (Chunk A).
+        if (State == FormationState.BrokenRanks || State == FormationState.Reforming ||
+            State == FormationState.Routing) return;
         Maneuver = FormationManeuverState.None;   // a new order supersedes a turn
         dest.y = 0f;
         Vector3 travel = dest - AnchorPos;
@@ -423,6 +441,7 @@ public class Formation : MonoBehaviour
     // planned final facing without re-deriving either from current motion.
     public void RedirectMove(Vector3 dest, Vector3 facing)
     {
+        if (IsRouting) return;
         if (!hasDestination ||
             (CurrentOrderType != OrderType.Move && CurrentOrderType != OrderType.Withdraw)) return;
         dest.y = 0f;
@@ -432,6 +451,7 @@ public class Formation : MonoBehaviour
 
     public void SetDestinationFacing(Vector3 dir)
     {
+        if (IsRouting) return;
         dir.y = 0f;
         if (dir.sqrMagnitude < 0.01f) return;
         DestinationFacing = dir.normalized;
@@ -440,7 +460,8 @@ public class Formation : MonoBehaviour
     public void IssueAttack(Formation target)
     {
         if (target == null || target.team == team || target.soldiers.Count == 0) return;
-        if (State == FormationState.BrokenRanks || State == FormationState.Reforming) return;
+        if (State == FormationState.BrokenRanks || State == FormationState.Reforming ||
+            State == FormationState.Routing) return;
         attackTarget = target;
         State = FormationState.Attacking;
         hasDestination = true;
@@ -648,9 +669,13 @@ public class Formation : MonoBehaviour
     // Cost: <= n^2/2 sqr-distance checks per recompute, n <= ~50 per
     // formation, on a several-per-second interval — no allocations beyond the
     // grow-only scratch arrays.
+    // Optional `members` (Chunk A): filled parallel to `positions` with true
+    // for each point in the winning cluster — the rally needs to know which
+    // officers are actually in the main pack. Omitted, it costs nothing.
     public static Vector3 ComputeDominantGroup(List<Vector3> positions, float linkDist,
                                                Vector3 prevCenter, bool hasPrev,
-                                               float switchFactor, out int count)
+                                               float switchFactor, out int count,
+                                               List<bool> members = null)
     {
         int n = positions.Count;
         count = 0;
@@ -698,9 +723,14 @@ public class Formation : MonoBehaviour
             clusterSize[largestRoot] < clusterSize[incumbentRoot] * switchFactor)
             winner = incumbentRoot;
 
+        members?.Clear();
         Vector3 c = Vector3.zero;
         for (int i = 0; i < n; i++)
-            if (Find(i) == winner) { c += positions[i]; count++; }
+        {
+            bool inWinner = Find(i) == winner;
+            members?.Add(inWinner);
+            if (inWinner) { c += positions[i]; count++; }
+        }
         c /= Mathf.Max(1, count);
         c.y = 0f;
         return c;
@@ -721,7 +751,7 @@ public class Formation : MonoBehaviour
         }
     }
 
-    private void UpdateDominantGroup(bool force = false)
+    private void UpdateDominantGroup(bool force = false, List<bool> members = null)
     {
         clusterTimer -= Time.deltaTime;
         if (!force && clusterTimer > 0f) return;
@@ -731,14 +761,14 @@ public class Formation : MonoBehaviour
         foreach (var s in soldiers) clusterScratch.Add(s.transform.position);
         DominantGroupCenter = ComputeDominantGroup(
             clusterScratch, spacing * clusterLinkFactor,
-            DominantGroupCenter, hasDominantCenter, clusterSwitchFactor, out int c);
+            DominantGroupCenter, hasDominantCenter, clusterSwitchFactor, out int c, members);
         DominantGroupCount = c;
         hasDominantCenter = c > 0;
     }
 
     public void IssueBreakRanks()
     {
-        if (soldiers.Count == 0 || State == FormationState.BrokenRanks) return;
+        if (soldiers.Count == 0 || State == FormationState.BrokenRanks || IsRouting) return;
         // Freeze the rally point and tactical facing at the moment ranks
         // break: the banner stays here and Reform rebuilds here, regardless
         // of where the soldiers scatter (Phase 3 locked behavior).
@@ -774,6 +804,16 @@ public class Formation : MonoBehaviour
             IsPursuing = false;
         }
 
+        BeginReform();
+        OnOrderIssued?.Invoke();
+    }
+
+    // The reform itself, shared by the Reform command and the automatic rally
+    // (Chunk A): survivor-only slots at RallyAnchor facing rallyFacing, then
+    // the ordinary Reforming state — completion at reformCompleteFraction,
+    // abort to Broken at reformAbortEngagedFraction.
+    private void BeginReform()
+    {
         AnchorPos = RallyAnchor;
         AnchorRot = rallyFacing;
 
@@ -787,7 +827,6 @@ public class Formation : MonoBehaviour
         reformTimer = 0f;
         CurrentOrderType = OrderType.Reform;
         State = FormationState.Reforming;
-        OnOrderIssued?.Invoke();
     }
 
     private void AssignNearestSlots()
@@ -862,6 +901,7 @@ public class Formation : MonoBehaviour
                 if (s.IsEngaged) return 0.12f;
                 return NearCombat(s) ? 0.35f : 0.75f;
             case FormationState.BrokenRanks: return 0f;   // Phase 3: zero slot steering while broken
+            case FormationState.Routing: return 0f;       // fleeing men hold no slots
             case FormationState.Withdrawing: return 1f;
             case FormationState.Reforming: return 1f;
             case FormationState.Charging: return 0.4f;    // a loose pack, not a parade
@@ -884,7 +924,7 @@ public class Formation : MonoBehaviour
             case FormationState.Charging:      // rushing soldiers hunt like broken ones
                 r = acquireRadiusBroken; break;
             default:
-                return 0f;   // Withdrawing / Reforming: stop seeking engagements
+                return 0f;   // Withdrawing / Reforming / Routing: stop seeking engagements
         }
         if (stats.isRanged) r = Mathf.Max(r, stats.rangedRange);
         return r;
@@ -917,6 +957,8 @@ public class Formation : MonoBehaviour
         UpdateManeuver();
         UpdateAnchorMovement();
         UpdateEngagement();
+        UpdateMorale();
+        UpdateFleeThreat();
         UpdateVolley();
         UpdateDominantGroup();
         UpdateEngagedFacing();
@@ -1007,6 +1049,15 @@ public class Formation : MonoBehaviour
         // standard moves with the men, so the anchor (leash center, reform
         // safety reads) eases after the dominant pack. AnchorRot is untouched.
         if (State == FormationState.BrokenRanks && IsPursuing && DominantGroupCount > 0)
+        {
+            AnchorPos = Vector3.Lerp(AnchorPos, DominantGroupCenter,
+                                     1f - Mathf.Exp(-2f * Time.deltaTime));
+            return;
+        }
+        // Routing (Chunk A): the anchor — and so the banner and the eventual
+        // rally point — goes with the fleeing men instead of staying where
+        // the line broke.
+        if (IsRouting && DominantGroupCount > 0)
         {
             AnchorPos = Vector3.Lerp(AnchorPos, DominantGroupCenter,
                                      1f - Mathf.Exp(-2f * Time.deltaTime));
@@ -1191,6 +1242,15 @@ public class Formation : MonoBehaviour
 
     private void UpdateStateMachine()
     {
+        // Morale break (Chunk A) pre-empts every state: whatever the century
+        // was doing, it now runs.
+        var cfg = MoraleCfg;
+        if (morale != null && cfg != null && !IsRouting && morale.Value < cfg.routeThreshold)
+        {
+            EnterRouting();
+            return;
+        }
+
         switch (State)
         {
             case FormationState.Ordered:
@@ -1263,6 +1323,7 @@ public class Formation : MonoBehaviour
                 {
                     State = FormationState.BrokenRanks;   // same rally anchor
                     CurrentOrderType = OrderType.BreakRanks;
+                    lastReformAbortTime = Time.time;      // CanStartReform cooldown
                     break;
                 }
                 if (FractionNearSlots(1.0f) >= reformCompleteFraction ||
@@ -1272,9 +1333,28 @@ public class Formation : MonoBehaviour
                     CurrentOrderType = OrderType.None;
                 }
                 break;
+
+            case FormationState.Routing:
+                // Rally (Chunk A): morale recovered past rallyThreshold and the
+                // shared start rule passes -> the ordinary reform path, around
+                // the senior officer still with the main pack.
+                if (cfg != null && morale != null && morale.Value > cfg.rallyThreshold &&
+                    CanStartReform())
+                {
+                    morale.RecordRally();
+                    RallyAnchor = OfficerRallyPoint();
+                    Formation threat = NearestEnemyFormation(RallyAnchor, float.MaxValue);
+                    Vector3 face = threat != null ? threat.AnchorPos - RallyAnchor : AnchorForward;
+                    face.y = 0f;
+                    rallyFacing = face.sqrMagnitude > 0.01f
+                        ? Quaternion.LookRotation(face.normalized, Vector3.up) : AnchorRot;
+                    BeginReform();
+                }
+                break;
         }
-        // Phase 3: no automatic reform anywhere — the player presses Reform;
-        // the enemy commander issues the same command deliberately.
+        // Broken (BrokenRanks) centuries still reform only on command in Chunk
+        // A — the player's Reform button, the AI's TryReformBroken. Chunk B
+        // points both at CanStartReform. Routing centuries rally on their own.
     }
 
     // The charge dissolves into an individual free-for-all on the broken-ranks
@@ -1289,5 +1369,144 @@ public class Formation : MonoBehaviour
         hasDestination = false;
         RallyAnchor = DominantGroupCount > 0 ? DominantGroupCenter : AnchorPos;
         rallyFacing = AnchorRot;
+    }
+
+    // ---------------- morale (Chunk A) ----------------
+
+    // Created on the first frame the config exists (TotalSpawned is final by
+    // then) and ticked only while the battle is Active, so the deployment
+    // march never moves morale. With no config BattleSetup has already logged
+    // the loud error and morale simply stays off — no default fallback.
+    private void UpdateMorale()
+    {
+        if (morale == null)
+        {
+            var cfg = MoraleCfg;
+            if (cfg == null) return;
+            morale = new FormationMorale(cfg, TotalSpawned);
+        }
+        if (BattleSetup.Instance.Phase != BattlePhase.Active) return;
+        morale.Tick(Time.deltaTime, soldiers.Count, engagedCount);
+    }
+
+    // The century breaks and runs. Deliberately NOT EnterPursuit: that enters
+    // BrokenRanks (soldiers hunt out to acquireRadiusBroken) with IsPursuing
+    // (the tight pursuit leash, retargeting onto new victims) — a charge's
+    // aftermath, not a flight. Routing men acquire nothing (GetAcquireRadius
+    // returns 0), ignore the leash and flee (GetFleeVelocity); the anchor
+    // follows the pack (UpdateAnchorMovement). Enemies keep targeting them
+    // normally — that is the pursuit.
+    private void EnterRouting()
+    {
+        State = FormationState.Routing;
+        CurrentOrderType = OrderType.None;
+        IsPursuing = false;
+        attackTarget = null;
+        hasDestination = false;
+        Maneuver = FormationManeuverState.None;
+        hasFleeThreat = false;
+        fleeThreatTimer = 0f;
+        foreach (var s in soldiers) s.DropTarget();
+    }
+
+    // THE shared automatic-reform start rule (DECISIONS 2026-09-21): only
+    // active melee blocks a reform. Enemies beyond personalEngageRadius and
+    // arrow fire never do. After an aborted reform it waits
+    // reformRetryCooldown so a contested reform cannot flicker between abort
+    // and restart. The 12% abort while Reforming is unchanged. Used by the
+    // rally in Chunk A; Chunk B points BrokenRanks auto-reform and
+    // EnemyCommander.TryReformBroken at it as well.
+    public bool CanStartReform()
+    {
+        var cfg = MoraleCfg;
+        if (cfg == null || soldiers.Count == 0) return false;
+        if (Time.time - lastReformAbortTime < cfg.reformRetryCooldown) return false;
+        return (float)engagedCount / soldiers.Count <= cfg.reformStartEngagedFraction;
+    }
+
+    // Where a rallying century re-forms: on the highest-priority officer still
+    // alive IN the main pack, else the pack's center. "Main pack" is the
+    // dominant cluster, freshly recomputed, so scattered stragglers cannot
+    // drag the point into empty ground. Priorities are TEMPORARY — see
+    // TemporaryOfficerRanks.
+    private Vector3 OfficerRallyPoint()
+    {
+        UpdateDominantGroup(force: true, members: dominantMembers);
+        Soldier best = null;
+        int bestPriority = 0;
+        for (int i = 0; i < soldiers.Count && i < dominantMembers.Count; i++)
+        {
+            if (!dominantMembers[i]) continue;
+            int pri = TemporaryOfficerRanks.RallyPriority(soldiers[i].role);
+            if (pri > bestPriority) { bestPriority = pri; best = soldiers[i]; }
+        }
+        Vector3 at = best != null ? best.transform.position
+                   : DominantGroupCount > 0 ? DominantGroupCenter : AnchorPos;
+        at.y = 0f;
+        return at;
+    }
+
+    // Which enemy formation a rout runs from: the nearest living one to the
+    // main pack, refreshed a couple of times a second (not per soldier).
+    private void UpdateFleeThreat()
+    {
+        if (!IsRouting) return;
+        fleeThreatTimer -= Time.deltaTime;
+        if (fleeThreatTimer > 0f) return;
+        fleeThreatTimer = FleeThreatInterval;
+        Vector3 from = DominantGroupCount > 0 ? DominantGroupCenter : AnchorPos;
+        Formation threat = NearestEnemyFormation(from, float.MaxValue);
+        hasFleeThreat = threat != null;
+        if (hasFleeThreat)
+            fleeThreatPos = threat.DominantGroupCount > 0 ? threat.DominantGroupCenter
+                                                          : threat.AnchorPos;
+    }
+
+    // A routing soldier's desired velocity: away from the threat formation,
+    // bent toward this army's own back edge by fleeBackBias, at moveSpeed *
+    // fleeSpeedMultiplier. At the field edge the outward component is dropped:
+    // routers stop there (or slide along it) and never leave the map.
+    public Vector3 GetFleeVelocity(Vector3 pos, float moveSpeed)
+    {
+        var cfg = MoraleCfg;
+        var bs = BattleSetup.Instance;
+        if (cfg == null || bs == null) return Vector3.zero;
+
+        Vector3 back = team == Team.Blue ? Vector3.back : Vector3.forward;   // Blue deploys south
+        Vector3 away = hasFleeThreat ? pos - fleeThreatPos : back;
+        away.y = 0f;
+        Vector3 dir = (away.sqrMagnitude > 0.01f ? away.normalized : back) + back * cfg.fleeBackBias;
+        dir.y = 0f;
+        if (dir.sqrMagnitude < 0.0001f) dir = back;
+        Vector3 v = dir.normalized * moveSpeed * cfg.fleeSpeedMultiplier;
+
+        float hx = bs.fieldHalfX - FleeEdgeInset;
+        float hz = bs.fieldHalfZ - FleeEdgeInset;
+        if ((pos.x >= hx && v.x > 0f) || (pos.x <= -hx && v.x < 0f)) v.x = 0f;
+        if ((pos.z >= hz && v.z > 0f) || (pos.z <= -hz && v.z < 0f)) v.z = 0f;
+        return v;
+    }
+
+    // The hard stop behind GetFleeVelocity's soft one. Separation pushes and
+    // collider contacts act after the flee velocity is chosen, so a packed
+    // crowd at the edge can still shove a router outward; this runs last in
+    // the soldier's physics step, puts anyone past the line back on it and
+    // cancels the outward velocity.
+    public void KeepRouterInField(Rigidbody rb)
+    {
+        var bs = BattleSetup.Instance;
+        if (bs == null) return;
+        float hx = bs.fieldHalfX - FleeEdgeInset;
+        float hz = bs.fieldHalfZ - FleeEdgeInset;
+        Vector3 p = rb.position;
+        Vector3 v = rb.linearVelocity;
+        bool moved = false;
+        if (p.x > hx)  { p.x = hx;  if (v.x > 0f) v.x = 0f; moved = true; }
+        if (p.x < -hx) { p.x = -hx; if (v.x < 0f) v.x = 0f; moved = true; }
+        if (p.z > hz)  { p.z = hz;  if (v.z > 0f) v.z = 0f; moved = true; }
+        if (p.z < -hz) { p.z = -hz; if (v.z < 0f) v.z = 0f; moved = true; }
+        if (!moved) return;
+        rb.position = p;
+        rb.linearVelocity = v;
     }
 }

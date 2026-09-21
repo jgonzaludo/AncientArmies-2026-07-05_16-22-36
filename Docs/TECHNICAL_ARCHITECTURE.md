@@ -33,8 +33,14 @@ The root manager and a singleton (`BattleSetup.Instance`). Owns:
 - `BattlePhase` (`Pre → Active → Ended`) and the result text
 - Unit stat blocks (`meleeStats`, `archerStats`) and all battlefield-scale
   tuning: field extents, army separation, line offsets, spacing, deployment
-- Directional damage configuration and `globalDamageScale`
-- Per-team soldier registries (`blue`, `red`) and the `formations` list
+- Directional damage configuration and `globalDamageScale` (pinned by
+  `Battle.unity` since 2026-09-21)
+- `moraleConfig` — the serialized reference to the `MoraleConfig` asset, and
+  the only morale field it holds. If it is unassigned, `Awake` logs an error
+  and morale stays off for the battle; there is no fallback to defaults.
+- Per-team soldier registries (`blue`, `red` — lists of **soldiers**, not
+  formations) and the `formations` list (both teams; destroyed formations stay
+  in it with zero soldiers)
 - `SpawnSide` → `CreateFormation` → `SoldierFactory.Create`
 - `EnsureEnvironment` — ground plane, camera configuration, camera rig
 - `ValidateLineGaps`, a layout guard that warns on formation overlap
@@ -62,14 +68,54 @@ it the top god node at 96 edges). It owns:
 - Cohesion subsystems: `UpdateAutoClose`, `UpdateRankReplacement`,
   `UpdateManeuver` (wheel/redress), `UpdateEngagedFacing` (defensive pivot),
   `UpdateVolley`, `UpdateDominantGroup`.
+- **Morale-driven transitions** — it owns a `FormationMorale` (below) and every
+  state change morale causes: `EnterRouting`, the rally through
+  `CanStartReform` → `OfficerRallyPoint` → `BeginReform`, and the flee
+  steering routing soldiers read (`GetFleeVelocity`, `KeepRouterInField`).
+  `BeginReform` is the reform body shared by `IssueReform` and the rally.
+- `CanStartReform` — **the shared automatic-reform start rule**: only active
+  melee blocks a reform (engaged fraction ≤ `reformStartEngagedFraction`), with
+  `reformRetryCooldown` after an aborted reform. Chunk A uses it for the rally
+  only; `IssueReform` and `EnemyCommander.TryReformBroken` do not call it yet.
 
 Its `Update` runs a fixed pipeline: maneuver → anchor movement → engagement →
-volley → dominant group → engaged facing → state machine → rank replacement →
-auto-close.
+morale → flee threat → volley → dominant group → engaged facing → state
+machine → rank replacement → auto-close. The state machine checks for a morale
+break before anything else.
 
 Two algorithms are `static` specifically so editor validation can exercise the
 exact shipped code path: `WheelStep` and `ComputeDominantGroup` (union-find
-clustering with hysteresis).
+clustering with hysteresis). `ComputeDominantGroup` optionally reports which
+points belong to the winning cluster; the rally uses that to find officers
+inside the main pack.
+
+### Morale — `FormationMorale` and `MoraleConfig`
+
+`FormationMorale` is a plain C# class, one per formation, created by
+`Formation` on its first frame and ticked every `tickInterval` while the
+battle is Active. It is pure math: `Formation` feeds it the alive count and
+`engagedCount` and reads `Value` back. It never changes formation state.
+
+- **Base** is capped by a ceiling built from losses against starting strength
+  (`TotalSpawned`). In melee (`engagedCount > 0`) the stricter contact ceiling
+  applies; on rally, `rallyLossForgiveness` of the losses so far stops counting
+  against the contact ceiling. Only recovery raises base: out of melee, and
+  `recoveryLossCooldown` after the last casualty.
+- **ShockDebt** — casualties add to it, and it decays at all times.
+  `AddShock` is the single entry point for sudden pressure.
+- **Value** = base − shock debt, clamped to 0–100. The rout and rally
+  thresholds read it.
+
+`MoraleConfig` holds every morale tunable. It is loaded through a serialized
+reference on `BattleSetup` assigned in `Battle.unity`, not through
+`Resources.Load`. The asset is `Assets/AncientArmies/Settings/MoraleConfig.asset`.
+Because the numbers live in the asset, the scene pins only the reference.
+Changing a C# default in `MoraleConfig.cs` affects only newly created assets —
+edit the existing asset to tune.
+
+`TemporaryOfficerRanks` hardcodes the rally priority (Signifer > Centurion >
+Optio > Tesserarius > Cornicen) and the debug grade numbers. It is marked
+temporary until the officer grade system arrives.
 
 ### Individual simulation — `Soldier`
 
@@ -79,6 +125,12 @@ target acquisition, attack cadence, melee variant selection, and a
 visibly striking or reacting. Exposes presentation-only events (`OnAttack`,
 `OnHurt`, `OnDeath`) plus flags that animated visuals set to defer damage and
 projectile release to authored contact frames.
+
+While its formation is Routing, a soldier replaces its target-or-slot blend
+with the formation's flee velocity, skips the leash, and ends each physics
+step with `KeepRouterInField` so separation and collisions cannot push it off
+the map. `DropTarget` releases its target and any staged hit or drawn shot the
+moment the century routs.
 
 `SoldierFactory` builds soldiers and resolves their visual prefab via
 `Resources.Load` by name.
@@ -99,7 +151,9 @@ group building, command drags with live destination previews, two-finger
 place-and-twist facing, camera pan, and pinch zoom. Touch slop and hit padding
 are resolution- and zoom-aware.
 
-It commands formations **only** through the public `Issue*` API.
+It commands formations **only** through the public `Issue*` API. Routing
+formations cannot be selected, and `PruneSelection` drops a selected century
+the frame it routs.
 
 ### Enemy AI — `EnemyCommander`
 
@@ -132,6 +186,10 @@ weapon directly, with no prefab, Animator, or rig involved.
 - `FormationArrow`, `FormationDestinationPreview` — order feedback
 - `FormationImposterRenderer` — merged-billboard LOD at far zoom
 - `BattleVisuals`, `BattlefieldDecor` (flat sand colour), `Projectile` (sphere)
+- `MoraleDebugOverlay` — **debug only**. An `OnGUI` readout of each
+  formation's morale and state, plus temporary officer grade numbers. It
+  installs itself on scene load and nothing references it, so deleting the
+  file removes it. Toggled by `MoraleConfig.showDebugMorale`.
 
 `Soldier` retains the hooks animated visuals used — `deferMeleeImpact`,
 `deferRangedRelease`, `suppressTint`, `suppressFallRotation`. Nothing sets them
@@ -144,10 +202,13 @@ handles both a single `VisualRoot` child and the Body/Weapon primitive pair.
 - `UnitStats` — `[System.Serializable]` plain class, not a ScriptableObject.
   Instances live as serialized fields on `BattleSetup`. It also owns
   `BuildCenturyRoles`, the data-driven century composition.
-- `Team`, `SoldierRole`, `BattlePhase`, `FormationState`, `OrderType`,
-  `FormationManeuverState`, `RotateBlock`, `ChargeBlock` — plain enums.
+- `MoraleConfig` — **the project's first and only ScriptableObject** (see
+  Morale above).
+- `Team`, `SoldierRole`, `BattlePhase`, `FormationState` (now including
+  `Routing`, appended last), `OrderType`, `FormationManeuverState`,
+  `RotateBlock`, `ChargeBlock` — plain enums.
 
-**There are no ScriptableObjects, no Addressables, and no save system.**
+**There are no Addressables and no save system.**
 Runtime asset loading is `Resources.Load` by name from exactly one call site:
 `FormationBannerController` (banner sprites). Soldier visuals, the arrow, and
 the ground are all built from primitives and code-created materials.
@@ -158,6 +219,7 @@ the ground are all built from primitives and code-created materials.
 Assets/Art/UI/Banners/Resources/    UI_Banner_{Blue,Red}_{Melee,Ranged}
 Assets/Settings/                    URP pipeline assets, renderers, volumes
 Assets/AncientArmies/               clean destination tree for NEW work
+Assets/AncientArmies/Settings/      MoraleConfig.asset
 ```
 
 The four banner sprites are the only art assets left in the project — they are
@@ -182,6 +244,9 @@ Validation is editor tooling in `Assets/Editor/`, run manually from menus:
 | `McpAutoReconnect.cs` | Unity MCP editor connection |
 
 Behavioral verification is **manual Play mode testing in `Battle.unity`**.
+The Unity CLI (`unity command …`, through `com.unity.pipeline`) can also drive
+a running editor — enter Play mode, run C# with `eval`, read the console —
+which is how the Chunk A morale runs were scripted.
 
 ## Unity packages
 
@@ -190,7 +255,8 @@ Notable dependencies beyond Unity's built-in modules:
 `com.unity.render-pipelines.universal` (17.4.0), `com.unity.inputsystem`
 (1.19.0), `com.unity.ai.navigation`, `com.unity.timeline`, `com.unity.ugui`,
 `com.unity.visualscripting`, `com.unity.test-framework`,
-`com.coplaydev.unity-mcp` (git dependency), and the local
+`com.coplaydev.unity-mcp` (git dependency), `com.unity.pipeline`
+(0.7.0-exp.1, editor bridge for the Unity CLI), and the local
 `com.tripo3d.unitybridge` (`file:../ThirdPartyPackages/TripoUnityBridge`).
 
 Note: AI Navigation is installed but the game does not use a NavMesh — soldier

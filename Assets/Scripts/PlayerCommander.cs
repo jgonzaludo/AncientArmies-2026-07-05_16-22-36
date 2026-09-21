@@ -293,6 +293,8 @@ public class PlayerCommander : MonoBehaviour
         }
         if (f.team == Team.Blue)
         {
+            // a routing century cannot be selected or ordered (Chunk A)
+            if (f.IsRouting) return;
             // Tap grammar: single tap SWITCHES (exclusive select; tapping the
             // sole selected century deselects it), a true double tap on one
             // century ADDS it to the group that existed before the first tap
@@ -306,7 +308,7 @@ public class PlayerCommander : MonoBehaviour
                 // double-tapping an existing member is a harmless no-op
                 DeselectAll();
                 foreach (var p in preTapSelection)
-                    if (p != null && p.soldiers.Count > 0 && !selection.Contains(p))
+                    if (p != null && p.soldiers.Count > 0 && !p.IsRouting && !selection.Contains(p))
                         ToggleSelect(p);
                 if (!selection.Contains(f)) ToggleSelect(f);
                 lastTapFormation = null;   // consume: a third tap starts fresh
@@ -366,7 +368,8 @@ public class PlayerCommander : MonoBehaviour
     {
         for (int i = selection.Count - 1; i >= 0; i--)
         {
-            if (selection[i] == null || selection[i].soldiers.Count == 0)
+            // dead or routing centuries leave the selection (Chunk A)
+            if (selection[i] == null || selection[i].soldiers.Count == 0 || selection[i].IsRouting)
             {
                 if (selection[i] != null) selection[i].SetSelected(false);
                 selection.RemoveAt(i);

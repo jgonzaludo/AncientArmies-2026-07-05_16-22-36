@@ -124,16 +124,24 @@ public class BattleSetup : MonoBehaviour
     [Tooltip("Attacks within this many degrees of the defender's rear count as rear attacks")]
     public float rearArcHalfAngleDeg = 60f;
 
-    // The battle-length lever. A NEW field on purpose: Battle.unity serializes
-    // the older stat blocks, so per-unit damage/health edits require in-editor
-    // scene stamping — this multiplier is unserialized and the C# default
-    // simply wins. Scaling all damage preserves every relative combat
-    // relationship (skill band, front/flank/rear, charge bonus); only the
-    // attrition rate changes. Consciously retires the "3-4 hits kills a man"
-    // anchor in favor of century-level grinds.
+    // The battle-length lever. Scaling all damage preserves every relative
+    // combat relationship (skill band, front/flank/rear, charge bonus); only
+    // the attrition rate changes. Consciously retires the "3-4 hits kills a
+    // man" anchor in favor of century-level grinds.
+    // PINNED: Battle.unity has serialized this field (0.25) since the scene
+    // was re-saved on 2026-09-21, so the scene value wins over this default —
+    // change it on the BattleSetup object in the scene, not here.
     [Header("Battle pacing")]
     [Tooltip("Global multiplier on ALL damage dealt — lower = longer battles; cadence and animations are untouched")]
     public float globalDamageScale = 0.25f;
+
+    // The ONLY morale field allowed on BattleSetup (DECISIONS 2026-09-21):
+    // every tunable lives in the MoraleConfig asset, so the scene pins this
+    // reference and nothing else. Null is a loud error, never a silent
+    // fallback to default values.
+    [Header("Morale")]
+    [Tooltip("Assigned in Battle.unity: Assets/AncientArmies/Settings/MoraleConfig.asset")]
+    public MoraleConfig moraleConfig;
 
     private readonly List<Soldier> blue = new List<Soldier>();
     private readonly List<Soldier> red = new List<Soldier>();
@@ -143,6 +151,10 @@ public class BattleSetup : MonoBehaviour
     {
         Instance = this;
         Application.runInBackground = true;
+        if (moraleConfig == null)
+            Debug.LogError("[Morale] BattleSetup.moraleConfig is NOT ASSIGNED in Battle.unity — " +
+                           "morale is DISABLED this battle (no fallback to defaults). Assign " +
+                           "Assets/AncientArmies/Settings/MoraleConfig.asset on the BattleSetup object.", this);
         EnsureEnvironment();
         float blueLineZ = -armySeparation * 0.5f + spawnEdgeInset;
         SpawnSide(Team.Blue, blueLineZ, 0f, false);
