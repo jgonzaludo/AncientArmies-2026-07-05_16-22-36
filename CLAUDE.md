@@ -127,12 +127,27 @@ Conventional Commits with game scopes.
 manually tested it in Play mode and explicitly approved it.** Ask first even
 for docs-only changes.
 
-## Knowledge graph
+## Context recovery (new session or after compaction)
 
-`graphify-out/` (local-only, not committed) holds a prebuilt knowledge graph of
-this codebase. Query it before grepping broadly:
+1. If there are uncommitted edits since the last commit, run `graphify update .` first.
+2. Run `graphify reflect --if-stale`; read `graphify-out/reflections/LESSONS.md` if it exists.
+3. Read only the latest `Docs/DECISIONS.md` entry.
+4. For the task, use `graphify query` / `explain` / `path` instead of reading whole
+   files or `GRAPH_REPORT.md`. Read raw source only for the exact lines you are
+   about to edit, or when a query comes back empty.
+5. Treat INFERRED and AMBIGUOUS edges as hints: verify in source before relying on them.
+6. After solving something non-obvious, record it with `graphify save-result`
+   (`--outcome useful`, `dead_end`, or `corrected`). Skip this for routine work.
 
-- `graphify query "<question>"` — traversal answer
-- `graphify-out/GRAPH_REPORT.md` — communities, god nodes, audit trail
+`.graphifyignore` is an allowlist (`Assets/**/*.cs`, `Docs/*.md`, `CLAUDE.md`) — art
+and Unity YAML never reach the graph. `graphify-out/` is committed except `cost.json`.
 
-Refresh after substantial code changes: `graphify . --update`.
+## graphify
+
+This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
+
+Rules:
+- For codebase questions, first run `graphify query "<question>"` when graphify-out/graph.json exists. Use `graphify path "<A>" "<B>"` for relationships and `graphify explain "<concept>"` for focused concepts. These return a scoped subgraph, usually much smaller than GRAPH_REPORT.md or raw grep output.
+- If graphify-out/wiki/index.md exists, use it for broad navigation instead of raw source browsing.
+- Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when query/path/explain do not surface enough context.
+- After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).
