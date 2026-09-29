@@ -33,7 +33,6 @@ public class BattleHUD : MonoBehaviour
     private Text hintText;
 
     private Button chargeButton;
-    private Button reformButton;
     private Button rotateButton;
     private Button restartMiniButton;   // persistent: restart before/during a battle
     private Button bannerModeButton;    // cycles the formation-banner visibility mode
@@ -41,6 +40,7 @@ public class BattleHUD : MonoBehaviour
     private GameObject startRoot;
     private GameObject endRoot;
     private Text resultText;
+    private Text timerText;
 
     // Scene switcher: the full battle plus isolation sandboxes for observing
     // behavior with a handful of soldiers. Scenes must be in Build Settings.
@@ -78,12 +78,13 @@ public class BattleHUD : MonoBehaviour
             {
                 string r = BattleSetup.Instance.ResultText;
                 resultText.text = r;
-                resultText.color = r == "BLUE WINS" ? new Color(0.5f, 0.75f, 1f)
-                                 : r == "RED WINS" ? new Color(1f, 0.5f, 0.45f)
+                resultText.color = r.StartsWith("BLUE WINS") ? new Color(0.5f, 0.75f, 1f)
+                                 : r.StartsWith("RED WINS") ? new Color(1f, 0.5f, 0.45f)
                                  : Color.white;
             }
         }
         if (hintText != null) hintText.gameObject.SetActive(phase == BattlePhase.Active);
+        UpdateTimer(phase);
         // the command panel works during deployment too (move + rotate) —
         // only a finished battle hides it
         if (phase == BattlePhase.Ended)
@@ -114,8 +115,8 @@ public class BattleHUD : MonoBehaviour
 
         panelGO.SetActive(true);
 
-        // A fully broken selection has exactly one meaningful order — REFORM.
-        // Offering CHARGE or ROTATE there is noise; hide them entirely.
+        // A fully broken selection takes no orders — it regroups on its own
+        // (Chunk B). Offering CHARGE or ROTATE there is noise; hide them.
         // Mixed selections keep the full row so the coherent formations stay
         // commandable.
         bool allBroken = AllLiveBroken(selection);
@@ -183,8 +184,7 @@ public class BattleHUD : MonoBehaviour
     {
         bool chargeInteractable = false;
         bool anyChargeNoTarget = false;
-        bool anyCanReform = false;
-        bool anyBlockingState = false;
+        bool anyBroken = false;
         int considered = 0;
 
         for (int i = 0; i < selection.Count; i++)
@@ -196,19 +196,15 @@ public class BattleHUD : MonoBehaviour
             Formation.ChargeBlock block = f.GetChargeBlock();
             if (block == Formation.ChargeBlock.None) chargeInteractable = true;
             else if (block == Formation.ChargeBlock.NoTarget) anyChargeNoTarget = true;
-            if (f.CanReform) anyCanReform = true;
-            if (f.State == FormationState.Engaged ||
-                f.State == FormationState.BrokenRanks ||
-                f.State == FormationState.Withdrawing)
-                anyBlockingState = true;
+            if (f.State == FormationState.BrokenRanks || f.State == FormationState.Reforming)
+                anyBroken = true;
         }
 
         SetButtonEnabled(chargeButton, chargeInteractable);
-        SetButtonEnabled(reformButton, anyCanReform);
-        // One reason line: the reform story wins when it applies; otherwise
+        // One reason line: a regrouping century explains itself; otherwise
         // explain a charge blocked purely by distance.
-        if (considered > 0 && !anyCanReform && anyBlockingState)
-            reasonText.text = "Too close to enemy";
+        if (considered > 0 && anyBroken)
+            reasonText.text = "Regroups when clear of melee";
         else if (considered > 0 && !chargeInteractable && anyChargeNoTarget)
             reasonText.text = "No enemy in charge range";
         else
@@ -235,7 +231,6 @@ public class BattleHUD : MonoBehaviour
     private void SetCommandButtonsVisible(bool visible)
     {
         chargeButton.gameObject.SetActive(visible);
-        reformButton.gameObject.SetActive(visible);
     }
 
     // ---------------- selection helpers ----------------
@@ -281,13 +276,6 @@ public class BattleHUD : MonoBehaviour
         if (commander == null || commander.Selection == null) return;
         foreach (var f in commander.Selection)
             if (f != null && f.soldiers.Count > 0) f.IssueCharge();
-    }
-
-    private void OnReformClicked()
-    {
-        if (commander == null || commander.Selection == null) return;
-        foreach (var f in commander.Selection)
-            if (f != null && f.CanReform) f.IssueReform();
     }
 
     private void OnRotateClicked()
@@ -482,8 +470,50 @@ public class BattleHUD : MonoBehaviour
             if (BattleSetup.Instance != null) BattleSetup.Instance.RestartBattle();
         });
 
+        // ---- Countdown (Chunk B): a stall backstop, so it stays small and
+        // low-contrast until the final timerWarningSeconds ----
+        timerText = MakeText(canvasT, "TimerText", 26, TextAnchor.UpperCenter, new Color(1f, 1f, 1f, 0.35f), false);
+        var tRT = timerText.rectTransform;
+        tRT.anchorMin = tRT.anchorMax = new Vector2(0.5f, 1f);
+        tRT.pivot = new Vector2(0.5f, 1f);
+        tRT.anchoredPosition = new Vector2(0f, -14f);
+        tRT.sizeDelta = new Vector2(300f, 60f);
+        timerText.gameObject.SetActive(false);
+
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        // dev-only fast-forward: 1x / 2x only (higher speeds change outcomes — the sim is frame-stepped)
+        Button speedBtn = MakeButton(canvasT, "DevSpeedButton", "1x", Vector2.zero);
+        var spRT = speedBtn.GetComponent<RectTransform>();
+        spRT.anchorMin = spRT.anchorMax = new Vector2(1f, 1f);
+        spRT.pivot = new Vector2(1f, 1f);
+        spRT.anchoredPosition = new Vector2(-20f, -20f);
+        spRT.sizeDelta = new Vector2(110f, 64f);
+        speedBtn.onClick.AddListener(() =>
+        {
+            float next = SimSpeed.Multiplier >= 2f ? 1f : 2f;
+            if (next == 1f) SimSpeed.Reset(); else SimSpeed.Set(next, false);
+            var l = speedBtn.GetComponentInChildren<Text>();
+            if (l != null) l.text = next + "x";
+        });
+#endif
+
         startRoot.SetActive(true);
         endRoot.SetActive(false);
+    }
+
+    private void UpdateTimer(BattlePhase phase)
+    {
+        if (timerText == null) return;
+        var bs = BattleSetup.Instance;
+        bool show = phase == BattlePhase.Active && bs != null && bs.moraleConfig != null;
+        if (timerText.gameObject.activeSelf != show) timerText.gameObject.SetActive(show);
+        if (!show) return;
+        float remaining = bs.TimeRemaining;
+        bool warning = remaining <= bs.moraleConfig.timerWarningSeconds;
+        int total = Mathf.CeilToInt(remaining);
+        timerText.text = $"{total / 60}:{total % 60:00}";
+        timerText.fontSize = warning ? 48 : 26;
+        timerText.color = warning ? new Color(1f, 0.85f, 0.3f, 1f) : new Color(1f, 1f, 1f, 0.35f);
     }
 
     private void BuildBottomPanel(Transform canvasT)
@@ -536,18 +566,14 @@ public class BattleHUD : MonoBehaviour
         float step = ButtonWidth + ButtonGap;
 
         chargeButton = MakeButton(panelT, "ChargeButton", "CHARGE",
-                                  new Vector2(-margin - 2f * step, buttonY));
-        chargeButton.onClick.AddListener(OnChargeClicked);
-
-        reformButton = MakeButton(panelT, "ReformButton", "REFORM",
                                   new Vector2(-margin - step, buttonY));
-        reformButton.onClick.AddListener(OnReformClicked);
+        chargeButton.onClick.AddListener(OnChargeClicked);
 
         rotateButton = MakeButton(panelT, "RotateButton", "ROTATE",
                                   new Vector2(-margin, buttonY));
         rotateButton.onClick.AddListener(OnRotateClicked);
 
-        // ---- Reason text (just above Reform) ----
+        // ---- Reason text (just above Charge) ----
         reasonText = MakeText(panelT, "ReasonText", 22, TextAnchor.MiddleCenter, ReasonColor, false);
         reasonText.text = "";
         RectTransform reasonRT = reasonText.rectTransform;

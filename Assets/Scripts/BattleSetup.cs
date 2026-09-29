@@ -4,6 +4,10 @@ using UnityEngine.SceneManagement;
 
 public enum BattlePhase { Pre, Active, Ended }
 
+// Which arc of the defending formation a blow came from. Drives the damage
+// multiplier and, since Chunk C, the casualty's morale shock weight.
+public enum DamageZone { Front, Flank, Rear }
+
 // Spawns the battlefield at runtime (5v5 by default, random unit mix per
 // battle), owns the battle lifecycle (Start -> Active -> Ended -> Restart),
 // and keeps the per-team soldier registries used for brute-force local
@@ -14,6 +18,9 @@ public class BattleSetup : MonoBehaviour
 
     public BattlePhase Phase { get; private set; } = BattlePhase.Pre;
     public string ResultText { get; private set; } = "";
+    public float BattleTime { get; private set; }           // seconds of Active play
+    public float TimeRemaining => moraleConfig != null
+        ? Mathf.Max(0f, moraleConfig.battleTimeLimit - BattleTime) : 0f;
 
     private float endCheckTimer;
 
@@ -112,28 +119,11 @@ public class BattleSetup : MonoBehaviour
     [Tooltip("Cap on the local-avoidance push (m/s) — biases movement, never flings")]
     public float separationMaxPush = 1.2f;
 
-    [Header("Directional combat (front / flank / rear)")]
-    [Tooltip("Damage multiplier when attacking a formation from its front arc")]
-    public float frontDamageMultiplier = 1f;
-    [Tooltip("Damage multiplier when attacking a formation from either side")]
-    public float flankDamageMultiplier = 1.5f;
-    [Tooltip("Damage multiplier when attacking a formation from behind")]
-    public float rearDamageMultiplier = 2f;
-    [Tooltip("Attacks within this many degrees of the defender's forward count as frontal")]
-    public float frontArcHalfAngleDeg = 60f;
-    [Tooltip("Attacks within this many degrees of the defender's rear count as rear attacks")]
-    public float rearArcHalfAngleDeg = 60f;
-
-    // The battle-length lever. Scaling all damage preserves every relative
-    // combat relationship (skill band, front/flank/rear, charge bonus); only
-    // the attrition rate changes. Consciously retires the "3-4 hits kills a
-    // man" anchor in favor of century-level grinds.
-    // PINNED: Battle.unity has serialized this field (0.25) since the scene
-    // was re-saved on 2026-09-21, so the scene value wins over this default —
-    // change it on the BattleSetup object in the scene, not here.
-    [Header("Battle pacing")]
-    [Tooltip("Global multiplier on ALL damage dealt — lower = longer battles; cadence and animations are untouched")]
-    public float globalDamageScale = 0.25f;
+    // Combat numbers (damage scale, directional multipliers, arcs) live in the
+    // CombatConfig asset, not here — nothing for Battle.unity to pin.
+    [Header("Combat")]
+    [Tooltip("Assigned in Battle.unity: Assets/AncientArmies/Settings/CombatConfig.asset")]
+    public CombatConfig combatConfig;
 
     // The ONLY morale field allowed on BattleSetup (DECISIONS 2026-09-21):
     // every tunable lives in the MoraleConfig asset, so the scene pins this
@@ -142,6 +132,8 @@ public class BattleSetup : MonoBehaviour
     [Header("Morale")]
     [Tooltip("Assigned in Battle.unity: Assets/AncientArmies/Settings/MoraleConfig.asset")]
     public MoraleConfig moraleConfig;
+    [Tooltip("Assigned in Battle.unity: Assets/AncientArmies/Settings/OfficerRanks.asset")]
+    public OfficerRanks officerRanks;
 
     private readonly List<Soldier> blue = new List<Soldier>();
     private readonly List<Soldier> red = new List<Soldier>();
@@ -151,10 +143,22 @@ public class BattleSetup : MonoBehaviour
     {
         Instance = this;
         Application.runInBackground = true;
+        SimSeed.ApplyIfPending();   // reproducible battles: seed before anything random spawns
         if (moraleConfig == null)
             Debug.LogError("[Morale] BattleSetup.moraleConfig is NOT ASSIGNED in Battle.unity — " +
                            "morale is DISABLED this battle (no fallback to defaults). Assign " +
                            "Assets/AncientArmies/Settings/MoraleConfig.asset on the BattleSetup object.", this);
+        if (combatConfig == null)
+        {
+            Debug.LogError("[Combat] BattleSetup.combatConfig is NOT ASSIGNED in Battle.unity — this battle runs on " +
+                           "the CombatConfig CLASS DEFAULTS, not your tuned asset. Assign " +
+                           "Assets/AncientArmies/Settings/CombatConfig.asset on the BattleSetup object.", this);
+            combatConfig = ScriptableObject.CreateInstance<CombatConfig>();
+        }
+        if (officerRanks == null)
+            Debug.LogError("[Morale] BattleSetup.officerRanks is NOT ASSIGNED in Battle.unity — " +
+                           "officer grades, the reform anchor and officer death shock are DISABLED this battle. " +
+                           "Assign Assets/AncientArmies/Settings/OfficerRanks.asset on the BattleSetup object.", this);
         EnsureEnvironment();
         float blueLineZ = -armySeparation * 0.5f + spawnEdgeInset;
         SpawnSide(Team.Blue, blueLineZ, 0f, false);
@@ -179,23 +183,65 @@ public class BattleSetup : MonoBehaviour
         BattleGrid.Rebuild(blue, red);
     }
 
+    // Battles end by LINE COLLAPSE, not annihilation (DECISIONS 2026-09-21):
+    // a team loses the moment collapseFraction of its formations are Routing
+    // or destroyed. Ending the battle right then is the latch — nothing that
+    // happens afterwards can reopen it. The time limit is a stall backstop.
     private void Update()
     {
         if (Phase != BattlePhase.Active) return;
+        BattleTime += Time.deltaTime;
         endCheckTimer -= Time.deltaTime;
         if (endCheckTimer > 0f) return;
         endCheckTimer = 0.5f;
 
-        bool blueAlive = blue.Count > 0;
-        bool redAlive = red.Count > 0;
-        if (blueAlive && redAlive) return;
+        bool blueDown = HasCollapsed(Team.Blue);
+        bool redDown = HasCollapsed(Team.Red);
+        if (blueDown || redDown)
+        {
+            EndBattle(blueDown && redDown ? "DRAW — BOTH LINES COLLAPSED"
+                    : blueDown ? "RED WINS — BLUE LINE COLLAPSED"
+                    : "BLUE WINS — RED LINE COLLAPSED");
+            return;
+        }
+        if (moraleConfig != null && BattleTime >= moraleConfig.battleTimeLimit)
+        {
+            int b = CountIntact(Team.Blue), r = CountIntact(Team.Red);
+            EndBattle(b == r ? "DRAW — TIME"
+                    : b > r ? "BLUE WINS — TIME" : "RED WINS — TIME");
+        }
+    }
 
+    private void EndBattle(string result)
+    {
         Phase = BattlePhase.Ended;
-        ResultText = !blueAlive && !redAlive ? "DRAW"
-                   : blueAlive ? "BLUE WINS" : "RED WINS";
-
+        ResultText = result;
+        BattleRecorder.NoteEnd(this, result);
         var commander = GetComponent<PlayerCommander>();
         if (commander != null) commander.DeselectAll();
+    }
+
+    // Counted from the live formation list, never an assumed roster size.
+    public bool HasCollapsed(Team t)
+    {
+        float fraction = moraleConfig != null ? moraleConfig.collapseFraction : 0.5f;
+        int total = 0, fallen = 0;
+        foreach (var f in formations)
+        {
+            if (f.team != t) continue;
+            total++;
+            if (f.IsRouting || f.soldiers.Count == 0) fallen++;
+        }
+        return total > 0 && fallen >= total * fraction;
+    }
+
+    // Intact = alive and not Routing. BrokenRanks counts as intact.
+    public int CountIntact(Team t)
+    {
+        int n = 0;
+        foreach (var f in formations)
+            if (f.team == t && !f.IsRouting && f.soldiers.Count > 0) n++;
+        return n;
     }
 
     public void StartBattle()
@@ -275,18 +321,64 @@ public class BattleSetup : MonoBehaviour
 
     // Formation-level directional damage: where is the attacker relative to the
     // defender's canonical forward? Deterministic, anchor-based, tunable above.
-    public float GetDirectionalMultiplier(Formation attacker, Formation defender)
+    // Formed combat resolves at formation level by FACING, never by agent
+    // position (engaged lines interleave, so positions lie). A formed attacker
+    // facing roughly opposite the defender is frontal; roughly the same way,
+    // rear; otherwise a flank, left or right by the side its facing comes from.
+    // Attackers with no formed facing (BrokenRanks, Routing) fall back to the
+    // POSITION of the attacking soldier (hits) or of the attacker's main pack
+    // (surround) relative to the defender's facing.
+    private static bool HasFormedFacing(Formation f) =>
+        f.State != FormationState.BrokenRanks && f.State != FormationState.Routing;
+
+    // 0 front, 1 right flank, 2 left flank, 3 rear
+    private int ZoneIndexByFacing(Formation attacker, Formation defender)
     {
-        if (attacker == null || defender == null || attacker == defender)
-            return frontDamageMultiplier;
-        Vector3 toAttacker = attacker.AnchorPos - defender.AnchorPos;
-        toAttacker.y = 0f;
-        if (toAttacker.sqrMagnitude < 0.04f) return frontDamageMultiplier;
-        float angle = Vector3.Angle(defender.AnchorForward, toAttacker);
-        if (angle <= frontArcHalfAngleDeg) return frontDamageMultiplier;
-        if (angle >= 180f - rearArcHalfAngleDeg) return rearDamageMultiplier;
-        return flankDamageMultiplier;
+        float dot = Vector3.Dot(attacker.AnchorForward, defender.AnchorForward);
+        if (dot <= -Mathf.Cos(combatConfig.frontArcHalfAngleDeg * Mathf.Deg2Rad)) return 0;
+        if (dot >= Mathf.Cos(combatConfig.rearArcHalfAngleDeg * Mathf.Deg2Rad)) return 3;
+        // a flanker on the defender's right faces toward its left, i.e. against defender.right
+        return Vector3.Dot(defender.AnchorRot * Vector3.right, attacker.AnchorForward) < 0f ? 1 : 2;
     }
+
+    private int ZoneIndexByPosition(Formation defender, Vector3 point)
+    {
+        Vector3 to = point - defender.AnchorPos;
+        to.y = 0f;
+        if (to.sqrMagnitude < 0.04f) return 0;
+        float angle = Vector3.Angle(defender.AnchorForward, to);
+        if (angle <= combatConfig.frontArcHalfAngleDeg) return 0;
+        if (angle >= 180f - combatConfig.rearArcHalfAngleDeg) return 3;
+        return Vector3.Dot(defender.AnchorRot * Vector3.right, to) >= 0f ? 1 : 2;
+    }
+
+    private static DamageZone ToZone(int idx) => idx == 0 ? DamageZone.Front : idx == 3 ? DamageZone.Rear : DamageZone.Flank;
+
+    // Zone of ONE HIT: the attacking formation's facing relative to the
+    // defender's; a formless attacker uses the striking soldier's position.
+    public DamageZone GetDirectionalZone(Formation attacker, Formation defender, Vector3 attackerSoldierPos)
+    {
+        if (attacker == null || defender == null || attacker == defender) return DamageZone.Front;
+        return ToZone(HasFormedFacing(attacker) ? ZoneIndexByFacing(attacker, defender)
+                                                : ZoneIndexByPosition(defender, attackerSoldierPos));
+    }
+
+    // Zone an enemy FORMATION occupies around the defender (surround counting).
+    public int ZoneIndexOf(Formation attacker, Formation defender)
+    {
+        if (HasFormedFacing(attacker)) return ZoneIndexByFacing(attacker, defender);
+        return ZoneIndexByPosition(defender, attacker.DominantGroupCount > 0 ? attacker.DominantGroupCenter : attacker.AnchorPos);
+    }
+
+    public DamageZone GetDirectionalZone(Formation attacker, Formation defender) =>
+        attacker == null || defender == null || attacker == defender ? DamageZone.Front : ToZone(ZoneIndexOf(attacker, defender));
+
+    public float ZoneDamageMultiplier(DamageZone zone) =>
+        zone == DamageZone.Rear ? combatConfig.rearDamageMultiplier
+      : zone == DamageZone.Flank ? combatConfig.flankDamageMultiplier : combatConfig.frontDamageMultiplier;
+
+    public float GetDirectionalMultiplier(Formation attacker, Formation defender) =>
+        ZoneDamageMultiplier(GetDirectionalZone(attacker, defender));
 
     public Formation CreateFormation(string name, Team team, UnitStats stats, int count,
                                      int columns, Vector3 pos, float yaw, bool auto)
@@ -305,6 +397,7 @@ public class BattleSetup : MonoBehaviour
         {
             var s = SoldierFactory.Create(f, i, f.GetSlotWorldPos(i));
             s.role = roles[i];
+            if (officerRanks != null) s.ScaleMaxHealth(officerRanks.HealthMultiplier(roles[i]));   // officers are tougher
             f.AddSoldier(s);
             Register(s);
         }

@@ -14,6 +14,7 @@ public class Soldier : MonoBehaviour
     public bool IsEngaged;                    // maintained by the formation's engagement scan
     public float NearestEnemyDist = float.MaxValue;   // also from the engagement scan
     public float Health { get; private set; }
+    public float MaxHealth { get; private set; }   // unit maxHealth x the role's OfficerRanks healthMultiplier
 
     public Vector3 Velocity => rb != null && !rb.isKinematic ? rb.linearVelocity : Vector3.zero;
 
@@ -53,6 +54,7 @@ public class Soldier : MonoBehaviour
 
     private Soldier pendingMeleeTarget;
     private float pendingMeleeDamage;
+    private DamageZone pendingMeleeZone;   // arc of the staged blow, for the casualty's morale shock
     private float pendingMeleeTimer;
     private int lastVariant = -1, prevVariant = -1;
 
@@ -151,7 +153,8 @@ public class Soldier : MonoBehaviour
         selectionDisc = disc;
         baseColor = color;
         this.skill = skill;
-        Health = f.stats.maxHealth;
+        MaxHealth = f.stats.maxHealth;
+        Health = MaxHealth;
         mpb = new MaterialPropertyBlock();
         retargetTimer = Random.value * 0.3f;
         attackTimer = Random.value * 0.5f;
@@ -243,9 +246,29 @@ public class Soldier : MonoBehaviour
         Vector3 vel = rb.linearVelocity;
         vel.y = 0f;
         rb.linearVelocity = Vector3.MoveTowards(vel, desired, Accel * Time.fixedDeltaTime);
-        // after separation and collisions have had their say: a crowd of
-        // routers at a corner must not shove anyone off the map
-        if (routing) formation.KeepRouterInField(rb);
+        // Routers (Chunk B): with rally off they run off the map and leave the
+        // battle; with rally on they are held inside the field after
+        // separation and collisions have had their say.
+        if (routing)
+        {
+            if (formation.RoutersLeaveField)
+            {
+                if (Formation.IsOutsideField(rb.position, 2f)) Escape();
+            }
+            else formation.KeepRouterInField(rb);
+        }
+    }
+
+    // A router crossed the map edge: out of the battle for good, but not a
+    // casualty — no death shock, no corpse.
+    private void Escape()
+    {
+        Alive = false;
+        DropTarget();
+        formation.NotifyEscaped(this);
+        if (BattleSetup.Instance != null) BattleSetup.Instance.Unregister(this);
+        StopAllCoroutines();
+        Destroy(gameObject);
     }
 
     private static Vector3 Arrive(Vector3 offset, float maxSpeed)
@@ -342,13 +365,14 @@ public class Soldier : MonoBehaviour
             {
                 attackTimer = S.attackCooldown * Random.Range(0.9f, 1.15f);
                 // formation-level tactical truth: front 1x, flank 1.5x, rear 2x
-                float dirMult = BattleSetup.Instance.GetDirectionalMultiplier(
-                    formation, target.formation);
+                DamageZone zone = BattleSetup.Instance.GetDirectionalZone(formation, target.formation, transform.position);
+                BattleRecorder.NoteHit(zone);
+                float dirMult = BattleSetup.Instance.ZoneDamageMultiplier(zone);
                 if (shoot)
                 {
                     formation.NotifyRangedShot();   // archer IsFiring window
                     float dmg = S.attackDamage * skill * dirMult *
-                                BattleSetup.Instance.globalDamageScale;
+                                BattleSetup.Instance.combatConfig.globalDamageScale;
                     if (deferRangedRelease)
                     {
                         ReleasePendingShot();   // an unreleased previous shot flies now
@@ -370,7 +394,7 @@ public class Soldier : MonoBehaviour
                     // after the window closes still carries the charge's force
                     float dmg = S.attackDamage * skill * dirMult * (S.isRanged ? 0.4f : 1f)
                                 * formation.ChargeDamageMultiplier
-                                * BattleSetup.Instance.globalDamageScale;
+                                * BattleSetup.Instance.combatConfig.globalDamageScale;
                     if (deferMeleeImpact && !S.isRanged)
                     {
                         // damage lands on the clip's contact frame; everything
@@ -379,12 +403,13 @@ public class Soldier : MonoBehaviour
                         LandPendingMeleeHit();   // an unlanded previous hit resolves now
                         pendingMeleeTarget = target;
                         pendingMeleeDamage = dmg;
+                        pendingMeleeZone = zone;
                         pendingMeleeTimer = MeleeImpactDelay[MeleeAttackVariant];
                         actionLockTimer = Mathf.Max(actionLockTimer, MeleeAttackLockSeconds);
                     }
                     else
                     {
-                        target.TakeDamage(dmg);
+                        target.TakeDamage(dmg, zone);
                         actionLockTimer = Mathf.Max(actionLockTimer,
                             S.isRanged ? KnifeLockSeconds : MeleeAttackLockSeconds);
                     }
@@ -488,6 +513,13 @@ public class Soldier : MonoBehaviour
 
     public void CancelPendingShot() { pendingShotTarget = null; }
 
+    // Spawn-time only: officers are tougher than the line (OfficerRanks).
+    public void ScaleMaxHealth(float multiplier)
+    {
+        MaxHealth = S.maxHealth * Mathf.Max(0.01f, multiplier);
+        Health = MaxHealth;
+    }
+
     // The century routed (Chunk A): let go of the fight at once, so no staged
     // sword hit lands and no drawn arrow flies after the men have broken.
     public void DropTarget()
@@ -506,7 +538,7 @@ public class Soldier : MonoBehaviour
         var t = pendingMeleeTarget;
         pendingMeleeTarget = null;
         if (!Alive || !t.Alive) return;
-        t.TakeDamage(pendingMeleeDamage);
+        t.TakeDamage(pendingMeleeDamage, pendingMeleeZone);
     }
 
     // Weighted pick over the three attack clips; one re-roll if the choice
@@ -602,13 +634,15 @@ public class Soldier : MonoBehaviour
         return d2 <= rr * rr;
     }
 
-    public void TakeDamage(float dmg)
+    // zone: the defender-relative arc the blow came from. Arrows (Projectile)
+    // use the default, Front.
+    public void TakeDamage(float dmg, DamageZone zone = DamageZone.Front, bool ranged = false)
     {
         if (!Alive) return;
         Health -= dmg;
         if (Health <= 0f)
         {
-            Die();
+            Die(zone, ranged);
             return;
         }
         actionLockTimer = Mathf.Max(actionLockTimer, HitLockSeconds);
@@ -617,12 +651,12 @@ public class Soldier : MonoBehaviour
         flashRoutine = StartCoroutine(HitFlash());
     }
 
-    private void Die()
+    private void Die(DamageZone zone, bool ranged)
     {
         Alive = false;
         pendingMeleeTarget = null;   // a dead soldier never finishes a swing
         SetTarget(null);             // release the contact-line reservation
-        formation.NotifyDeath(this);
+        formation.NotifyDeath(this, zone, ranged);
         if (BattleSetup.Instance != null) BattleSetup.Instance.Unregister(this);
         var col = GetComponent<Collider>();
         if (col != null) col.enabled = false;
@@ -673,7 +707,7 @@ public class Soldier : MonoBehaviour
 
     private void RefreshTint()
     {
-        float hp01 = Mathf.Clamp01(Health / S.maxHealth);
+        float hp01 = Mathf.Clamp01(Health / MaxHealth);
         SetTint(Color.Lerp(Color.Lerp(baseColor, Color.black, 0.6f), baseColor, hp01));
     }
 

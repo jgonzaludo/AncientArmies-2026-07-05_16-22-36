@@ -74,7 +74,7 @@ public class Projectile : MonoBehaviour
             bool battleActive = BattleSetup.Instance != null &&
                                 BattleSetup.Instance.Phase == BattlePhase.Active;
             if (battleActive && alive)
-                target.TakeDamage(damage);
+                target.TakeDamage(damage, DamageZone.Front, ranged: true);
             Destroy(gameObject);
             return;
         }

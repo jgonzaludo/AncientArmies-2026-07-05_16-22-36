@@ -460,7 +460,7 @@ public class PlayerCommander : MonoBehaviour
 
         var over = HitFormation(pos);
         // no attack orders during deployment — combat starts at Start Battle
-        dragEnemyTarget = (!Deploying && over != null && over.team == Team.Red) ? over : null;
+        dragEnemyTarget = (!Deploying && over != null && over.team == Team.Red && !over.IsRouting) ? over : null;
 
         if (dragEnemyTarget != null)
         {

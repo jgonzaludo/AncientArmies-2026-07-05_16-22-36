@@ -2,19 +2,16 @@ using UnityEngine;
 using UnityEngine.SceneManagement;
 
 // DEBUG ONLY (Chunk A) — on-device morale tuning. Draws each formation's
-// morale and state near its banner, and a TEMPORARY grade number over each
-// officer's head (TemporaryOfficerRanks). Toggled live by
-// MoraleConfig.showDebugMorale.
+// morale and state near its banner. Toggled live by
+// MoraleConfig.showDebugMorale. Officer grades live in OfficerGradeMarkers.
 //
 // Self-installing on every scene load, so nothing else references it: delete
 // this file and the overlay is gone. Reads simulation state, never writes it.
 public class MoraleDebugOverlay : MonoBehaviour
 {
     private const float LabelHeight = 4.5f;     // above the anchor, near the banner
-    private const float GradeHeight = 2.4f;     // above a soldier's head
 
     private GUIStyle formationStyle;
-    private GUIStyle gradeStyle;
     private int styledForHeight;
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
@@ -49,14 +46,6 @@ public class MoraleDebugOverlay : MonoBehaviour
             string morale = f.Morale != null ? f.Morale.Value.ToString("0") : "--";
             Draw(cam, f.AnchorPos + Vector3.up * LabelHeight,
                  $"{morale}  {Formation.StateLabel(f.State)}", formationStyle);
-
-            foreach (var s in f.soldiers)
-            {
-                int grade = TemporaryOfficerRanks.DebugGrade(s.role);
-                if (grade == 0) continue;   // line soldiers show nothing
-                Draw(cam, s.transform.position + Vector3.up * GradeHeight,
-                     grade.ToString(), gradeStyle);
-            }
         }
     }
 
@@ -81,12 +70,5 @@ public class MoraleDebugOverlay : MonoBehaviour
             fontStyle = FontStyle.Bold
         };
         formationStyle.normal.textColor = Color.white;
-        gradeStyle = new GUIStyle(GUI.skin.label)
-        {
-            fontSize = Mathf.Max(10, Screen.height / 60),
-            alignment = TextAnchor.MiddleCenter,
-            fontStyle = FontStyle.Bold
-        };
-        gradeStyle.normal.textColor = Color.yellow;
     }
 }

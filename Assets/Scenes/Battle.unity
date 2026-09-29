@@ -345,13 +345,9 @@ MonoBehaviour:
   separationFractionOrdered: 0.85
   separationFractionPacked: 0.72
   separationMaxPush: 1.2
-  frontDamageMultiplier: 1
-  flankDamageMultiplier: 1.5
-  rearDamageMultiplier: 2
-  frontArcHalfAngleDeg: 60
-  rearArcHalfAngleDeg: 60
-  globalDamageScale: 0.25
+  combatConfig: {fileID: 11400000, guid: 4d7daae869d354890b77d39baf858b43, type: 2}
   moraleConfig: {fileID: 11400000, guid: 451d952273b4e436788d480f52cd4f4c, type: 2}
+  officerRanks: {fileID: 11400000, guid: 54233acca16334e7dab9e8ba8b034a76, type: 2}
 --- !u!4 &737620417
 Transform:
   m_ObjectHideFlags: 0

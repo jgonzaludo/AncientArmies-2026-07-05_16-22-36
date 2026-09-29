@@ -8,9 +8,14 @@ running in `Assets/Scenes/Battle.unity`. Nothing here is aspirational.
 A single symmetric land battle: Blue (player) against Red (autonomous AI).
 The battle runs Pre → Active → Ended. Press **START** to go Active; a
 persistent **RESTART** button reloads the scene at any time before the end.
-The battle ends when one side has no living soldiers, reporting
-`BLUE WINS` / `RED WINS` / `DRAW`. *A new win condition and time limit are
-approved but not built — see [Approved, not yet implemented](#approved-not-yet-implemented).*
+The battle ends by **line collapse**: a team loses the moment 50 % of its
+formations are Routing or destroyed (counted from its actual formations, never
+an assumed 8). That moment is the latch — nothing afterwards reopens it. A
+visible **10:00 countdown** is the stall backstop: small and faint until the
+last 60 s, then bright and large. At 0:00 the side with more intact formations
+(alive and not Routing; BrokenRanks counts) wins, equal is a draw. The result
+states its reason: `BLUE WINS — RED LINE COLLAPSED`, `RED WINS — TIME`,
+`DRAW — TIME`, `DRAW — BOTH LINES COLLAPSED`.
 
 ## Scale and army composition
 
@@ -73,9 +78,10 @@ Touch targets are deliberately forgiving: tap padding and command-grab
 tolerance are zoom-aware and expressed in 1080p-reference pixels, so they stay
 finger-sized regardless of screen density.
 
-HUD command buttons: **CHARGE**, **REFORM**, **ROTATE**, plus persistent
-**RESTART**, **BANNERS** (cycles banner visibility) and **SCENES**. *Removing
-REFORM is approved but not built — see [Approved, not yet implemented](#approved-not-yet-implemented).*
+HUD command buttons: **CHARGE** and **ROTATE**, plus persistent **RESTART**,
+**BANNERS** (cycles banner visibility) and **SCENES**. There is no Reform
+button: recovery is automatic. A selection of broken centuries shows
+"Regroups when clear of melee" instead of commands.
 
 ## Formation states
 
@@ -88,10 +94,13 @@ REFORM is approved but not built — see [Approved, not yet implemented](#approv
   engaged; exits after 1.5 s with no contact.
 - **Withdrawing** — any move order issued while Engaged is a disengagement
   attempt; the formation backs away without wheeling through the melee.
-- **BrokenRanks** — zero slot steering. Soldiers act as individuals with a wide
-  acquisition radius, leashed to a rally point. **Reform is the only command
-  available.** *Approved but not built: this state is renamed "Disordered" in
-  design language and recovers automatically — see [Approved, not yet implemented](#approved-not-yet-implemented).*
+- **BrokenRanks** ("Disordered" in design language) — zero slot steering.
+  Soldiers act as individuals with a wide acquisition radius, leashed to a
+  rally point. **It takes no orders and reforms on its own** the moment no
+  soldier has an enemy within 3 m (and 2 s have passed since any aborted
+  reform); nearby enemies beyond 3 m and arrow fire never block it. Both
+  teams use this one rule. A charged century is therefore uncontrollable until
+  it is out of melee and reformed.
 - **Reforming** — survivors walk back to a rebuilt slot grid at the frozen
   rally anchor. Completes at 75 % in place (or a 25 s timeout); **aborts back
   to Broken** if 12 % of survivors are melee-engaged. Arrow fire alone never
@@ -99,17 +108,22 @@ REFORM is approved but not built — see [Approved, not yet implemented](#approv
 - **Charging** — a committed sprint (1.3× speed) at a nearby enemy within 45 m.
   Grants a 1.5× impact bonus for 2 s after first contact, then dissolves into
   **pursuit** on the broken-ranks machinery.
-- **Routing** — entered from any state when morale falls below 15. Soldiers
-  stop acquiring targets and never attack. Each flees away from the nearest
-  enemy formation, bent toward its own army's back edge, at 1.2× move speed,
-  and stops at the field edge (it never leaves the map). There is no leash.
-  The formation takes **no orders** from the player, the AI, or any HUD
-  button. Enemies target routers normally — that is the pursuit. The anchor
-  follows the fleeing pack. It rallies on its own (see Morale).
+- **Routing** — entered from any state when morale falls below 15.
+  **Permanent.** Soldiers stop acquiring targets and never attack. Each flees
+  away from the nearest enemy formation, bent toward its own army's back
+  edge, at 1.2× move speed, with no leash, and **runs off the map** — a
+  router that crosses the field edge leaves the battle for good (not a
+  casualty). The formation takes **no orders** from the player, the AI, or
+  any HUD button, has no banner, and is never an attack or charge target;
+  enemy soldiers still cut down routers within reach and pursuing packs
+  still hunt them — that is the pursuit. It counts as fallen for the collapse
+  rule. (`routedCanRally` in MoraleConfig re-enables the Chunk A rally: routers
+  then stop at the field edge and may rally above 35 morale.)
 
-Break Ranks freezes the rally anchor and facing where the ranks broke. A
-pursuit has no pre-frozen rally — the standard moves with the pack until
-Reform plants it where the men stand.
+A reform plants the standard on the **Signifer** if he is alive in the main
+pack (Romans formed on the standard), else on the highest-grade officer in the
+main pack, else on the pack's center. "Main pack" is the dominant cluster, so
+stragglers never drag the rally point into empty ground.
 
 ## Rotation maneuvers
 
@@ -132,37 +146,69 @@ Every formation has morale from 0 to 100, ticked 4× per second while the
 battle is Active. All values live in `MoraleConfig.asset`.
 
 - **Base morale** is capped by losses against starting strength. Out of melee
-  the rest ceiling is 100 − 2 × loss%. In melee (any soldier with an enemy
-  within 3 m) the contact ceiling is 100 − 4.25 × loss%, so a slow grind still
-  routs a century at about 20% losses.
-- **Shock debt**: each casualty adds 3 × its percent of starting strength, and
-  the debt decays by 5 per second at all times. Losing 10 of 80 men at once in
-  melee routs a fresh century (12.5%); losing them over a few seconds does
-  not. Arrow casualties count toward losses and shock, but arrows never count
-  as melee.
+  the rest ceiling is 100 − 1 × loss%. In melee (any soldier with an enemy
+  within 3 m) the contact ceiling is 100 − 1.1 × loss%, so a frontal grind
+  alone routs a century only near 77% losses. **Routs are meant to come
+  from being surrounded or from sudden shocks, not from grinding.**
+- **Shock debt** is panic. Each casualty adds 3 × its percent of starting
+  strength (3.75 per man in an 80-man century) **times the zone of the killing
+  blow**: front ×0.25 (steady frontal losses are muted), flank ×2, rear ×3; a
+  ranged kill weighs ×0.5 instead. **Burst rule:** once more than 5% of
+  starting strength (4 of 80) has fallen inside a rolling 3 s window, further
+  casualties weigh ×2 whatever their zone (the higher weight applies). All
+  of it is then multiplied by `panicScale` 0.65 and rate-limited to 8 panic
+  per second — the excess queues and lands over the following ticks, never
+  discarded. The debt decays
+  by 5 per second at all times, **divided by (1 + extra enemy formations
+  engaged)** — 2-on-1 halves decay, 3-on-1 thirds it. Losing 10 of 80 men at
+  once in melee routs a fresh century; losing them over a few seconds does
+  not.
+- **Surrounded**: every tick adds 8 panic per second for each engaged zone
+  beyond the first. Zones (front, left flank, right flank, rear) come from
+  the facing of each enemy formation that is actually fighting us — at least
+  10% of our living men in contact with it — so a neighbour brushing the
+  line's edge is not a second side. Unscaled and outside
+  the panic cap. Two zones builds panic steadily (decay is 5/s); three or
+  more breaks a unit within seconds.
+- **Contagion**: when a formation routs, every same-team formation within
+  30 m (anchor to anchor) takes 15 shock. A steady unit shrugs it off; a
+  wavering one goes over.
+- **Officer death**: an officer killed (not one who fled) adds his
+  `deathShock` to his formation on top of the casualty shock — Tesserarius
+  and Cornicen 4, Optio 12, Centurion 24, Signifer 28 (losing the standard
+  hits hardest) — unscaled and outside the panic cap. A fresh century never routs from one officer death; a
+  wavering one does from losing its Centurion or standard.
 - **Reported morale** = base − shock debt. Below 15 the formation routs.
 - **Recovery**: +3 base per second, only out of melee and only once 3 s have
   passed without a casualty.
-- **Rally**: a routing formation rallies when morale is above 35 and the
-  shared reform rule passes — nobody within 3 m of an enemy, and not within
-  2 s of an aborted reform. Nearby enemies beyond 3 m and arrow fire do not
-  block it. It then runs the ordinary reform, facing the nearest enemy, on
-  the highest-priority officer still alive in the main pack (Signifer,
-  Centurion, Optio, Tesserarius, Cornicen — temporary ordering), or on the
-  pack's center. On rally, half of the losses so far stop counting against
-  the contact ceiling, so a rallied century can fight again.
-- A century that has lost more than 32.5% can never rally: its rest ceiling
-  sits below 35.
-- A reform that aborts on melee contact drops to BrokenRanks. Until automatic
-  reform for BrokenRanks ships, that needs the Reform button (Blue) or the
-  AI's reform (Red).
+- Each panic input has an enable switch in `MoraleConfig`
+  (`enableFlankShock`, `enableOutnumberShock`, `enableContagion`,
+  `enableOfficerShock`, `enableSurroundShock`, `enableArrowShockWeight`,
+  `enableShockCap`) so a problem can be isolated on device without code.
+
+## Officers
+
+Every century spawns a Signifer, Cornicen, Optio and Tesserarius; melee
+centuries also spawn a Centurion (archer centuries have no Centurion). Grades
+live in `OfficerRanks.asset`: Centurion 4, Optio 3, Signifer 2, Tesserarius 1,
+Cornicen 1, line soldiers 0. Officers are tougher: spawn health ×2.0 for the
+Centurion and Signifer, ×1.5 for the Optio. The commanding officer is the highest-grade
+survivor; succession is implicit. Grade numbers are drawn above the officers
+of the selected or inspected formation only.
 
 ## Combat
 
-- **Directional damage** on the formation's canonical facing: front ×1.0,
-  flank ×1.5, rear ×2.0, with 60° front and rear arcs.
-- A **global damage scale of 0.25** stretches battles roughly 4×. It preserves
-  every relative combat relationship — only the attrition rate changes.
+- **Directional damage by facing** (`CombatConfig.asset`): front ×0.5, flank
+  ×1.5, rear ×2.0, with 60° front and rear arcs. The zone of a hit is the
+  attacking formation's facing relative to the defender's — roughly opposite
+  is front, roughly the same way is rear, in between is a flank — never the
+  striking soldier's position (engaged lines interleave). Attackers with no
+  formed facing (BrokenRanks, Routing) use the soldier's position instead.
+  Arrows use the same multipliers, so they do half damage from the front.
+  Head-on fights bleed slowly; flank, rear and the pursuit of routers stay
+  deadly.
+- A **global damage scale of 0.15** stretches battles. It preserves every
+  relative combat relationship — only the attrition rate changes.
 - **Melee**: 12 damage on a 4 s cadence, 1.7 m reach. Gameplay still chooses
   one of three attack variants (thrust / over-shield / diagonal slash), but
   with placeholder capsules there is no clip to sync to, so damage resolves
@@ -223,35 +269,16 @@ Everything else is unchanged:
 - Ground arrows and live destination-slot previews for orders.
 - A merged-billboard **impostor LOD** hides individual soldier visuals at far
   zoom. Simulation is untouched — only presentation goes dormant.
+- **Wavering halo**: an additive 4× glow plus a thick ring behind the badge,
+  shown below 50 morale and hidden again above 53, #FFD400 → #FF2A00, pulsing
+  1.5 → 3 Hz in both alpha (0.7–1) and scale (1–1.4) as morale falls toward
+  15, with a one-time flash when a formation first enters the band. Never
+  dimmed by banner dimming; the badge itself is untouched. Both teams.
+  Routing formations show no banner at all.
+- **Officer grade markers** above the officers of the selected or inspected
+  formation.
 - **Debug morale overlay** (tuning only, `showDebugMorale`): each formation's
-  morale and state near its banner, and a temporary grade over each officer's
-  head (Centurion 4, Optio 3, Signifer 2, Tesserarius 1, Cornicen 1).
-
-## Approved, not yet implemented
-
-Decided on 2026-09-21 — see `Docs/DECISIONS.md` for the full record and the
-questions still open. **None of this is in the build yet.** When a piece
-ships, move it into the sections above and delete it here.
-
-- **Disordered** — the design name for `BrokenRanks`. Behavior unchanged:
-  loose, agent-native combat, still fighting.
-- **Routing badge** — the banner badge disappears while a formation routs.
-  Routing itself is built (see Formation states and Morale); the banner
-  still shows today.
-- **No REFORM button** — recovery is automatic for both sides, through one
-  shared rule.
-- **Automatic reform for BrokenRanks** — a disordered formation reforms
-  whenever it is not in melee (no soldier with an enemy within 3 m). Nearby
-  enemies and arrow fire do not block it. A reform under way still aborts at
-  12 % of survivors engaged. After a charge, a century is uncontrollable until
-  it is out of melee and reformed. The shared rule (`CanStartReform`) exists
-  and already drives the rally; the Reform button and the AI do not use it
-  yet.
-- **Win condition** — a side collapses when 50 % of its formations are Routing
-  or destroyed, counted from its actual formations (never assumed to be 8).
-  Collapse latches: the result stands even if units rally afterwards.
-- **Time limit** — a visible 10:00 countdown. On expiry, the side with more
-  intact formations wins. Draws are allowed.
+  morale and state near its banner.
 
 ## Deliberately not in this build
 

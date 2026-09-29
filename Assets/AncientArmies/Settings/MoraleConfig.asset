@@ -15,10 +15,10 @@ MonoBehaviour:
   tickInterval: 0.25
   routeThreshold: 15
   rallyThreshold: 35
-  contactCeilingScale: 4.25
-  restCeilingScale: 2
+  contactCeilingScale: 1.1
+  restCeilingScale: 1
   rallyLossForgiveness: 0.5
-  shockMultiplier: 3
+  shockMultiplier: 1.5
   shockDecayPerSecond: 5
   recoveryPerSecond: 3
   recoveryLossCooldown: 3
@@ -26,4 +26,21 @@ MonoBehaviour:
   reformRetryCooldown: 2
   fleeSpeedMultiplier: 1.2
   fleeBackBias: 0.6
+  routedCanRally: 0
+  collapseFraction: 0.5
+  battleTimeLimit: 600
+  timerWarningSeconds: 60
+  enableFlankShock: 1
+  flankShockMultiplier: 2
+  rearShockMultiplier: 3
+  enableOutnumberShock: 1
+  outnumberDecaySlowdown: 1
+  enableContagion: 1
+  contagionRadius: 30
+  contagionShock: 10
+  enableOfficerShock: 1
+  haloEnter: 50
+  haloExit: 53
+  forceHaloForTesting: 0
+  forceGradeMarkers: 0
   showDebugMorale: 1

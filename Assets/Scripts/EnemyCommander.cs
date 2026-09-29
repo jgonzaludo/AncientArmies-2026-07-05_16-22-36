@@ -27,7 +27,7 @@ using UnityEngine;
 //                cooldown; a committed reserve behaves like main line.
 //
 // The commander only speaks the public Formation API the player has
-// (IssueMove / IssueAttack / IssueCharge / IssueReform) — the formation state
+// (IssueMove / IssueAttack / IssueCharge) — the formation state
 // machine executes everything, no soldier or transform is ever touched, and no
 // hidden information or stat cheats are used.
 public class EnemyCommander : MonoBehaviour
@@ -82,8 +82,6 @@ public class EnemyCommander : MonoBehaviour
     public float commitCooldown = 12f;
 
     [Header("Reform")]
-    [Tooltip("A broken red century reforms only when no blue formation is within this distance of it")]
-    public float reformSafeRadius = 20f;
 
     private CommanderPhase phase = CommanderPhase.Advance;
     private bool classified;
@@ -214,7 +212,6 @@ public class EnemyCommander : MonoBehaviour
 
         // Broken red centuries pull themselves together whenever it is safe,
         // regardless of battle phase — reforming is defensive housekeeping.
-        TryReformBroken();
 
         if (phase == CommanderPhase.Advance)
         {
@@ -238,7 +235,7 @@ public class EnemyCommander : MonoBehaviour
         {
             if (f.soldiers.Count == 0) continue;
             if (f.team == Team.Red) reds.Add(f);
-            else blues.Add(f);
+            else if (!f.IsRouting) blues.Add(f);   // routers are never targets (Chunk B)
         }
         for (int i = mainLine.Count - 1; i >= 0; i--)
             if (mainLine[i].soldiers.Count == 0) mainLine.RemoveAt(i);
@@ -563,17 +560,6 @@ public class EnemyCommander : MonoBehaviour
         return best;
     }
 
-    // ---------------- reform ----------------
-
-    // A broken red century reforms itself once the fight has moved on: no
-    // blue formation within reformSafeRadius and the formation reports it can.
-    private void TryReformBroken()
-    {
-        foreach (var f in reds)
-        {
-            if (f.State != FormationState.BrokenRanks || !f.CanReform) continue;
-            if (FindNearestBlue(f.AnchorPos, reformSafeRadius) != null) continue;
-            f.IssueReform();
-        }
-    }
+    // Reform is automatic in Formation (CanStartReform) for both teams —
+    // the AI issues no reform orders (Chunk B).
 }
