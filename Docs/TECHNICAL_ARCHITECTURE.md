@@ -90,6 +90,11 @@ it the top god node at 96 edges). It owns:
   active melee blocks a reform (engaged fraction ≤ `reformStartEngagedFraction`),
   with `reformRetryCooldown` after an aborted reform. The AI issues no reform
   orders.
+- `ReformInPlace` — after `pursuitMaxSeconds` in BrokenRanks with contact still
+  above `reformStartEngagedFraction`, rebuild the slot grid around the main
+  pack where it stands (planted on `ReformAnchorPoint`, facing the nearest
+  enemy formation) and return to Engaged; the walk-back reform runs instead
+  when contact has dropped.
 - `ReformAnchorPoint` — Signifer in the main pack if `reformOnStandardFirst`,
   else the highest-grade officer in the main pack, else the pack's center;
   `CommandingOfficer` is the highest-grade survivor.
@@ -181,7 +186,9 @@ staged hit or drawn shot the moment the century routs. `TakeDamage` carries
 the `DamageZone` of the blow (staged melee hits remember theirs; projectiles
 are always Front) so the death reports its zone to the formation.
 
-`SoldierFactory` builds soldiers and resolves their visual prefab via
+`SoldierFactory` sets every soldier's capsule collider radius from
+`CombatConfig.soldierColliderRadius` (0.5 m): the global personal-space knob,
+independent of the visual size. It builds soldiers and resolves their visual prefab via
 `Resources.Load` by name.
 
 ### Spatial queries — `BattleGrid`
@@ -217,7 +224,8 @@ automatic in `Formation`.
 
 Builds the entire uGUI canvas from code: selection info panels, the CHARGE /
 ROTATE command buttons with live interactivity, banner-mode and scene
-switchers, start and end overlays, the countdown (faint until
+switchers, start and end overlays, the tide bar (`BattleSetup.BattlePower` per team,
+morale-weighted, presentation-only), the countdown (faint until
 `timerWarningSeconds`), and a `SafeAreaFitter` for notched devices.
 
 ### Camera — `BattleCamera`

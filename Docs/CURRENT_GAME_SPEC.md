@@ -14,8 +14,16 @@ an assumed 8). That moment is the latch — nothing afterwards reopens it. A
 visible **10:00 countdown** is the stall backstop: small and faint until the
 last 60 s, then bright and large. At 0:00 the side with more intact formations
 (alive and not Routing; BrokenRanks counts) wins, equal is a draw. The result
-states its reason: `BLUE WINS — RED LINE COLLAPSED`, `RED WINS — TIME`,
-`DRAW — TIME`, `DRAW — BOTH LINES COLLAPSED`.
+states its reason internally (`BLUE WINS — RED LINE COLLAPSED`, `RED WINS —
+TIME`, `DRAW — BOTH LINES COLLAPSED`), but **the end screen shows only the
+winner**: `BLUE WINS`, `RED WINS` or a grey `DRAW`.
+
+A **tide bar** at the top center shows the balance of the battle while it is
+Active: blue fills from the left, red is the rest, a tick marks even. Each side's
+power is the living men of formations that have not routed, each weighted by its
+morale (never below 25 %); the fill eases toward the value rather than jumping.
+The 10:00 countdown sits just under it, clearly readable from the start (shown
+in the pre-battle too) and larger and amber in the final 60 s. `showTideBar` in `MoraleConfig` switches it off.
 
 ## Scale and army composition
 
@@ -96,14 +104,17 @@ button: recovery is automatic. A selection of broken centuries shows
   attempt; the formation backs away without wheeling through the melee.
 - **BrokenRanks** ("Disordered" in design language) — zero slot steering.
   Soldiers act as individuals with a wide acquisition radius, leashed to a
-  rally point. **It takes no orders and reforms on its own** the moment no
-  soldier has an enemy within 3 m (and 2 s have passed since any aborted
-  reform); nearby enemies beyond 3 m and arrow fire never block it. Both
-  teams use this one rule. A charged century is therefore uncontrollable until
-  it is out of melee and reformed.
+  rally point. **It takes no orders.** It stays loose for `pursuitMaxSeconds`
+  (9 s) — a charge's pursuit lasts exactly that long. Then it regroups: if at
+  most 15% of its men have an enemy within 3 m (and 2 s have passed since any
+  aborted reform) it reforms by walking back to the standard; if it is still
+  locked in melee it **re-forms in place** — slots rebuilt around the main pack
+  where it stands, planted on the Signifer / senior officer, facing the nearest
+  enemy — and becomes Engaged again, with orders available. Both teams use
+  this one rule. A charge is a commitment, but only for 9 s.
 - **Reforming** — survivors walk back to a rebuilt slot grid at the frozen
   rally anchor. Completes at 75 % in place (or a 25 s timeout); **aborts back
-  to Broken** if 12 % of survivors are melee-engaged. Arrow fire alone never
+  to Broken** if 30 % of survivors are melee-engaged. Arrow fire alone never
   aborts a reform.
 - **Charging** — a committed sprint (1.3× speed) at a nearby enemy within 45 m.
   Grants a 1.5× impact bonus for 2 s after first contact, then dissolves into
@@ -207,6 +218,9 @@ of the selected or inspected formation only.
   Arrows use the same multipliers, so they do half damage from the front.
   Head-on fights bleed slowly; flank, rear and the pursuit of routers stay
   deadly.
+- **Personal space:** every soldier's body collider is 0.5 m radius
+  (`CombatConfig.soldierColliderRadius`), so any two soldiers — friend or
+  enemy, in any state — stay at least 1.0 m apart; visuals are unchanged.
 - A **global damage scale of 0.15** stretches battles. It preserves every
   relative combat relationship — only the attrition rate changes.
 - **Melee**: 12 damage on a 4 s cadence, 1.7 m reach. Gameplay still chooses

@@ -27,7 +27,10 @@ public static class SoldierFactory
 
         var col = root.AddComponent<CapsuleCollider>();
         col.center = new Vector3(0f, 1f, 0f);
-        col.radius = 0.35f;
+        // global personal space: every soldier, friend or enemy, in every state, keeps
+        // this body width (CombatConfig.soldierColliderRadius); the visual stays as is
+        col.radius = BattleSetup.Instance != null && BattleSetup.Instance.combatConfig != null
+            ? BattleSetup.Instance.combatConfig.soldierColliderRadius : 0.5f;
         col.height = 1.8f;
         col.material = slipMat;
 

@@ -90,6 +90,7 @@ public class ScenarioRunner : MonoBehaviour
             bs.StartBattle();
             if (scenario == "flank") yield return FlankScenario(bs);
             else if (scenario == "lines") yield return LinesScenario(bs);
+            else if (scenario == "charge") yield return ChargeScenario(bs);
             else while (bs != null && bs.Phase != BattlePhase.Ended) yield return null;
             yield return null;
             ResultFiles.Add(BattleRecorder.LastFilePath);
@@ -144,6 +145,22 @@ public class ScenarioRunner : MonoBehaviour
         return sb.ToString();
     }
 
+    // Charge test: Blue Century 1 marches to ~14 m from Red Century 1, charges,
+    // then the run watches 90 s of game time. The recorder's state events give
+    // BrokenRanks -> Reforming -> Ordered timings.
+    private IEnumerator ChargeScenario(BattleSetup bs)
+    {
+        var blue = Find(bs, "Blue Century 1"); var red = Find(bs, "Red Century 1");
+        blue.IssueMove(new Vector3(red.AnchorPos.x, 0f, red.AnchorPos.z - 14f));   // close enough that the 5 s rush actually reaches contact
+        while (bs.Phase == BattlePhase.Active && (blue.HasMoveDestination || blue.State != FormationState.Ordered)) yield return null;
+        blue.IssueCharge(red);
+        BattleRecorder.Note("charge issued state=" + blue.State + " target=" + (blue.attackTarget != null ? blue.attackTarget.displayName : "-"));
+        float until = bs.BattleTime + 90f;
+        while (bs.Phase == BattlePhase.Active && bs.BattleTime < until) yield return null;
+        yield return null;
+        if (bs.Phase != BattlePhase.Ended) BattleRecorder.NoteEnd(bs, "SCENARIO END — charge, 90 s");
+    }
+
     // Adjacent lines: each Red front century attacks the Blue century opposite
     // it, Red archers close to bow range, nobody flanks. Snapshots 60 / 120 /
     // 180 s after first contact, then ends.
@@ -153,6 +170,7 @@ public class ScenarioRunner : MonoBehaviour
         Find(bs, "Red Archers 1").IssueAttack(Find(bs, "Blue Century 2"));
         Find(bs, "Red Archers 2").IssueAttack(Find(bs, "Blue Century 3"));
         var rec = bs.GetComponent<BattleRecorder>();
+        BattleRecorder.Note("colliderRadius=" + bs.combatConfig.soldierColliderRadius);
         var everTwoZones = new HashSet<Formation>();
         float[] marks = { 60f, 120f, 180f };
         int next = 0;
@@ -168,6 +186,8 @@ public class ScenarioRunner : MonoBehaviour
                       .Append((100f * (f.TotalSpawned - f.soldiers.Count - f.EscapedCount) / f.TotalSpawned).ToString("0.0")).Append("% ");
                 BattleRecorder.Note(sb.ToString());
                 BattleRecorder.Note("interleave@" + marks[next] + "s " + Interleave(bs));
+                { var idle = Find(bs, "Blue Century 6"); float sp = 0f; foreach (var s in idle.soldiers) sp += s.Velocity.magnitude;
+                  BattleRecorder.Note("idleSpeed@" + marks[next] + "s BlueC6 avg=" + (idle.soldiers.Count > 0 ? (sp / idle.soldiers.Count).ToString("0.000") : "-") + " m/s"); }
                 next++;
             }
             yield return null;

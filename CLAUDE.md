@@ -37,9 +37,10 @@ These are design law, not preferences:
 - Formations are a behavioral and tactical harness, not a rendering trick.
 - Ordered formations are predictable; combat creates local disorder.
 - Breaking ranks increases individual freedom and chaos.
-- Reforming requires sufficient disengagement from melee, and it is
-  automatic: the game reforms and rallies formations; the player never orders
-  it.
+- Reforming is automatic: the game reforms formations; the player never
+  orders it. Walking back to the standard requires sufficient disengagement
+  from melee; a loose century still locked in melee after
+  `pursuitMaxSeconds` re-forms in place instead (it cannot walk away).
 - A routing formation cannot be ordered, by the player or the AI.
 - Dead soldiers are removed; survivors close ranks when reforming.
 - Outcomes are understandable, not dominated by invisible randomness.

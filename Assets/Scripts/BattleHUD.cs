@@ -41,6 +41,8 @@ public class BattleHUD : MonoBehaviour
     private GameObject endRoot;
     private Text resultText;
     private Text timerText;
+    private RectTransform tideRoot, tideBlue;
+    private float tideShown = 0.5f;
 
     // Scene switcher: the full battle plus isolation sandboxes for observing
     // behavior with a handful of soldiers. Scenes must be in Build Settings.
@@ -77,14 +79,17 @@ public class BattleHUD : MonoBehaviour
             if (phase == BattlePhase.Ended && resultText != null)
             {
                 string r = BattleSetup.Instance.ResultText;
-                resultText.text = r;
+                // the screen names only the winner; the reason stays in ResultText for logs and tests
+                int dash = r.IndexOf(" —");
+                resultText.text = dash > 0 ? r.Substring(0, dash) : r;
                 resultText.color = r.StartsWith("BLUE WINS") ? new Color(0.5f, 0.75f, 1f)
                                  : r.StartsWith("RED WINS") ? new Color(1f, 0.5f, 0.45f)
-                                 : Color.white;
+                                 : new Color(0.68f, 0.68f, 0.68f);   // draw: grey
             }
         }
         if (hintText != null) hintText.gameObject.SetActive(phase == BattlePhase.Active);
         UpdateTimer(phase);
+        UpdateTide(phase);
         // the command panel works during deployment too (move + rotate) —
         // only a finished battle hides it
         if (phase == BattlePhase.Ended)
@@ -381,7 +386,7 @@ public class BattleHUD : MonoBehaviour
         var sRT = scenesBtn.GetComponent<RectTransform>();
         sRT.anchorMin = sRT.anchorMax = new Vector2(0.5f, 1f);
         sRT.pivot = new Vector2(0.5f, 1f);
-        sRT.anchoredPosition = new Vector2(0f, -20f);
+        sRT.anchoredPosition = new Vector2(0f, -100f);   // below the tide bar and countdown
         sRT.sizeDelta = new Vector2(170f, 64f);
         var sLabel = scenesBtn.GetComponentInChildren<Text>();
         if (sLabel != null) sLabel.fontSize = 24;
@@ -391,7 +396,7 @@ public class BattleHUD : MonoBehaviour
         var rowRT = sceneRowGO.AddComponent<RectTransform>();
         rowRT.anchorMin = rowRT.anchorMax = new Vector2(0.5f, 1f);
         rowRT.pivot = new Vector2(0.5f, 1f);
-        rowRT.anchoredPosition = new Vector2(0f, -94f);
+        rowRT.anchoredPosition = new Vector2(0f, -174f);
         rowRT.sizeDelta = new Vector2(SceneNames.Length * 184f, 64f);
 
         string current = gameObject.scene.name;
@@ -472,13 +477,41 @@ public class BattleHUD : MonoBehaviour
 
         // ---- Countdown (Chunk B): a stall backstop, so it stays small and
         // low-contrast until the final timerWarningSeconds ----
-        timerText = MakeText(canvasT, "TimerText", 26, TextAnchor.UpperCenter, new Color(1f, 1f, 1f, 0.35f), false);
+        timerText = MakeText(canvasT, "TimerText", 34, TextAnchor.UpperCenter, new Color(1f, 1f, 1f, 0.9f));
         var tRT = timerText.rectTransform;
         tRT.anchorMin = tRT.anchorMax = new Vector2(0.5f, 1f);
         tRT.pivot = new Vector2(0.5f, 1f);
-        tRT.anchoredPosition = new Vector2(0f, -14f);
+        tRT.anchoredPosition = new Vector2(0f, -36f);
         tRT.sizeDelta = new Vector2(300f, 60f);
         timerText.gameObject.SetActive(false);
+
+        // ---- Tide bar: blue's share of the battle power, top center. Blue
+        // fills from the left, red is the background, a tick marks even ----
+        var tideGO = new GameObject("TideBar", typeof(RectTransform));
+        tideGO.transform.SetParent(canvasT, false);
+        tideRoot = tideGO.GetComponent<RectTransform>();
+        tideRoot.anchorMin = tideRoot.anchorMax = new Vector2(0.5f, 1f);
+        tideRoot.pivot = new Vector2(0.5f, 1f);
+        tideRoot.anchoredPosition = new Vector2(0f, -10f);
+        tideRoot.sizeDelta = new Vector2(620f, 22f);
+        Image NewBar(string n, Color c)
+        {
+            var g = new GameObject(n, typeof(RectTransform), typeof(Image));
+            g.transform.SetParent(tideGO.transform, false);
+            var im = g.GetComponent<Image>(); im.color = c; im.raycastTarget = false;   // never a tap target
+            return im;
+        }
+        var red = NewBar("Red", new Color(0.86f, 0.30f, 0.27f, 0.92f));
+        red.rectTransform.anchorMin = Vector2.zero; red.rectTransform.anchorMax = Vector2.one;
+        red.rectTransform.offsetMin = red.rectTransform.offsetMax = Vector2.zero;
+        var blue = NewBar("Blue", new Color(0.33f, 0.55f, 0.95f, 0.95f));
+        tideBlue = blue.rectTransform;
+        tideBlue.anchorMin = Vector2.zero; tideBlue.anchorMax = new Vector2(0.5f, 1f);
+        tideBlue.offsetMin = tideBlue.offsetMax = Vector2.zero;
+        var tick = NewBar("Even", new Color(1f, 1f, 1f, 0.8f));
+        tick.rectTransform.anchorMin = new Vector2(0.5f, 0f); tick.rectTransform.anchorMax = new Vector2(0.5f, 1f);
+        tick.rectTransform.sizeDelta = new Vector2(3f, 6f);
+        tideGO.SetActive(false);
 
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
         // dev-only fast-forward: 1x / 2x only (higher speeds change outcomes — the sim is frame-stepped)
@@ -501,19 +534,32 @@ public class BattleHUD : MonoBehaviour
         endRoot.SetActive(false);
     }
 
+    private void UpdateTide(BattlePhase phase)
+    {
+        if (tideRoot == null) return;
+        var bs = BattleSetup.Instance;
+        bool show = phase == BattlePhase.Active && bs != null && bs.moraleConfig != null && bs.moraleConfig.showTideBar;
+        if (tideRoot.gameObject.activeSelf != show) tideRoot.gameObject.SetActive(show);
+        if (!show) return;
+        float blue = bs.BattlePower(Team.Blue), red = bs.BattlePower(Team.Red);
+        float target = blue + red > 0f ? blue / (blue + red) : 0.5f;
+        tideShown = Mathf.MoveTowards(tideShown, target, Time.unscaledDeltaTime * 0.35f);   // eased, never jumpy
+        tideBlue.anchorMax = new Vector2(tideShown, 1f);
+    }
+
     private void UpdateTimer(BattlePhase phase)
     {
         if (timerText == null) return;
         var bs = BattleSetup.Instance;
-        bool show = phase == BattlePhase.Active && bs != null && bs.moraleConfig != null;
+        bool show = phase != BattlePhase.Ended && bs != null && bs.moraleConfig != null;   // Pre shows the full clock
         if (timerText.gameObject.activeSelf != show) timerText.gameObject.SetActive(show);
         if (!show) return;
         float remaining = bs.TimeRemaining;
         bool warning = remaining <= bs.moraleConfig.timerWarningSeconds;
         int total = Mathf.CeilToInt(remaining);
         timerText.text = $"{total / 60}:{total % 60:00}";
-        timerText.fontSize = warning ? 48 : 26;
-        timerText.color = warning ? new Color(1f, 0.85f, 0.3f, 1f) : new Color(1f, 1f, 1f, 0.35f);
+        timerText.fontSize = warning ? 52 : 34;
+        timerText.color = warning ? new Color(1f, 0.85f, 0.3f, 1f) : new Color(1f, 1f, 1f, 0.9f);
     }
 
     private void BuildBottomPanel(Transform canvasT)

@@ -59,7 +59,9 @@ public class MoraleConfig : ScriptableObject
 
     [Header("Automatic reform (shared rule; used by rally in Chunk A)")]
     [Tooltip("Max fraction of soldiers engaged (enemy within 3 m) to START a reform. 0 = nobody in contact")]
-    public float reformStartEngagedFraction = 0f;
+    public float reformStartEngagedFraction = 0.15f;
+    [Tooltip("How long a century stays loose (BrokenRanks) before it regroups: a charge's pursuit lasts this long. Then, if contact has dropped, it walks back to the standard; if it is still locked in melee it re-forms in place and fights on as a line")]
+    public float pursuitMaxSeconds = 9f;
     [Tooltip("Seconds after an aborted reform before another may start — stops abort/restart flicker")]
     public float reformRetryCooldown = 2f;
 
@@ -95,6 +97,12 @@ public class MoraleConfig : ScriptableObject
     public float contagionShock = 15f;
     [Tooltip("An officer's death adds his OfficerRanks deathShock to his formation")]
     public bool enableOfficerShock = true;
+
+    [Header("Tide bar (HUD)")]
+    [Tooltip("Show the battle-power bar at the top of the screen while a battle is Active")]
+    public bool showTideBar = true;
+    [Tooltip("A wavering formation still counts for at least this share of its living men in the tide; routing and destroyed formations count for nothing")]
+    public float tideMoraleFloor = 0.25f;
 
     [Header("Wavering halo (banner)")]
     [Tooltip("Halo shows when reported morale drops below this")]

@@ -22,7 +22,8 @@ MonoBehaviour:
   shockDecayPerSecond: 5
   recoveryPerSecond: 3
   recoveryLossCooldown: 3
-  reformStartEngagedFraction: 0
+  reformStartEngagedFraction: 0.15
+  pursuitMaxSeconds: 9
   reformRetryCooldown: 2
   fleeSpeedMultiplier: 1.2
   fleeBackBias: 0.6
@@ -39,6 +40,8 @@ MonoBehaviour:
   contagionRadius: 30
   contagionShock: 10
   enableOfficerShock: 1
+  showTideBar: 1
+  tideMoraleFloor: 0.25
   haloEnter: 50
   haloExit: 53
   forceHaloForTesting: 0

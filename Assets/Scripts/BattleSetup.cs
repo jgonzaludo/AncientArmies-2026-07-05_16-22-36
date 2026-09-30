@@ -235,6 +235,22 @@ public class BattleSetup : MonoBehaviour
         return total > 0 && fallen >= total * fraction;
     }
 
+    // Battle power for the HUD tide bar: living men of formations that have not
+    // routed, each formation weighted by its morale (never below tideMoraleFloor).
+    // Presentation reads it; nothing in the simulation does.
+    public float BattlePower(Team t)
+    {
+        float floor = moraleConfig != null ? moraleConfig.tideMoraleFloor : 0.25f;
+        float power = 0f;
+        foreach (var f in formations)
+        {
+            if (f.team != t || f.IsRouting || f.soldiers.Count == 0) continue;
+            float m = f.Morale != null ? f.Morale.Value / 100f : 1f;
+            power += f.soldiers.Count * Mathf.Max(floor, m);
+        }
+        return power;
+    }
+
     // Intact = alive and not Routing. BrokenRanks counts as intact.
     public int CountIntact(Team t)
     {

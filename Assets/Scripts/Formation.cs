@@ -47,7 +47,7 @@ public class Formation : MonoBehaviour
     [Tooltip("Reform completes when this fraction of survivors stands in the new slots")]
     public float reformCompleteFraction = 0.75f;
     [Tooltip("Reform aborts back to Broken when this fraction of reforming survivors is melee-engaged (projectile fire alone never aborts)")]
-    public float reformAbortEngagedFraction = 0.12f;
+    public float reformAbortEngagedFraction = 0.3f;   // must exceed MoraleConfig.reformStartEngagedFraction (0.15) or every reform aborts at once
     [Tooltip("Fallback: reform completes after this many seconds regardless of stragglers")]
     public float reformTimeoutSeconds = 25f;
 
@@ -896,7 +896,7 @@ public class Formation : MonoBehaviour
             case FormationState.Ordered: return 1f;
             case FormationState.Attacking: return 0.95f;
             case FormationState.Engaged:
-                if (s.IsEngaged) return 0.12f;
+                if (s.IsEngaged) return BattleSetup.Instance != null ? BattleSetup.Instance.combatConfig.engagedSlotWeight : 0.3f;
                 return NearCombat(s) ? 0.35f : 0.75f;
             case FormationState.BrokenRanks: return 0f;   // Phase 3: zero slot steering while broken
             case FormationState.Routing: return 0f;       // fleeing men hold no slots
@@ -1320,10 +1320,23 @@ public class Formation : MonoBehaviour
                 break;
 
             case FormationState.BrokenRanks:
+                // A loose century regroups after pursuitMaxSeconds. A charge's
+                // pursuit ends then (the pack stops hunting). If contact has
+                // dropped, the ordinary reform below walks the men back to the
+                // standard; if the century is still locked in melee it re-forms
+                // IN PLACE — slots rebuilt around the pack where it stands,
+                // facing the enemy, state Engaged — because a unit in a fight
+                // cannot walk away (historically that was a rout).
+                if (cfg != null && Time.time - brokenStartTime >= cfg.pursuitMaxSeconds)
+                {
+                    IsPursuing = false;
+                    attackTarget = null;
+                    if (!CanStartReform()) { ReformInPlace(); break; }
+                }
                 // Automatic reform (Chunk B), both teams, one rule: only
                 // active melee blocks it. The standard is planted on the
                 // Signifer / senior officer still with the main pack.
-                if (CanStartReform())
+                if (!IsPursuing && CanStartReform())   // a charge's pursuit runs its full time first
                 {
                     RallyAnchor = ReformAnchorPoint();
                     rallyFacing = AnchorRot;
@@ -1346,6 +1359,7 @@ public class Formation : MonoBehaviour
                     State = FormationState.BrokenRanks;   // same rally anchor
                     CurrentOrderType = OrderType.BreakRanks;
                     lastReformAbortTime = Time.time;      // CanStartReform cooldown
+                    brokenStartTime = Time.time;          // the in-place regroup timer restarts
                     break;
                 }
                 if (FractionNearSlots(1.0f) >= reformCompleteFraction ||
@@ -1383,8 +1397,11 @@ public class Formation : MonoBehaviour
     // machinery. Unlike a deliberate break, the standard is NOT planted: the
     // rally seed starts at the pack and the anchor keeps following it until
     // Reform strikes it into the ground.
+    private float brokenStartTime;   // when the century last went loose (pursuit or aborted reform)
+
     private void EnterPursuit()
     {
+        brokenStartTime = Time.time;
         State = FormationState.BrokenRanks;
         CurrentOrderType = OrderType.BreakRanks;
         IsPursuing = true;
@@ -1442,6 +1459,34 @@ public class Formation : MonoBehaviour
                 if (d.sqrMagnitude <= r2) o.morale.AddShock(cfg.contagionShock, ShockSource.Contagion);
             }
         }
+    }
+
+    // Re-form where the century stands, mid-melee: the standard is planted on
+    // the Signifer / senior officer in the main pack, the slot grid is rebuilt
+    // around it facing the nearest enemy formation, and the century becomes
+    // Engaged again (formed combat, orders available — a move order is then a
+    // disengagement attempt like any other engaged century's).
+    private void ReformInPlace()
+    {
+        Vector3 at = ReformAnchorPoint();
+        Formation foe = NearestEnemyFormation(at, float.MaxValue);
+        Vector3 face = foe != null ? foe.AnchorPos - at : AnchorForward;
+        face.y = 0f;
+        rallyFacing = face.sqrMagnitude > 0.01f ? Quaternion.LookRotation(face.normalized, Vector3.up) : AnchorRot;
+        RallyAnchor = at;
+        AnchorPos = at;
+        AnchorRot = rallyFacing;
+        IsPursuing = false;
+        attackTarget = null;
+        hasDestination = false;
+        Maneuver = FormationManeuverState.None;
+        int n = soldiers.Count;
+        columns = Mathf.Clamp(columns, 1, n);
+        BuildSlots(n);
+        AssignNearestSlots();
+        CurrentOrderType = OrderType.None;
+        noContactTime = 0f;
+        State = FormationState.Engaged;
     }
 
     // THE shared automatic-reform start rule (DECISIONS 2026-09-21): only

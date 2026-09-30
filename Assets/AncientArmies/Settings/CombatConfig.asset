@@ -13,6 +13,8 @@ MonoBehaviour:
   m_Name: CombatConfig
   m_EditorClassIdentifier: Assembly-CSharp::CombatConfig
   globalDamageScale: 0.15
+  soldierColliderRadius: 0.5
+  engagedSlotWeight: 0.3
   frontDamageMultiplier: 0.5
   flankDamageMultiplier: 1.5
   rearDamageMultiplier: 2

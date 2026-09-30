@@ -111,6 +111,31 @@ routs in 180 s, ~11 % casualties at 60 s and ~60 % at 180 s; flank test —
 pinned century routed 31 s after flank contact at 13.75 % casualties,
 Surround primary, Signifer / Optio / Tesserarius / Cornicen alive.
 
+**Reform reworked, 2026-09-29.** Device play showed BrokenRanks almost never
+reformed: a charge's pursuit kept retargeting and reform needed zero soldiers
+in contact. Now: pursuit and any loose (BrokenRanks) spell last
+`pursuitMaxSeconds` = 9; reform may start with up to 15 % of the men in
+contact (`reformStartEngagedFraction`) and aborts at 30 % (was 12 %, which
+would have cancelled every reform); and a century still locked in melee after
+9 s **re-forms in place** (slots rebuilt around the pack, facing the enemy,
+state Engaged) instead of deadlocking — historically a unit in a fight could
+not walk away, and turning your back was a rout. This is an exception to
+"reforming requires disengagement", which now governs only the walk back to
+the standard. `engagedSlotWeight` (CombatConfig, 0.3, was hardcoded 0.12)
+holds clashing lines together; measured interleave did not clearly improve
+(avg 0–4.5 m, max ~7 m), so the squish is not mainly a slot-weight effect.
+
+**Personal space, 2026-09-29.** Soldier body colliders are 0.5 m radius
+(`CombatConfig.soldierColliderRadius`, was 0.35), applied at spawn to every
+soldier — friend and enemy, every state — for a 1.0 m minimum gap. Visuals are
+not scaled. Physics already collided all soldiers, so this relaxes no rule
+(the "enemies are never pushed" rule only ever covered steering nudges).
+Seeded 2× lines run: enemy interleave dropped from avg 0.3–4.5 m (max ~7 m) to
+avg 0–1.0 m (max 2.4 m); idle reserve speed 0.000 m/s (no jitter); but a
+180 s frontal fight now costs ~12–13 % casualties instead of ~30 %, with no
+routs — fewer soldiers reach contact, so pace needs a `globalDamageScale`
+retune on device.
+
 **Observed, not tuned.** The first no-input battle chain-routed at 5–12.5 %
 losses (contact burst + zone weights + contagion stacking) and ended 36 s
 after first contact at 7.7 % loser casualties — far under the 15–30 % target.
@@ -203,11 +228,17 @@ implementation:
 - What counts as "intact" at the time limit — for example, whether a
   Disordered formation counts.
 - Whether both sides collapsing on the same check is a draw.
-- Moving the simulation (Formation pipeline, engagement scan, morale tick,
-  attacks, projectiles, AI — all `Update`/`Time.deltaTime` today) to
-  `FixedUpdate` or substepping it. Needed for speed-independent results and,
-  later, PvP determinism; only soldier movement is fixed-step now.
-
+- **Decided 2026-09-29: keep the simulation in `Update` for now.** Moving it
+  (Formation pipeline, engagement scan, morale tick, attacks, projectiles, AI
+  — all `Update` / `Time.deltaTime` today; only soldier movement is fixed-step)
+  to `FixedUpdate` or substepping is a large change to the most tuned code in
+  the game, and it buys nothing while play is single-player at 30–120 fps
+  (results only diverge at large frame steps, e.g. the 10× test). Revisit when
+  any of these happens: PvP or replays (both machines must compute identical
+  battles), a need to test above 2×, or device frame rates low enough to change
+  outcomes. Cheap interim option if lag ever matters: lower
+  `Time.maximumDeltaTime` so a lag spike slows the game instead of taking one
+  huge step.
 ---
 
 ## 2026-07-24 — Art pipeline hard reset: Tripo Studio Pro + Blender
