@@ -237,9 +237,53 @@ out.
 
 ### Presentation layer
 
-Gameplay-authoritative, visuals subordinate. **All character art is currently
-placeholder primitives** — `SoldierFactory` builds a capsule body plus a cube
-weapon directly, with no prefab, Animator, or rig involved.
+Gameplay-authoritative, visuals subordinate. **Soldiers are KayKit animated
+characters** (interim art, see `DECISIONS.md` 2026-10-08), with the old capsule
++ cube placeholders kept behind a switch (`KayKitVisualConfig.useKayKitVisual`
+in `Assets/AncientArmies/Visuals/KayKit/Resources/`, loaded by name so
+`Battle.unity` is untouched).
+
+KayKit visual pipeline:
+
+- Raw CC0 files live in `Assets/ThirdParty/KayKit` (Knight, Mannequin_Medium
+  for the future custom body, four Rig_Medium animation FBXs plus the
+  Simulation one for Cheering, props, licenses). One shared 23-bone skeleton.
+- `Assets/Editor/KayKitBuild.cs` (`task=KayKitBuild.Build` through the file
+  trigger) regenerates everything under `Assets/AncientArmies/Visuals/KayKit`:
+  importer settings (Generic, avatar copied from the Knight, root motion
+  baked out, only the used clips kept, loop flags set), the **merged skinned
+  mesh** (the Knight's skinned parts, minus Cape and HelmetVisor, merged into
+  ONE mesh on the shared bones; for melee the sword and shield are rigidly
+  skinned into it as well, so a soldier is one draw call; the archer mesh is
+  body only and carries the bow as a separate prop), Unity mesh LODs
+  (`MeshLodUtility`), two **team textures** (one atlas per team: the dark
+  cloth/armour tiles and the shield tiles take the team hue; skin, leather,
+  gold and bright steel stay), three materials (blue, red, bow; URP Lit, no
+  specular or reflections, a faint emission from the same texture because the
+  scene's ambient is very dark), two animator controllers (one state per
+  clip, no transitions: the visual component cross-fades by state hash), and
+  the two prefabs `VIS_KayKit_Melee` / `VIS_KayKit_Archer`.
+- No `MaterialPropertyBlock` anywhere (it would break the SRP Batcher): team
+  colour is purely the two team materials; the old HP tint is therefore off
+  (`suppressTint`).
+- `SoldierFactory.TryCreateKayKit` instantiates the prefab as the identity
+  child `VisualRoot` (the child the impostor swap already looks for) and adds
+  `KayKitSoldierVisual` to the soldier root.
+- `KayKitSoldierVisual` (presentation only, on the root so it keeps running
+  while the model is asleep) maps simulation state to clips — idle, blocking
+  when engaged, walk/run scaled by speed, stab/chop/diagonal by
+  `MeleeAttackVariant`, block-hit vs hit by `LastHitZone`, death then pose,
+  bow aim/draw/release, cheer for the winning team — with a random start
+  offset per soldier. The only thing it writes is the bow release, via a
+  timer, because archers run with `deferRangedRelease`; melee runs with
+  `deferMeleeImpact` (the existing variant and impact-delay logic).
+- `KayKitCrowdLod` (zoom tiers from the banner manager's 1080p soldier pixel
+  height, hysteresis): >=110 px mesh LOD0, 70-110 LOD1, 45-70 LOD2 and
+  animator every 2nd frame, 30-45 LOD3, animator every 3rd frame and every
+  2nd man not drawn, <=30 px the impostor takes over (raised from 12/15).
+  Men outside the view (plus margin) stop animating and drawing. Animators
+  are `CullCompletely`; renderers do not update when offscreen; skin quality
+  is 2 bones.
 
 - `FormationBannerManager` / `FormationBannerController` — banners tracking the
   dominant group, with visibility modes; the wavering halo lives here (a 4×
@@ -257,11 +301,12 @@ weapon directly, with no prefab, Animator, or rig involved.
   installs itself on scene load and nothing references it, so deleting the
   file removes it. Toggled by `MoraleConfig.showDebugMorale`.
 
-`Soldier` retains the hooks animated visuals used — `deferMeleeImpact`,
-`deferRangedRelease`, `suppressTint`, `suppressFallRotation`. Nothing sets them
-now, so they stay `false` and damage/release resolve immediately. They are the
-seam for reattaching animated visuals later; `Soldier.CacheVisualParts` already
-handles both a single `VisualRoot` child and the Body/Weapon primitive pair.
+`Soldier` exposes the seams animated visuals use — `deferMeleeImpact`,
+`deferRangedRelease`, `suppressTint`, `suppressFallRotation`, `OnAttack` /
+`OnHurt` / `OnDeath`, `LastHitZone` / `LastHitRanged`. `KayKitSoldierVisual`
+sets them when the KayKit visual is on; with the switch off they stay `false`
+and damage/release resolve immediately. `Soldier.CacheVisualParts` handles
+both a single `VisualRoot` child and the Body/Weapon primitive pair.
 
 ## Data structures
 

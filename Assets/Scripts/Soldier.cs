@@ -44,6 +44,8 @@ public class Soldier : MonoBehaviour
     // 0 thrust / 1 over-shield / 2 diagonal slash — chosen by gameplay so the
     // damage timing and the displayed clip can never disagree.
     public int MeleeAttackVariant { get; private set; }
+    public DamageZone LastHitZone { get; private set; }   // zone / kind of the last blow taken (visuals pick a block vs a stagger)
+    public bool LastHitRanged { get; private set; }
 
     [Tooltip("Relative weights: thrust / over-shield / diagonal slash")]
     [SerializeField] private Vector3 meleeVariantWeights = new Vector3(0.5f, 0.25f, 0.25f);
@@ -639,6 +641,7 @@ public class Soldier : MonoBehaviour
     public void TakeDamage(float dmg, DamageZone zone = DamageZone.Front, bool ranged = false)
     {
         if (!Alive) return;
+        LastHitZone = zone; LastHitRanged = ranged;
         Health -= dmg;
         if (Health <= 0f)
         {

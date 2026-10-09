@@ -77,6 +77,23 @@ public static class ScenarioFileTrigger
         string text = File.ReadAllText(Req);
         File.Delete(Req);
         if (text.Trim() == "refresh") { AssetDatabase.Refresh(); return; }
+        if (text.TrimStart().StartsWith("task="))
+        {
+            // editor tasks: "task=Class.Method" runs a public static string Method() and writes
+            // its return value (or the exception) to Temp/editor_task_result.txt
+            string name = text.Trim().Substring(5).Trim();
+            string result;
+            try
+            {
+                int dot = name.LastIndexOf('.');
+                var type = AppDomain.CurrentDomain.GetAssemblies().SelectMany(a => { try { return a.GetTypes(); } catch { return new Type[0]; } })
+                                    .FirstOrDefault(t => t.Name == name.Substring(0, dot));
+                result = (string)type.GetMethod(name.Substring(dot + 1), System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static).Invoke(null, null);
+            }
+            catch (Exception e) { result = "EXCEPTION " + (e.InnerException ?? e); }
+            File.WriteAllText(Path.Combine(TempDir, "editor_task_result.txt"), result);
+            return;
+        }
         if (File.Exists(Done)) File.Delete(Done);
         SessionState.SetString(Key, text);
         started = false;

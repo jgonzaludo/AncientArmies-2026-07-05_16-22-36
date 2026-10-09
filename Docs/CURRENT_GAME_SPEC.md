@@ -264,12 +264,34 @@ routines for the front line, the archers, and the reserves.
 
 ## Presentation
 
-**The build currently runs on placeholder primitives.** All character art,
-models, and animations were stripped pending Tripo/Blender production:
+**Soldiers are KayKit characters** (free CC0 interim art; the final art
+pipeline is still undecided). The old capsule placeholders remain behind
+`KayKitVisualConfig.useKayKitVisual`.
 
-- Soldiers are **capsules** (melee wider than archers) with a cube weapon that
-  doubles as the facing indicator, tinted by team and unit type. No Animator,
-  no rig, no equipment meshes.
+- Chunky armed soldiers: melee with a sword and a square shield, archers with
+  a bow. Blue and red are told apart by team-coloured cloth, armour and shield
+  (two team textures; the helmet stays slate). Officers use the same body for
+  now. Cape and visor are not used.
+- Animation follows state:
+
+  | State | Clip |
+  |---|---|
+  | Idle / standing | Idle_A |
+  | Formed, in contact with the enemy | Melee_Blocking |
+  | Marching | Walking_A (playback scaled by speed) |
+  | Charging, routing | Running_A |
+  | Melee attack | Melee_1H_Attack_Stab / Chop / Slice_Diagonal (the soldier's existing variant roll) |
+  | Hit, formed, front blow | Melee_Block_Hit |
+  | Hit otherwise | Hit_A |
+  | Death | Death_A, then Death_A_Pose (the corpse fade is unchanged) |
+  | Archer idle / aim | Ranged_Bow_Aiming_Idle |
+  | Archer shot | Ranged_Bow_Draw then Ranged_Bow_Release (the arrow leaves at the release) |
+  | Battle won | Cheering, winning side |
+
+  Every soldier starts at a random offset so a century never moves in lockstep.
+- **Zoom detail**: mesh LOD and animation rate drop as the camera zooms out, a
+  share of men stop being drawn at the far end of the animated range, and the
+  merged-billboard impostor takes over below ~30 soldier pixels.
 - The ground is a **flat sand colour** — no texture, no tiling, so nothing
   repeats at max zoom-out.
 - Arrows are small dark spheres.

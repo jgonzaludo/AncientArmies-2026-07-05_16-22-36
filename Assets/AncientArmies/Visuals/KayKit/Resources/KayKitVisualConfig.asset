@@ -1,0 +1,24 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 294d31c0517ca446082ed6fddadff513, type: 3}
+  m_Name: KayKitVisualConfig
+  m_EditorClassIdentifier: Assembly-CSharp::KayKitVisualConfig
+  useKayKitVisual: 1
+  blueMaterial: {fileID: 2100000, guid: 700cae86d2a2d4911a7809c9a2718f17, type: 2}
+  redMaterial: {fileID: 2100000, guid: a2397220e42754b2bb924b29c407a7fe, type: 2}
+  bowMaterial: {fileID: 2100000, guid: 9df4776a00bb54e3f8d149f48faa31e4, type: 2}
+  crossFade: 0.15
+  walkReferenceSpeed: 1.6
+  runReferenceSpeed: 4.2
+  bowDrawSeconds: 0.55
+  staggerDistance: 70
+  staggerFrames: 3

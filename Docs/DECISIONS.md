@@ -5,6 +5,31 @@ stays in force until a later entry supersedes it.
 
 ---
 
+## 2026-10-08 — Interim soldier art: KayKit characters (CC0)
+
+**Decision (owner, via the KayKit device-test brief):** replace the capsule
+placeholders with the free CC0 KayKit Adventurers Knight and the Rig_Medium
+animation packs, for a device test of the rig, animations and performance
+before any custom art. This is an interim test, not a change to the long-term
+art pipeline: Tripo + Blender remains the recorded production route and the
+asset-pipeline gate is still undecided (KayKit's shared 23-bone skeleton is
+also the candidate base for a future custom body; Mannequin_Medium is kept in
+`Assets/ThirdParty/KayKit` for that). Raw files sit in `Assets/ThirdParty/KayKit`
+with both licenses. Git LFS is still not configured (about 11 MB added).
+
+How it is built and wired is documented in `TECHNICAL_ARCHITECTURE.md`
+(Presentation layer) and the clip table in `CURRENT_GAME_SPEC.md`. Switch back to
+the capsules with `KayKitVisualConfig.useKayKitVisual = false`.
+
+Measured in the Unity editor on a Mac (NOT a phone), seed 12345, battle at 2x:
+mid zoom 358k triangles / 547 batches / ~49 fps (capsules: 351k / 537 / ~47 fps,
+so the frame is dominated by the simulation, not the models); near zoom 664k /
+267 / ~72 fps; far zoom (impostors) 20k / 109 / ~94 fps. Before merging the
+sword and shield into the body mesh mid zoom was 1.23M triangles / 1763 batches
+/ ~35 fps. Phone numbers are still to be measured.
+
+---
+
 ## 2026-09-21 — Chunks B, C, D: battles end, panic inputs, officer grades
 
 Built the same day as the morale approval below; this entry records what

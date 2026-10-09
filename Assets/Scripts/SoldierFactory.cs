@@ -43,6 +43,11 @@ public static class SoldierFactory
 
         // Capsule body + cube weapon: the weapon doubles as the facing
         // indicator, which is the only readable heading cue a pill has.
+        Renderer bodyR; Transform weaponT = null;
+        GameObject kayKit = TryCreateKayKit(root, f, ranged);
+        if (kayKit != null) bodyR = kayKit.GetComponentInChildren<SkinnedMeshRenderer>(true);
+        else
+        {
         var body = GameObject.CreatePrimitive(PrimitiveType.Capsule);
         Object.Destroy(body.GetComponent<Collider>());
         body.name = "Body";
@@ -50,7 +55,7 @@ public static class SoldierFactory
         body.transform.localPosition = new Vector3(0f, 1f, 0f);
         float girth = ranged ? 0.55f : 0.7f;
         body.transform.localScale = new Vector3(girth, 0.85f, girth);
-        Renderer bodyR = body.GetComponent<Renderer>();
+        bodyR = body.GetComponent<Renderer>();
         bodyR.sharedMaterial = mat;
 
         var weapon = GameObject.CreatePrimitive(PrimitiveType.Cube);
@@ -68,7 +73,8 @@ public static class SoldierFactory
             weapon.transform.localScale = new Vector3(0.14f, 0.14f, 0.7f);
         }
         weapon.GetComponent<Renderer>().sharedMaterial = weaponMat;
-        Transform weaponT = weapon.transform;
+        weaponT = weapon.transform;
+        }
 
         // clean white selection circle, flat on the ground beneath the soldier
         var disc = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
@@ -85,7 +91,41 @@ public static class SoldierFactory
         var s = root.AddComponent<Soldier>();
         float skill = 0.85f + ((slot * 37) % 13) / 13f * 0.3f;   // deterministic, visible variety
         s.Init(f, slot, rb, bodyR, weaponT, disc, color, skill);
+        if (kayKit != null) root.AddComponent<KayKitSoldierVisual>().Init(s, kayKitCfg, kayKit, ranged);
         return s;
+    }
+
+    // KayKit animated visual (switch: KayKitVisualConfig.useKayKitVisual). The prefab is the
+    // identity child "VisualRoot" the soldier's impostor swap already looks for.
+    public static bool ForceCapsules;   // test harness: compare against the old placeholders
+    private static KayKitVisualConfig kayKitCfg;
+    private static GameObject kayKitMelee, kayKitArcher;
+    private static bool kayKitLoaded;
+    private static GameObject TryCreateKayKit(GameObject root, Formation f, bool ranged)
+    {
+        if (!kayKitLoaded)
+        {
+            kayKitLoaded = true;
+            kayKitCfg = Resources.Load<KayKitVisualConfig>("KayKitVisualConfig");
+            kayKitMelee = Resources.Load<GameObject>("VIS_KayKit_Melee");
+            kayKitArcher = Resources.Load<GameObject>("VIS_KayKit_Archer");
+        }
+        if (kayKitCfg == null || !kayKitCfg.useKayKitVisual || ForceCapsules) return null;
+        var prefab = ranged ? kayKitArcher : kayKitMelee;
+        if (prefab == null) return null;
+        var go = Object.Instantiate(prefab, root.transform);
+        go.name = "VisualRoot";
+        go.transform.localPosition = Vector3.zero;
+        go.transform.localRotation = Quaternion.identity;
+        Material team = f.team == Team.Blue ? kayKitCfg.blueMaterial : kayKitCfg.redMaterial;
+        foreach (var r in go.GetComponentsInChildren<Renderer>(true))
+        {
+            // the body mesh carries body + sword + shield in one team atlas; only the archer's bow keeps its own wood material
+            if (r is SkinnedMeshRenderer) r.sharedMaterial = team;
+            else if (r.gameObject.name.ToLowerInvariant().Contains("bow")) r.sharedMaterial = kayKitCfg.bowMaterial;
+            else r.sharedMaterial = team;
+        }
+        return go;
     }
 
     private static void EnsureShared()
