@@ -17,7 +17,7 @@ public static class RoutePlanner
 
     // Waypoints from `from` to `to`, excluding `from`, always ending at `to`.
     // `ignore` (an attack target) is never an obstacle. An obstacle containing
-    // the start or the goal is skipped — you cannot route around what you are
+    // the start or the goal is skipped, you cannot route around what you are
     // standing in, or are ordered onto.
     // Clearance tiers (friend margin, enemy margin), widest first. The planner takes
     // the widest tier that still yields a route that is not absurdly long, so

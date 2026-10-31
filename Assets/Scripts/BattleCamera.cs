@@ -27,7 +27,7 @@ public class BattleCamera : MonoBehaviour
 
     // camera-position clamps derived from the camera's actual pitch, height,
     // and current zoom, so the FOCUS point is what gets clamped and the whole
-    // visible ground rectangle stays on the field — pan bounds stay correct
+    // visible ground rectangle stays on the field, pan bounds stay correct
     // if the fixed angle is ever tuned again
     private float minX, maxX, minZ, maxZ;
 
@@ -51,7 +51,7 @@ public class BattleCamera : MonoBehaviour
         RecomputeBounds();
     }
 
-    // Phase 6: battlefield scale is parameterized on BattleSetup — the setup
+    // Phase 6: battlefield scale is parameterized on BattleSetup, the setup
     // pushes pan bounds and zoom limits here instead of this rig guessing.
     public void Configure(float halfX, float halfZ, float minZoom, float maxZoom)
     {
@@ -67,7 +67,7 @@ public class BattleCamera : MonoBehaviour
 
     // at ortho size S the view covers a ground rectangle of half-width
     // S * aspect and half-depth S / sin(pitch); the configured zoomMax may
-    // exceed the largest S that still fits the field, so cap it — zoomMin
+    // exceed the largest S that still fits the field, so cap it, zoomMin
     // wins if even that is too big, keeping the camera usable
     private float EffectiveZoomMax()
     {

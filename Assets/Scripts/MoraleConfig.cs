@@ -4,12 +4,12 @@ using UnityEngine;
 // BattleSetup fields: the values live in MoraleConfig.asset, so Battle.unity
 // never holds its own stale copy that silently overrides a C# default. The
 // scene pins only the reference (BattleSetup.moraleConfig). The defaults below
-// are what a freshly created asset starts with — at runtime the asset wins.
+// are what a freshly created asset starts with, at runtime the asset wins.
 [CreateAssetMenu(fileName = "MoraleConfig", menuName = "Ancient Armies/Morale Config")]
 public class MoraleConfig : ScriptableObject
 {
     [Header("Tick")]
-    [Tooltip("Seconds between morale updates per formation — throttled, not per frame")]
+    [Tooltip("Seconds between morale updates per formation, throttled, not per frame")]
     public float tickInterval = 0.25f;
 
     [Header("State thresholds (morale 0-100)")]
@@ -29,14 +29,14 @@ public class MoraleConfig : ScriptableObject
     [Header("Shock debt (sudden pressure, subtracted from base morale)")]
     [Tooltip("Shock debt added per percent of starting strength killed within one tick")]
     public float shockMultiplier = 3f;
-    [Tooltip("Shock debt removed per second, at all times — in melee too")]
+    [Tooltip("Shock debt removed per second, at all times, in melee too")]
     public float shockDecayPerSecond = 5f;
     [Tooltip("Master multiplier on ALL shock (casualties incl. zone weights, arrows, contagion). Officer death shock is NOT scaled")]
     public float panicScale = 0.65f;
     [Tooltip("Ranged kills add only arrowShockWeight of a casualty's panic (missiles erode, they rarely break a line)")]
     public bool enableArrowShockWeight = true;
     public float arrowShockWeight = 0.5f;
-    [Tooltip("Steady FRONT-zone casualties add only this share of a casualty's panic — a frontal grind should not rout by itself")]
+    [Tooltip("Steady FRONT-zone casualties add only this share of a casualty's panic, a frontal grind should not rout by itself")]
     public float frontShockWeight = 0.25f;
     [Tooltip("Burst rule: casualties beyond burstThreshold (fraction of starting strength) inside burstWindow seconds use burstShockWeight, whatever their zone (the higher of zone and burst weight applies)")]
     public float burstWindow = 3f;
@@ -45,7 +45,7 @@ public class MoraleConfig : ScriptableObject
     [Tooltip("Surrounded: every tick adds surroundShockPerSecond x (engaged zones - 1). Zones = front, left flank, right flank, rear. Unscaled, and it bypasses the per-second cap")]
     public bool enableSurroundShock = true;
     public float surroundShockPerSecond = 8f;
-    [Tooltip("A zone counts toward surround only when its soldier contacts are at least this fraction of the formation's living soldiers — a neighbour brushing the edge of the line is not a second side")]
+    [Tooltip("A zone counts toward surround only when its soldier contacts are at least this fraction of the formation's living soldiers, a neighbour brushing the edge of the line is not a second side")]
     public float surroundMinEngagedFraction = 0.10f;
     [Tooltip("Rate limit on panic intake: shock above maxShockPerSecond queues and lands over the following ticks (never discarded). Officer deaths bypass it; contagion does not")]
     public bool enableShockCap = true;
@@ -62,7 +62,7 @@ public class MoraleConfig : ScriptableObject
     public float reformStartEngagedFraction = 0.15f;
     [Tooltip("How long a century stays loose (BrokenRanks) before it regroups: a charge's pursuit lasts this long. Then, if contact has dropped, it walks back to the standard; if it is still locked in melee it re-forms in place and fights on as a line")]
     public float pursuitMaxSeconds = 9f;
-    [Tooltip("Seconds after an aborted reform before another may start — stops abort/restart flicker")]
+    [Tooltip("Seconds after an aborted reform before another may start, stops abort/restart flicker")]
     public float reformRetryCooldown = 2f;
 
     [Header("Routing")]
@@ -70,13 +70,13 @@ public class MoraleConfig : ScriptableObject
     public float fleeSpeedMultiplier = 1.2f;
     [Tooltip("How strongly fleeing bends toward the army's own back edge (0 = straight away from the nearest enemy formation)")]
     public float fleeBackBias = 0.6f;
-    [Tooltip("false: Routing is permanent — routers run off the map and are removed. true: routers stop at the field edge and may rally above rallyThreshold")]
+    [Tooltip("false: Routing is permanent, routers run off the map and are removed. true: routers stop at the field edge and may rally above rallyThreshold")]
     public bool routedCanRally = false;
 
     [Header("Battle end")]
     [Tooltip("A team loses when this fraction of its formations are Routing or destroyed (counted from its actual formations)")]
     public float collapseFraction = 0.5f;
-    [Tooltip("Seconds of Active battle before the timer decides it — a stall backstop, not a pacing tool")]
+    [Tooltip("Seconds of Active battle before the timer decides it, a stall backstop, not a pacing tool")]
     public float battleTimeLimit = 600f;
     [Tooltip("The HUD countdown turns bright and large inside this many final seconds")]
     public float timerWarningSeconds = 60f;

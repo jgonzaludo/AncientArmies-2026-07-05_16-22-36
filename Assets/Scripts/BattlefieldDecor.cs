@@ -2,7 +2,7 @@ using UnityEngine;
 
 // Battlefield ground dressing: a single flat sand colour on the
 // runtime-created ground plane. No texture, no tiling, no repeating-pattern
-// artefacts at max zoom-out — the field reads as clean neutral ground so
+// artefacts at max zoom-out, the field reads as clean neutral ground so
 // formations and orders are the only things competing for attention.
 public static class BattlefieldDecor
 {

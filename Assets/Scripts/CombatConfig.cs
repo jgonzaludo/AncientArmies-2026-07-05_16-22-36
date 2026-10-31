@@ -7,11 +7,11 @@ using UnityEngine;
 public class CombatConfig : ScriptableObject
 {
     [Header("Battle pacing")]
-    [Tooltip("Global multiplier on ALL damage dealt — lower = longer battles; cadence and animations are untouched")]
+    [Tooltip("Global multiplier on ALL damage dealt, lower = longer battles; cadence and animations are untouched")]
     public float globalDamageScale = 0.15f;
 
     [Header("Personal space (global)")]
-    [Tooltip("Soldier body collider radius (m), applied at spawn to EVERY soldier — friend and enemy, in every state. 2x this is the minimum gap between bodies. Melee slots are 1.15 m apart, so stay under ~0.55. Was 0.35. Visuals are not scaled")]
+    [Tooltip("Soldier body collider radius (m), applied at spawn to EVERY soldier, friend and enemy, in every state. 2x this is the minimum gap between bodies. Melee slots are 1.15 m apart, so stay under ~0.55. Was 0.35. Visuals are not scaled")]
     public float soldierColliderRadius = 0.5f;
 
     [Header("Line cohesion")]
@@ -19,11 +19,11 @@ public class CombatConfig : ScriptableObject
     public float engagedSlotWeight = 0.3f;
 
     [Header("Directional combat (front / flank / rear)")]
-    [Tooltip("Damage multiplier when attacking a formation from its front arc. Below 1: head-on fights bleed slowly — few men died at the front")]
+    [Tooltip("Damage multiplier when attacking a formation from its front arc. Below 1: head-on fights bleed slowly, few men died at the front")]
     public float frontDamageMultiplier = 0.5f;
     [Tooltip("Damage multiplier when attacking a formation from either side")]
     public float flankDamageMultiplier = 1.5f;
-    [Tooltip("Damage multiplier when attacking a formation from behind — also what makes the pursuit of routers deadly")]
+    [Tooltip("Damage multiplier when attacking a formation from behind, also what makes the pursuit of routers deadly")]
     public float rearDamageMultiplier = 2f;
     [Tooltip("Attacks within this many degrees of the defender's forward count as frontal")]
     public float frontArcHalfAngleDeg = 60f;
@@ -64,7 +64,7 @@ public class CombatConfig : ScriptableObject
 
     [Header("Edge contact swing-in")]
     [Tooltip("When an edge of the formation touches the ordered target (or the formation has no other target), the rest of the formation wheels in around the contact to bring its front to bear")]
-    public bool swingIn = false;   // OFF: in the edge test it pushed the unit into surround shock and a rout at <1% casualties — needs another pass
+    public bool swingIn = false;   // OFF: in the edge test it pushed the unit into surround shock and a rout at <1% casualties, needs another pass
     [Tooltip("Seconds of contact before the swing starts, so a brush does not twitch the line")]
     public float swingInDelay = 0.5f;
     public float swingInDegPerSec = 35f;

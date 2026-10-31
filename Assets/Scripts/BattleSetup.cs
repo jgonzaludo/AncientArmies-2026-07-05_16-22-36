@@ -32,9 +32,9 @@ public class BattleSetup : MonoBehaviour
         moveSpeed = 3.2f,
         attackDamage = 12f,
         // v1.9 pacing: kills stay lethal (3-4 hits) but exchanges happen every
-        // ~4 s — a shield line measuring strikes, not a blender. This is what
+        // ~4 s, a shield line measuring strikes, not a blender. This is what
         // stretches a century-vs-century grind to ~1.5-2 minutes.
-        // NOTE: scene-pinned in Battle.unity — change it there too.
+        // NOTE: scene-pinned in Battle.unity, change it there too.
         attackCooldown = 4f,
         strikeRange = 1.7f
     };
@@ -45,10 +45,10 @@ public class BattleSetup : MonoBehaviour
         maxHealth = 22f,
         moveSpeed = 3f,
         // v1.9 pacing: with spread targeting eliminating overkill waste,
-        // cadence governs output — damage back to 10 (4 front arrows per
+        // cadence governs output, damage back to 10 (4 front arrows per
         // kill), cooldown under the 8 s volley interval so every archer is
         // ready each volley (jitter 0.9-1.15 keeps 5.85-7.5 < 8).
-        // NOTE: Battle.unity pins both — change them there too.
+        // NOTE: Battle.unity pins both, change them there too.
         attackDamage = 10f,
         attackCooldown = 6.5f,
         strikeRange = 1.6f,
@@ -58,7 +58,7 @@ public class BattleSetup : MonoBehaviour
         projectileSpeed = 20f         // keeps a 48 m extreme shot readable (~2.4 s flight)
     };
 
-    // V1 overhaul army scale. NOTE: these are NEW field names on purpose —
+    // V1 overhaul army scale. NOTE: these are NEW field names on purpose,
     // Battle.unity serializes the old layout fields (meleeCount=50 etc.) and
     // scene values override C# defaults; new names fall back to the defaults
     // below without editing the scene.
@@ -68,17 +68,17 @@ public class BattleSetup : MonoBehaviour
     public int archerCenturiesPerSide = 2;
     [Tooltip("Melee century frontage (10 wide x 8 deep at 80)")]
     public int centuryColumns = 10;
-    [Tooltip("Archer century frontage — exposed separately so archer lines can go wider/shallower later")]
+    [Tooltip("Archer century frontage, exposed separately so archer lines can go wider/shallower later")]
     public int archerColumns = 10;
-    [Tooltip("Distance between melee soldiers — near shoulder-to-shoulder for a dense, continuous front")]
+    [Tooltip("Distance between melee soldiers, near shoulder-to-shoulder for a dense, continuous front")]
     public float meleeSpacing = 1.15f;
-    [Tooltip("Distance between archers — visibly looser than melee")]
+    [Tooltip("Distance between archers, visibly looser than melee")]
     public float archerSpacing = 1.75f;
     [Tooltip("Guaranteed edge-to-edge gap between neighboring formations, in multiples of the larger of the two intra-formation spacings")]
     public float formationGapFactor = 1.1f;
     public float lineSpacingX = 16f;
     // Line depths (v1.8.1): a melee century is ~9 m deep (8 rows x 1.15) and
-    // an archer century ~13 m (8 rows x 1.75), so the lines need real gaps —
+    // an archer century ~13 m (8 rows x 1.75), so the lines need real gaps,
     // archers clear of the front line's rear rank, reserves clear of the
     // archers' rear rank.
     // Depth gaps must survive the 40-degree camera: a ~1.9 m soldier model
@@ -96,7 +96,7 @@ public class BattleSetup : MonoBehaviour
     [Header("V1 battlefield scale (Phase 6)")]
     public float fieldHalfX = 205f;
     // 170 (was 140): armySeparation 240 + the deeper line offsets put the
-    // reserve rear rank at z=-164.6 — the old 140 left it 16.6 m OFF the
+    // reserve rear rank at z=-164.6, the old 140 left it 16.6 m OFF the
     // ground plane, jamming the rear lines against the map edge.
     public float fieldHalfZ = 170f;
     [Tooltip("Starting anchor-to-anchor separation of the two front lines")]
@@ -116,11 +116,11 @@ public class BattleSetup : MonoBehaviour
     public float separationFractionOrdered = 0.85f;
     [Tooltip("Minimum friendly separation while packed into melee/broken, as a fraction of formation spacing")]
     public float separationFractionPacked = 0.72f;
-    [Tooltip("Cap on the local-avoidance push (m/s) — biases movement, never flings")]
+    [Tooltip("Cap on the local-avoidance push (m/s), biases movement, never flings")]
     public float separationMaxPush = 1.2f;
 
     // Combat numbers (damage scale, directional multipliers, arcs) live in the
-    // CombatConfig asset, not here — nothing for Battle.unity to pin.
+    // CombatConfig asset, not here, nothing for Battle.unity to pin.
     [Header("Combat")]
     [Tooltip("Assigned in Battle.unity: Assets/AncientArmies/Settings/CombatConfig.asset")]
     public CombatConfig combatConfig;
@@ -146,18 +146,18 @@ public class BattleSetup : MonoBehaviour
         Application.runInBackground = true;
         SimSeed.ApplyIfPending();   // reproducible battles: seed before anything random spawns
         if (moraleConfig == null)
-            Debug.LogError("[Morale] BattleSetup.moraleConfig is NOT ASSIGNED in Battle.unity — " +
+            Debug.LogError("[Morale] BattleSetup.moraleConfig is NOT ASSIGNED in Battle.unity, " +
                            "morale is DISABLED this battle (no fallback to defaults). Assign " +
                            "Assets/AncientArmies/Settings/MoraleConfig.asset on the BattleSetup object.", this);
         if (combatConfig == null)
         {
-            Debug.LogError("[Combat] BattleSetup.combatConfig is NOT ASSIGNED in Battle.unity — this battle runs on " +
+            Debug.LogError("[Combat] BattleSetup.combatConfig is NOT ASSIGNED in Battle.unity, this battle runs on " +
                            "the CombatConfig CLASS DEFAULTS, not your tuned asset. Assign " +
                            "Assets/AncientArmies/Settings/CombatConfig.asset on the BattleSetup object.", this);
             combatConfig = ScriptableObject.CreateInstance<CombatConfig>();
         }
         if (officerRanks == null)
-            Debug.LogError("[Morale] BattleSetup.officerRanks is NOT ASSIGNED in Battle.unity — " +
+            Debug.LogError("[Morale] BattleSetup.officerRanks is NOT ASSIGNED in Battle.unity, " +
                            "officer grades, the reform anchor and officer death shock are DISABLED this battle. " +
                            "Assign Assets/AncientArmies/Settings/OfficerRanks.asset on the BattleSetup object.", this);
         EnsureEnvironment();
@@ -176,7 +176,7 @@ public class BattleSetup : MonoBehaviour
     }
 
     // Spatial partition for all soldier neighbor queries (Phase 6F). Rebuilt
-    // every physics tick — cheap index writes — so separation, targeting, and
+    // every physics tick, cheap index writes, so separation, targeting, and
     // engagement scans stay O(local density) at 1,280 soldiers.
     private void FixedUpdate()
     {
@@ -186,7 +186,7 @@ public class BattleSetup : MonoBehaviour
 
     // Battles end by LINE COLLAPSE, not annihilation (DECISIONS 2026-09-21):
     // a team loses the moment collapseFraction of its formations are Routing
-    // or destroyed. Ending the battle right then is the latch — nothing that
+    // or destroyed. Ending the battle right then is the latch, nothing that
     // happens afterwards can reopen it. The time limit is a stall backstop.
     private void Update()
     {
@@ -200,16 +200,16 @@ public class BattleSetup : MonoBehaviour
         bool redDown = HasCollapsed(Team.Red);
         if (blueDown || redDown)
         {
-            EndBattle(blueDown && redDown ? "DRAW — BOTH LINES COLLAPSED"
-                    : blueDown ? "RED WINS — BLUE LINE COLLAPSED"
-                    : "BLUE WINS — RED LINE COLLAPSED");
+            EndBattle(blueDown && redDown ? "DRAW, BOTH LINES COLLAPSED"
+                    : blueDown ? "RED WINS, BLUE LINE COLLAPSED"
+                    : "BLUE WINS, RED LINE COLLAPSED");
             return;
         }
         if (moraleConfig != null && BattleTime >= moraleConfig.battleTimeLimit)
         {
             int b = CountIntact(Team.Blue), r = CountIntact(Team.Red);
-            EndBattle(b == r ? "DRAW — TIME"
-                    : b > r ? "BLUE WINS — TIME" : "RED WINS — TIME");
+            EndBattle(b == r ? "DRAW, TIME"
+                    : b > r ? "BLUE WINS, TIME" : "RED WINS, TIME");
         }
     }
 
@@ -274,7 +274,7 @@ public class BattleSetup : MonoBehaviour
 
     // V1 fixed army structure per side: a four-century primary melee line,
     // two melee reserve centuries behind it, and two archer centuries as a
-    // supporting missile line between the reserves — the default Roman-style
+    // supporting missile line between the reserves, the default Roman-style
     // deployment the commander AI and the player both start from. Composition
     // is fixed (no random rerolls) so both armies are symmetric.
     private void SpawnSide(Team team, float z, float yaw, bool auto)
@@ -438,7 +438,7 @@ public class BattleSetup : MonoBehaviour
             ground.name = "Ground";
             ground.transform.position = Vector3.zero;
             // Phase 6: field is parameterized (default 410 x 280, ~11x the old
-            // area) — a Unity plane is 10x10 at scale 1
+            // area), a Unity plane is 10x10 at scale 1
             ground.transform.localScale = new Vector3(fieldHalfX * 0.2f, 1f, fieldHalfZ * 0.2f);
             BattlefieldDecor.Decorate(ground);      // light tiled grass albedo
         }

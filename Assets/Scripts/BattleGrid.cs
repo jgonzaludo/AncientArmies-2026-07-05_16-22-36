@@ -5,14 +5,14 @@ using UnityEngine;
 //
 // Why: the per-team soldier registries in BattleSetup are scanned brute-force
 // by every soldier (nearest-enemy acquisition, formation engagement scans,
-// friendly separation). At 1,280 soldiers that is O(n^2) — ~1.6M pair tests
-// per pass — which does not fit a mobile frame budget. A grid makes each
+// friendly separation). At 1,280 soldiers that is O(n^2), ~1.6M pair tests
+// per pass, which does not fit a mobile frame budget. A grid makes each
 // query O(cells touched * occupancy): a soldier looking 6 m around itself
 // visits ~9-25 cells holding a handful of soldiers each, so the whole army's
 // queries stay roughly linear in soldier count.
 //
 // Cost model:
-//   Rebuild  — O(n): one cell hash + linked-list push per living soldier.
+//   Rebuild, O(n): one cell hash + linked-list push per living soldier.
 //              Allocation-free after warmup (grow-only arrays, reused
 //              dictionaries); expected to run every FixedUpdate, or on a
 //              short interval chosen by BattleSetup. Query results are
@@ -20,14 +20,14 @@ using UnityEngine;
 //              interval means at most ~0.3 m of positional staleness, so
 //              callers should not rely on sub-cell precision between
 //              rebuilds (the Alive check IS live, so the dead never leak).
-//   Queries  — expand outward ring by ring from the query cell up to
+//   Queries, expand outward ring by ring from the query cell up to
 //              ceil(radius / CellSize) rings. NearestEnemy early-exits as
 //              soon as the best hit is closer than anything the next ring
 //              could contain. All distances are horizontal (y ignored).
 //
 // Storage: per team, a Dictionary<long,int> maps cell key -> head index of
 // an intrusive singly-linked list threaded through parallel int[] / data
-// arrays (indices, not nodes), so a full rebuild is just Clear() + writes —
+// arrays (indices, not nodes), so a full rebuild is just Clear() + writes,
 // zero garbage regardless of soldier count. Main thread only.
 public static class BattleGrid
 {
@@ -173,7 +173,7 @@ public static class BattleGrid
     }
 
     // Same, for myTeam's own soldiers. NOTE: the querying soldier is included
-    // if it stands within radius of pos — callers filter self (as the old
+    // if it stands within radius of pos, callers filter self (as the old
     // registry loops did with `f == this`).
     public static int CollectFriends(Vector3 pos, Team myTeam, float radius, Soldier[] results)
     {

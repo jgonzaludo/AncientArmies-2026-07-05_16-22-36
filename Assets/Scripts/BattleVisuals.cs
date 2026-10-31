@@ -92,7 +92,7 @@ public static class BattleVisuals
 
     // Arrow color state (v1.8.2): white = settled current facing, yellow =
     // an edit in progress or a facing the formation is still turning toward.
-    // Shared materials — swapping costs nothing.
+    // Shared materials, swapping costs nothing.
     public static void SetArrowPreviewStyle(Transform arrow, bool preview)
     {
         EnsureMaterials();

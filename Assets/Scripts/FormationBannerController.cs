@@ -7,7 +7,7 @@ using UnityEngine;
 // AnchorForward facing, health, selection) and the shared
 // FormationBannerManager (detail level, visibility mode, info hold, overlap
 // lift) and never owns simulation logic. The whole hierarchy is created once
-// and blended between presentations — nothing is rebuilt on zoom changes, and
+// and blended between presentations, nothing is rebuilt on zoom changes, and
 // nothing here carries a collider, so troop tapping is untouched.
 public class FormationBannerController : MonoBehaviour
 {
@@ -32,7 +32,7 @@ public class FormationBannerController : MonoBehaviour
     [SerializeField] private float maxZoomCompensation = 1.35f;
     [SerializeField] private float selectedScaleMultiplier = 1.08f;
     [SerializeField] private int selectedSortingBoost = 100;
-    // v1.8.1 selection language: no outline — while anything is selected,
+    // v1.8.1 selection language: no outline, while anything is selected,
     // every OTHER banner dims to this alpha and the selected ones stay full.
     [Tooltip("Alpha applied to unselected banners while a selection exists")]
     [SerializeField] private float unselectedDimFactor = 0.4f;
@@ -52,7 +52,7 @@ public class FormationBannerController : MonoBehaviour
     private static readonly Color BrokenBadgeTint = new Color(0.75f, 0.7f, 0.7f);
 
     // Data-driven badge selection: future classes (cavalry, spears, siege...)
-    // extend this table — never parse display strings for faction/class.
+    // extend this table, never parse display strings for faction/class.
     private static readonly Dictionary<(Team, bool), string> BadgeSprites =
         new Dictionary<(Team, bool), string>
         {
@@ -149,7 +149,7 @@ public class FormationBannerController : MonoBehaviour
         // anchor: structured formations sit slightly to the rear of the block;
         // combat deformation follows the dominant cluster. While broken or
         // reforming the banner is a fixed rally flag at the point where ranks
-        // broke — it must not chase the scattering soldiers, or the player
+        // broke, it must not chase the scattering soldiers, or the player
         // loses the reference point the formation will reform around. A
         // PURSUING pack is the exception: the standard moved with the men, so
         // the banner rides the dominant cluster until Reform plants it.
@@ -214,7 +214,7 @@ public class FormationBannerController : MonoBehaviour
     // Child-element visibility per detail level: Close (selected marker) shows
     // badge + selection only; Compact and Expanded add health bar,
     // state icon, and the strength readout. Selection also forces the strength
-    // readout at Close — a selected formation always answers "how many left".
+    // readout at Close, a selected formation always answers "how many left".
     private void ApplyPresentation(FormationBannerDetailLevel level, bool selected, float alpha)
     {
         bool bars = level != FormationBannerDetailLevel.Close;
@@ -246,7 +246,7 @@ public class FormationBannerController : MonoBehaviour
     // rout threshold); color yellow → red is secondary, so it reads for
     // colorblind players and beside red banners. Both teams.
     // Two layers: a soft glow (3x badge) and a bright thin ring just outside
-    // the badge edge — the ring still reads at sizes where a glow washes out.
+    // the badge edge, the ring still reads at sizes where a glow washes out.
     // A warning is never dimmed: `alpha` (the banner's selection dimming) is
     // deliberately ignored; only the pulse sets opacity, and the scale pulses
     // in sync because motion is what catches the eye.
@@ -292,7 +292,7 @@ public class FormationBannerController : MonoBehaviour
         SetSpriteAlpha(ringSR, Color.white, 0f);
     }
 
-    // Interval refresh: only the state icon needs polling now — strength is
+    // Interval refresh: only the state icon needs polling now, strength is
     // communicated entirely by the health bar (v0.9.1: count text removed).
     private void RefreshValues(FormationBannerDetailLevel level)
     {

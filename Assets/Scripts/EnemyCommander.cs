@@ -5,29 +5,29 @@ using UnityEngine;
 // (6 melee + 2 archers). Two layers replace the flat V1.1 target-scorer:
 //
 //   Battle phases:  Advance -> Engagement.
-//     Advance    — the army marches as a structure to a phase line short of
+//     Advance, the army marches as a structure to a phase line short of
 //                  the middle: 4 melee centuries abreast (the main line),
 //                  2 melee held back as reserves, archers tucked behind.
-//     Engagement — per-century tasking on a decision cadence.
+//     Engagement, per-century tasking on a decision cadence.
 //
 //   Roles (classified once at battle start):
-//     MainLine — lane-based target scoring (the V1.1 score plus a
+//     MainLine, lane-based target scoring (the V1.1 score plus a
 //                lane-alignment bonus so centuries fight what is in front of
 //                them instead of crossing the field), with switchMargin
 //                hysteresis so orders stay sticky.
-//     Archer   — explicit range bands: withdraw behind the main line when
+//     Archer, explicit range bands: withdraw behind the main line when
 //                threatened, shoot what is in range, otherwise reposition to
 //                a supporting spot behind the line. Never ordered into melee
 //                and never given targets beyond bow range (so an attack
 //                order can never march them past the main line).
-//     Reserve  — hold position untasked until a commitment trigger (a
+//     Reserve, hold position untasked until a commitment trigger (a
 //                main-line century breaking or dropping under strength, a
 //                blue formation rounding a flank, or blue reaching the
 //                archers), then commit ONE reserve and lock it for a
 //                cooldown; a committed reserve behaves like main line.
 //
 // The commander only speaks the public Formation API the player has
-// (IssueMove / IssueAttack / IssueCharge) — the formation state
+// (IssueMove / IssueAttack / IssueCharge), the formation state
 // machine executes everything, no soldier or transform is ever touched, and no
 // hidden information or stat cheats are used.
 public class EnemyCommander : MonoBehaviour
@@ -69,7 +69,7 @@ public class EnemyCommander : MonoBehaviour
     public float attackingMeBonus = 15f;
     [Tooltip("Max bonus for finishing a nearly-dead target (scaled by missing health)")]
     public float finishBonus = 10f;
-    [Tooltip("Lane discipline: score lost per meter of lateral (x) offset between a century and a candidate target — keeps the line fighting straight ahead")]
+    [Tooltip("Lane discipline: score lost per meter of lateral (x) offset between a century and a candidate target, keeps the line fighting straight ahead")]
     public float laneWeight = 0.6f;
     [Tooltip("A new target must beat the current one's score by this margin before switching")]
     public float switchMargin = 25f;
@@ -170,7 +170,7 @@ public class EnemyCommander : MonoBehaviour
     // Advance as a structure: the main line moves abreast to evenly spread
     // lane positions on the phase line (preserving left-to-right order and
     // roughly its current frontage), reserves and archers to posts behind it.
-    // No attack targets are picked from spawn — targeting starts at contact.
+    // No attack targets are picked from spawn, targeting starts at contact.
     private void IssueAdvanceOrders()
     {
         float lineZ = PhaseLineZ();
@@ -276,7 +276,7 @@ public class EnemyCommander : MonoBehaviour
         RunFlankers();
 
         // Broken red centuries pull themselves together whenever it is safe,
-        // regardless of battle phase — reforming is defensive housekeeping.
+        // regardless of battle phase, reforming is defensive housekeeping.
 
         if (phase == CommanderPhase.Advance)
         {
@@ -377,14 +377,14 @@ public class EnemyCommander : MonoBehaviour
             else if (best != current && bestScore > Score(f, current) + switchMargin)
             {
                 // only a clearly better plan (e.g. an archer emergency)
-                // interrupts a valid existing order — no thrashing
+                // interrupts a valid existing order, no thrashing
                 IssueAttackOrCharge(f, best);
             }
         }
     }
 
     // Discipline is a resource: a century charges only a target that is
-    // already beaten — badly under strength or broken — and inside charge
+    // already beaten, badly under strength or broken, and inside charge
     // reach. Everything else gets the controlled attack.
     private void IssueAttackOrCharge(Formation f, Formation t)
     {
@@ -456,14 +456,14 @@ public class EnemyCommander : MonoBehaviour
     // ---------------- archers ----------------
 
     // Explicit range bands, checked in priority order:
-    //   1. danger  — a blue formation inside dangerRadius: withdraw to a spot
+    //   1. danger, a blue formation inside dangerRadius: withdraw to a spot
     //                behind the main line (own x, average line z + backset).
     //                Archers never receive melee attack orders.
-    //   2. shoot   — a blue target inside rangedRange: IssueAttack; the
+    //   2. shoot, a blue target inside rangedRange: IssueAttack; the
     //                formation's own movement already holds preferred range.
     //                Because the target is already in bow range, the order
     //                can never march the century past the main line.
-    //   3. support — nothing shootable: walk to the supporting post behind
+    //   3. support, nothing shootable: walk to the supporting post behind
     //                the line rather than chasing targets across the field.
     private void RunArchers()
     {
@@ -533,7 +533,7 @@ public class EnemyCommander : MonoBehaviour
         Vector3 crisisPoint = default;
         bool hasCrisis = false;
 
-        // Trigger 1: a main-line century breaking or under strength — commit
+        // Trigger 1: a main-line century breaking or under strength, commit
         // at its attacker if it has one, otherwise just move to shore it up.
         foreach (var f in mainLine)
         {
@@ -625,6 +625,6 @@ public class EnemyCommander : MonoBehaviour
         return best;
     }
 
-    // Reform is automatic in Formation (CanStartReform) for both teams —
+    // Reform is automatic in Formation (CanStartReform) for both teams,
     // the AI issues no reform orders (Chunk B).
 }

@@ -4,13 +4,13 @@ Pulled 2026-10-08 from the values the game actually runs (the **scene-pinned**
 `Battle.unity` unit stats, `CombatConfig.asset`, `OfficerRanks.asset`, and the
 constants in `Soldier.cs`). The C# defaults in `BattleSetup` differ from the
 scene for several fields (e.g. Swordsmen `moveSpeed` 3.2 in code, **2.7** in the
-scene) — the scene wins.
+scene), the scene wins.
 
 ## Inputs
 
 | Unit | HP | Move speed | Damage | Cooldown | Reach | Projectile |
 |---|---|---|---|---|---|---|
-| Swordsmen | 35 | 2.7 | 12 | 4.0 s | 1.7 m strike | — |
+| Swordsmen | 35 | 2.7 | 12 | 4.0 s | 1.7 m strike | - |
 | Archers | 22 | 3.0 | 10 | 6.5 s | bow 48 m, min 2.5 m; sidearm 1.6 m | 20 m/s, flight 0.35–2.4 s |
 
 - **Per hit** = `attackDamage × skill × zoneMultiplier × globalDamageScale`.
@@ -73,9 +73,9 @@ the single-attacker figures above):
 | Swordsmen / Legionary | arrow | 44 | 65 s | 9–142 s | 32 |
 | Archers / Archer | sword | 10 | 44 s | 30–67 s | 25 |
 | Swordsmen / Centurion | sword / arrow | 2 / 2 | 42 s / 72 s | 13–79 s | 84 / 60 |
-| Swordsmen / Signifer | sword / arrow | 1 / 1 | 80 s / 71 s | — | 89 / 88 |
+| Swordsmen / Signifer | sword / arrow | 1 / 1 | 80 s / 71 s | - | 89 / 88 |
 | Swordsmen / Tesserarius | sword | 3 | 81 s | 34–106 s | 32 |
-| Swordsmen / Cornicen | arrow | 1 | 120 s | — | 33 |
+| Swordsmen / Cornicen | arrow | 1 | 120 s | - | 33 |
 
 ## What this says
 

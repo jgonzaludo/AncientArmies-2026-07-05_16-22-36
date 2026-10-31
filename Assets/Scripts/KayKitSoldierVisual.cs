@@ -1,7 +1,7 @@
 using UnityEngine;
 
 // Presentation only: drives one soldier's KayKit animator from simulation state
-// (velocity, formation state, combat events). It never writes gameplay state —
+// (velocity, formation state, combat events). It never writes gameplay state,
 // the single exception is the bow release, which the soldier hands over via
 // deferRangedRelease so the arrow leaves on the draw's release moment; a plain
 // timer (not an animator state) triggers it, so it still fires if the model is

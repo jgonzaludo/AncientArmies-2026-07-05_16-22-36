@@ -5,8 +5,8 @@ using UnityEngine.Rendering;
 // Path display for the player's own moving formations. Every friendly unit
 // with a pending move or attack order shows one quiet line (enemy routes are
 // never drawn); the selected ones draw brighter and thicker. Units heading to
-// the same place from the same area share ONE arrow — centroid to destination
-// centroid — so a group order reads as a single arrow. The remaining route is
+// the same place from the same area share ONE arrow, centroid to destination
+// centroid, so a group order reads as a single arrow. The remaining route is
 // drawn, so the line trims as the unit walks and vanishes on arrival.
 // Presentation only: reads Formation, never writes it.
 public class RouteLines : MonoBehaviour

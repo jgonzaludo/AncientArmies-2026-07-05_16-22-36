@@ -2,7 +2,7 @@ using UnityEngine;
 
 // Individual arrow: flies a ballistic arc that tracks its target, so a shot
 // validated at fire time always lands for its full damage regardless of range
-// or target movement — no hidden dice. Only the target dying mid-flight
+// or target movement, no hidden dice. Only the target dying mid-flight
 // cancels the hit (the arrow falls where they fell).
 public class Projectile : MonoBehaviour
 {

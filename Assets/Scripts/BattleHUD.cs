@@ -8,9 +8,9 @@ using UnityEngine.InputSystem.UI;
 // Minimal runtime-built HUD: a top-left control hint, floating command buttons
 // bottom-right, and a compact info chip bottom-left showing friendly formation
 // info (single or multi selection) or read-only enemy inspection info. There is
-// no full-width bar — only button background Images are raycast targets, so
+// no full-width bar, only button background Images are raycast targets, so
 // battlefield taps near the bottom edge always reach the units. Everything is
-// constructed in code at Start() against PlayerCommander/Formation — no
+// constructed in code at Start() against PlayerCommander/Formation, no
 // prefabs, no scene UI.
 public class BattleHUD : MonoBehaviour
 {
@@ -75,7 +75,7 @@ public class BattleHUD : MonoBehaviour
         BattlePhase phase = BattleSetup.Instance != null ? BattleSetup.Instance.Phase
                                                          : BattlePhase.Pre;
         if (startRoot != null) startRoot.SetActive(phase == BattlePhase.Pre);
-        // the small corner restart hides after battle end — the banner already
+        // the small corner restart hides after battle end, the banner already
         // carries the primary RESTART button there
         if (restartMiniButton != null)
             restartMiniButton.gameObject.SetActive(phase != BattlePhase.Ended);
@@ -91,7 +91,7 @@ public class BattleHUD : MonoBehaviour
         if (hintText != null) hintText.gameObject.SetActive(phase == BattlePhase.Active);
         UpdateTimer(phase);
         UpdateTide(phase);
-        // the command panel works during deployment too (move + rotate) —
+        // the command panel works during deployment too (move + rotate),
         // only a finished battle hides it
         if (phase == BattlePhase.Ended)
         {
@@ -121,7 +121,7 @@ public class BattleHUD : MonoBehaviour
 
         panelGO.SetActive(true);
 
-        // A fully broken selection takes no orders — it regroups on its own
+        // A fully broken selection takes no orders, it regroups on its own
         // (Chunk B). Offering CHARGE or ROTATE there is noise; hide them.
         // Mixed selections keep the full row so the coherent formations stay
         // commandable.
@@ -148,7 +148,7 @@ public class BattleHUD : MonoBehaviour
     private void UpdateEnemyPanel(Formation f)
     {
         int healthPct = Mathf.RoundToInt(100f * f.TotalHealth / Mathf.Max(1f, f.TotalMaxHealth));
-        string header = Colorize($"{f.displayName}  ({f.stats.unitName})  —  ENEMY", EnemyTint);
+        string header = Colorize($"{f.displayName}  ({f.stats.unitName})  ENEMY", EnemyTint);
         infoText.text =
             $"{header}\n" +
             $"Health {healthPct}%   ·   Strength {f.soldiers.Count}/{f.TotalSpawned}\n" +
@@ -559,7 +559,7 @@ public class BattleHUD : MonoBehaviour
         tideGO.SetActive(false);
 
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
-        // dev-only fast-forward: 1x / 2x only (higher speeds change outcomes — the sim is frame-stepped)
+        // dev-only fast-forward: 1x / 2x only (higher speeds change outcomes, the sim is frame-stepped)
         Button speedBtn = MakeButton(canvasT, "DevSpeedButton", "1x", Vector2.zero);
         var spRT = speedBtn.GetComponent<RectTransform>();
         spRT.anchorMin = spRT.anchorMax = new Vector2(1f, 1f);
@@ -609,7 +609,7 @@ public class BattleHUD : MonoBehaviour
 
     private void BuildBottomPanel(Transform canvasT)
     {
-        // Show/hide container only — no Image, no raycast footprint. The chip
+        // Show/hide container only, no Image, no raycast footprint. The chip
         // and buttons float inside it; taps between them must fall through to
         // the battlefield.
         panelGO = new GameObject("BottomPanel");
@@ -625,7 +625,7 @@ public class BattleHUD : MonoBehaviour
         Transform panelT = panelGO.transform;
 
         // ---- Info chip (bottom-left): compact rounded backdrop sized for the
-        // three-line info block. Purely visual — it sits over the battlefield,
+        // three-line info block. Purely visual, it sits over the battlefield,
         // so neither the chip nor its text may intercept taps.
         var chipGO = new GameObject("InfoChip");
         chipGO.transform.SetParent(panelT, false);
@@ -651,7 +651,7 @@ public class BattleHUD : MonoBehaviour
 
         // ---- Command buttons: a right-aligned floating row with uniform
         // spacing. Their background Images are the only raycast targets in the
-        // bottom layout — both button taps and PointerOverUI depend on that.
+        // bottom layout, both button taps and PointerOverUI depend on that.
         const float margin = 25f;
         float buttonY = (170f - ButtonHeight) * 0.5f;
         float step = ButtonWidth + ButtonGap;
@@ -693,13 +693,13 @@ public class BattleHUD : MonoBehaviour
         if (result.Contains("COLLAPSED"))
         {
             Team loser = won ? Team.Red : Team.Blue;
-            reason = (loser == Team.Red ? "The enemy line collapsed" : "Your line collapsed") + " — " + Broken(loser) + " of " + Total(loser) + " formations routed or destroyed";
+            reason = (loser == Team.Red ? "The enemy line collapsed" : "Your line collapsed") + ": " + Broken(loser) + " of " + Total(loser) + " formations routed or destroyed";
         }
         else if (result.Contains("TIME"))
         {
             int b = bs.CountIntact(Team.Blue), r = bs.CountIntact(Team.Red);
-            reason = b == r ? "Time expired — both armies equal at " + b + " intact formations"
-                            : "Time expired — " + (b > r ? "you held" : "the enemy held") + " more intact formations (" + Mathf.Max(b, r) + " to " + Mathf.Min(b, r) + ")";
+            reason = b == r ? "Time expired: both armies equal at " + b + " intact formations"
+                            : "Time expired: " + (b > r ? "you held" : "the enemy held") + " more intact formations (" + Mathf.Max(b, r) + " to " + Mathf.Min(b, r) + ")";
         }
         else reason = result;
         endReasonText.text = reason;
@@ -741,7 +741,7 @@ public class BattleHUD : MonoBehaviour
         text.color = color;
         text.horizontalOverflow = HorizontalWrapMode.Overflow;
         text.verticalOverflow = VerticalWrapMode.Overflow;
-        // No Text in this HUD is ever a tap target — buttons hit-test on their
+        // No Text in this HUD is ever a tap target, buttons hit-test on their
         // background Image, and free-floating text must not block the field.
         text.raycastTarget = false;
 
@@ -800,10 +800,10 @@ public class BattleHUD : MonoBehaviour
     // Shared 9-sliced rounded-rectangle sprite so every button reads as one
     // intentional family instead of raw quads. Generated once, tinted per use.
     // The corner radius stays small (square-ish, not pill) and a subtle darker
-    // rim is baked just inside the edge — it survives per-use tinting because
+    // rim is baked just inside the edge, it survives per-use tinting because
     // the sprite is still near-white.
     // The sprite's pixelsPerUnit must match the canvas's referencePixelsPerUnit
-    // (100) and the 9-slice border must be exactly the corner radius — any
+    // (100) and the 9-slice border must be exactly the corner radius, any
     // mismatch rescales the corner slices per-axis and the buttons distort
     // into ovals instead of keeping a fixed corner radius at every size.
     private static readonly System.Collections.Generic.Dictionary<string, Sprite> frameCache = new System.Collections.Generic.Dictionary<string, Sprite>();

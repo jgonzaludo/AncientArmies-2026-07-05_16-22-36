@@ -2,7 +2,7 @@ using UnityEngine;
 
 // Reproducible battles: a pending seed is applied to UnityEngine.Random (the
 // only random source in the simulation) right before BattleSetup spawns, so
-// the same seed and settings give the same battle. Always compiled — a seed
+// the same seed and settings give the same battle. Always compiled, a seed
 // costs nothing and device logs record it.
 public static class SimSeed
 {

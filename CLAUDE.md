@@ -1,4 +1,4 @@
-# Ancient Armies — agent working rules
+# Ancient Armies: agent working rules
 
 Unity 6 (6000.4.8f1), URP, mobile-first landscape, fixed isometric-style
 orthographic camera. Mobile-first real-time tactical game.
@@ -7,11 +7,11 @@ orthographic camera. Mobile-first real-time tactical game.
 
 Read these before substantial work; they override any assumption:
 
-- `Docs/CURRENT_GAME_SPEC.md` — implemented gameplay, controls, states
-- `Docs/TECHNICAL_ARCHITECTURE.md` — systems and responsibilities
-- `Docs/ART_DIRECTION.md` — visual target
-- `Docs/ART_PIPELINE.md` — the active art pipeline and its approval gates
-- `Docs/DECISIONS.md` — recorded decisions and their dates
+- `Docs/CURRENT_GAME_SPEC.md`: implemented gameplay, controls, states
+- `Docs/TECHNICAL_ARCHITECTURE.md`: systems and responsibilities
+- `Docs/ART_DIRECTION.md`: visual target
+- `Docs/ART_PIPELINE.md`: the active art pipeline and its approval gates
+- `Docs/DECISIONS.md`: recorded decisions and their dates
 
 Do not expand scope beyond the current spec without explicit approval.
 
@@ -24,7 +24,7 @@ Assets/Scenes/        Battle.unity is the only scene in Build Settings
 Assets/Art/           current runtime art actually referenced by the game
 Assets/Settings/      URP pipeline assets and volume profiles
 Assets/AncientArmies/ clean destination tree for NEW production work
-ArtSource/            art production source, outside Assets/ — never shipped
+ArtSource/            art production source, outside Assets/, never shipped
 ThirdPartyPackages/   local Unity packages (Tripo Unity DCC Bridge)
 ```
 
@@ -50,7 +50,7 @@ These are design law, not preferences:
 - `Formation` owns the state machine, the anchor (position + facing), and the
   slot grid. It is the only writer of `AnchorPos` / `AnchorRot`.
 - `Soldier` owns individual movement and combat. It reads formation state
-  through `GetSlotWeight` / `GetAcquireRadius` — it never drives the formation.
+  through `GetSlotWeight` / `GetAcquireRadius`: it never drives the formation.
 - `PlayerCommander` and `EnemyCommander` only ever call the public `Issue*`
   command methods. They never mutate formation internals directly.
 - `BattleSetup` owns spawning, the battle lifecycle, and the team registries.
@@ -68,11 +68,11 @@ Do not rewrite these systems to add a feature. Extend at the seams.
 - Behavior: **Play mode in `Assets/Scenes/Battle.unity`.** Verify in Unity
   rather than assuming code works.
 - **`Battle.unity` serializes values that override C# field defaults.** Before
-  changing a default in a `MonoBehaviour`, grep the scene for the field — if
+  changing a default in a `MonoBehaviour`, grep the scene for the field, if
   it is pinned there, editing the C# default alone changes nothing. Adding a
   *new* field is the reliable way to make a C# default win.
 - **Morale tunables live in the `MoraleConfig` ScriptableObject**, never as
-  new fields on `BattleSetup` — that sidesteps scene pinning entirely.
+  new fields on `BattleSetup`: that sidesteps scene pinning entirely.
   `BattleSetup` holds only the reference to the asset.
 
 ## Naming conventions
@@ -82,7 +82,7 @@ Do not rewrite these systems to add a feature. Extend at the seams.
   `UI_*` (sprites), `TEX_*` (textures), `MAT_*` (materials), `AC_*` (Animator
   Controllers).
 - Anything loaded via `Resources.Load` must sit in a `Resources/` folder and
-  keep its exact name — renaming silently breaks runtime loading. Current
+  keep its exact name, renaming silently breaks runtime loading. Current
   string loads live in `SoldierFactory`, `Projectile`, `BattlefieldDecor`, and
   `FormationBannerController`.
 
@@ -91,7 +91,7 @@ Do not rewrite these systems to add a feature. Extend at the seams.
 - Every asset has exactly one `.meta`. Delete or move an asset and its `.meta`
   **together**, never one alone.
 - Never leave an orphaned `.meta`, and never delete a `.meta` while keeping the
-  asset — both break GUID references in scenes and prefabs.
+  asset, both break GUID references in scenes and prefabs.
 - Before deleting anything under `Assets/`, confirm it is unreferenced: grep
   its GUID across scenes, prefabs, materials, controllers, and ScriptableObjects.
 - Never hand-edit a GUID in an existing `.meta`.
@@ -107,17 +107,17 @@ Do not rewrite these systems to add a feature. Extend at the seams.
   approval.** The Tripo Unity Bridge drops assets in for preview and testing
   only; approved production art is placed deliberately.
 - Never put raw Tripo exports, reference images, Blender working files, Mixamo
-  downloads, or review renders under `Assets/` — they belong in `ArtSource/`.
+  downloads, or review renders under `Assets/`: they belong in `ArtSource/`.
 - **Do not revive Meshy or AssetHub as the active pipeline without an explicit
   decision** recorded in `Docs/DECISIONS.md`.
 
 ## Do not modify casually
 
-- `ProjectSettings/` — especially input, graphics, and quality settings
+- `ProjectSettings/`: especially input, graphics, and quality settings
 - `Packages/manifest.json` and `Packages/packages-lock.json`
-- `Assets/Settings/` — URP renderer and pipeline assets
-- `ThirdPartyPackages/` — vendored third-party code; do not edit its source
-- `Assets/Scenes/Battle.unity` — serialized tuning lives here
+- `Assets/Settings/`: URP renderer and pipeline assets
+- `ThirdPartyPackages/`: vendored third-party code; do not edit its source
+- `Assets/Scenes/Battle.unity`: serialized tuning lives here
 
 ## Git and the test gate
 
@@ -140,7 +140,7 @@ for docs-only changes.
 6. After solving something non-obvious, record it with `graphify save-result`
    (`--outcome useful`, `dead_end`, or `corrected`). Skip this for routine work.
 
-`.graphifyignore` is an allowlist (`Assets/**/*.cs`, `Docs/*.md`, `CLAUDE.md`) — art
+`.graphifyignore` is an allowlist (`Assets/**/*.cs`, `Docs/*.md`, `CLAUDE.md`), art
 and Unity YAML never reach the graph. `graphify-out/` is committed except `cost.json`.
 
 ## graphify

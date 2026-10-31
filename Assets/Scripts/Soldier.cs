@@ -38,10 +38,10 @@ public class Soldier : MonoBehaviour
 
     // Far-zoom impostor LOD: the formation impostor renderer hides this
     // soldier's visual hierarchy behind a merged billboard quad. Simulation
-    // is untouched — only presentation goes dormant.
+    // is untouched, only presentation goes dormant.
     [System.NonSerialized] public bool Imposted;
 
-    // 0 thrust / 1 over-shield / 2 diagonal slash — chosen by gameplay so the
+    // 0 thrust / 1 over-shield / 2 diagonal slash, chosen by gameplay so the
     // damage timing and the displayed clip can never disagree.
     public int MeleeAttackVariant { get; private set; }
     public DamageZone LastHitZone { get; private set; }   // zone / kind of the last blow taken (visuals pick a block vs a stagger)
@@ -55,7 +55,7 @@ public class Soldier : MonoBehaviour
     [SerializeField] private Vector3 meleeVariantWeights = new Vector3(0.5f, 0.25f, 0.25f);
 
     // Seconds from attack commit to the authored contact frame, per variant
-    // (thrust f9/30fps, over-shield f12, diagonal f13 — trued to the clips).
+    // (thrust f9/30fps, over-shield f12, diagonal f13, trued to the clips).
     private static readonly float[] MeleeImpactDelay = { 0.30f, 0.40f, 0.43f };
 
     private Soldier pendingMeleeTarget;
@@ -89,7 +89,7 @@ public class Soldier : MonoBehaviour
     private float volleyJitter01;   // fixed loose offset inside the volley window
 
     // Volley spread (v1.8.2): ranged attackers register too, with a GRADUATED
-    // score penalty instead of a hard cap — 160 archers distribute in
+    // score penalty instead of a hard cap, 160 archers distribute in
     // proportion to who is already being shot at, instead of every archer
     // resolving the identical nearest-first argmin and massacring one man.
     // A tiny deterministic per-soldier salt breaks residual lockstep between
@@ -121,7 +121,7 @@ public class Soldier : MonoBehaviour
     // Committed-action lock: while a soldier is visibly striking, drawing,
     // stabbing, or reacting to a hit, slot correction (and idle drift toward
     // combat targets) is suspended so the action stays planted; it ramps back
-    // quickly when the window ends. Gameplay timing drives these windows —
+    // quickly when the window ends. Gameplay timing drives these windows,
     // never Animator state names. Death stops movement entirely (existing).
     private float actionLockTimer;
     private float lockRecovery = 1f;          // 0 locked -> 1 free, quick ramp
@@ -179,7 +179,7 @@ public class Soldier : MonoBehaviour
     private void FixedUpdate()
     {
         if (!Alive) return;
-        // Deployment (Pre) allows full physical movement — formations march to
+        // Deployment (Pre) allows full physical movement, formations march to
         // their deployment positions; only combat is gated on Active (Update).
         if (BattleSetup.Instance == null || BattleSetup.Instance.Phase == BattlePhase.Ended)
         {
@@ -196,7 +196,7 @@ public class Soldier : MonoBehaviour
         toSlot.y = 0f;
         Vector3 slotDesire = Arrive(toSlot, ms);
 
-        // Routing (Chunk A): flee instead of fighting or holding a slot — the
+        // Routing (Chunk A): flee instead of fighting or holding a slot, the
         // formation supplies the direction and the field-edge stop
         bool routing = formation.State == FormationState.Routing;
         Vector3 desired;
@@ -241,7 +241,7 @@ public class Soldier : MonoBehaviour
         desired *= lockRecovery;
 
         // Recall: a soldier knocked more than RecallDist from its slot, and not in
-        // melee contact, drops everything else — even a drawn bow — and runs back
+        // melee contact, drops everything else, even a drawn bow, and runs back
         // flat out. Applied AFTER the action lock, which would otherwise zero it.
         {
             var rcc = BattleSetup.Instance != null ? BattleSetup.Instance.combatConfig : null;
@@ -292,7 +292,7 @@ public class Soldier : MonoBehaviour
     }
 
     // A router crossed the map edge: out of the battle for good, but not a
-    // casualty — no death shock, no corpse.
+    // casualty, no death shock, no corpse.
     private void Escape()
     {
         Alive = false;
@@ -326,7 +326,7 @@ public class Soldier : MonoBehaviour
                         (packed ? bs.separationFractionPacked : bs.separationFractionOrdered);
         float sep2 = sepDist * sepDist;
 
-        // Phase 6F: grid-local neighbors instead of the whole team registry —
+        // Phase 6F: grid-local neighbors instead of the whole team registry,
         // at 640 friends the full scan was the hottest loop in the game.
         var cc = bs.combatConfig;
         bool yielding = cc != null && cc.yieldToMarching && !formation.IsMarching;
@@ -359,7 +359,7 @@ public class Soldier : MonoBehaviour
             if (d2 < 0.0001f)
             {
                 // nearly coincident: no direction to push along, so break the tie
-                // by entity ID — stable across frames, never Random
+                // by entity ID, stable across frames, never Random
                 push += GetEntityId().CompareTo(f.GetEntityId()) < 0 ? Vector3.right : Vector3.left;
                 continue;
             }
@@ -417,7 +417,7 @@ public class Soldier : MonoBehaviour
             bool shoot = S.isRanged && d > S.rangedMinRange;
             float reach = shoot ? S.rangedRange : S.strikeRange;
             // volley discipline (v1.9): arrows loose only inside the
-            // formation's volley window, each archer at its own offset —
+            // formation's volley window, each archer at its own offset,
             // melee and the sidearm are never gated
             bool volleyReady = !shoot ||
                 (formation.VolleyOpen &&
@@ -451,7 +451,7 @@ public class Soldier : MonoBehaviour
                 else
                 {
                     // charge impact bonus bakes in at commit time, exactly like
-                    // the directional multiplier — a deferred hit that lands
+                    // the directional multiplier, a deferred hit that lands
                     // after the window closes still carries the charge's force
                     float dmg = S.attackDamage * skill * dirMult * (S.isRanged ? 0.4f : 1f)
                                 * formation.ChargeDamageMultiplier
@@ -543,7 +543,7 @@ public class Soldier : MonoBehaviour
         SetTarget(best);
     }
 
-    // Central target setter: keeps the victim's attacker counts honest —
+    // Central target setter: keeps the victim's attacker counts honest,
     // melee reservations bound the contact line (Phase 4), ranged counts
     // drive the graduated volley-spread penalty (v1.8.2).
     private void SetTarget(Soldier t)
@@ -612,7 +612,7 @@ public class Soldier : MonoBehaviour
     }
 
     // Weighted pick over the three attack clips; one re-roll if the choice
-    // would make three identical strikes in a row. Visual variety only —
+    // would make three identical strikes in a row. Visual variety only,
     // damage, cooldown, and reach are identical across variants.
     private int PickMeleeVariant()
     {
@@ -654,7 +654,7 @@ public class Soldier : MonoBehaviour
         if (pendingShotTarget != null && pendingShotTarget.Alive)
         {
             // mid-draw archer: hold on the shot actually being released, even
-            // if target acquisition has already moved on — no mid-draw wobble
+            // if target acquisition has already moved on, no mid-draw wobble
             dir = pendingShotTarget.transform.position - transform.position;
             degPerSec = FaceCombatDegPerSec;
         }
@@ -670,10 +670,10 @@ public class Soldier : MonoBehaviour
         }
         else
         {
-            // Broken and idle: keep the last meaningful visual direction —
+            // Broken and idle: keep the last meaningful visual direction,
             // there is no formation facing to settle onto (Phase 2 policy).
             if (formation.State == FormationState.BrokenRanks) return;
-            // idle: the formation's canonical facing — this is what makes an
+            // idle: the formation's canonical facing, this is what makes an
             // explicit Rotate command end with soldiers facing the arrow
             dir = formation.AnchorForward;
             degPerSec = FaceIdleDegPerSec;
@@ -811,7 +811,7 @@ public class Soldier : MonoBehaviour
         if (Imposted == on) return;
         Imposted = on;
         // Disabling the animator mid-draw would silently swallow an archer's
-        // validated shot — the release frame never arrives. Let it fly first
+        // validated shot, the release frame never arrives. Let it fly first
         // (same rule the archer controller applies in OnDestroy).
         if (on) ReleasePendingShot();
         // A soldier that died while imposted never gets its visuals back; the
@@ -823,7 +823,7 @@ public class Soldier : MonoBehaviour
         if (!on)
         {
             // A re-enabled Animator holds an unevaluated bind pose until its
-            // next update — one frame of 80 T-poses reads as a flicker at the
+            // next update, one frame of 80 T-poses reads as a flicker at the
             // LOD boundary. Evaluate a real pose on the wake frame.
             if (!animatorCached)
             {
@@ -839,7 +839,7 @@ public class Soldier : MonoBehaviour
 
     // The Roman prefab instantiates as a single "VisualRoot" child; the
     // capsule fallback splits into "Body" and "Weapon" primitives. Cached
-    // once — the visual hierarchy never changes after spawn.
+    // once, the visual hierarchy never changes after spawn.
     private void CacheVisualParts()
     {
         Transform vis = transform.Find("VisualRoot");

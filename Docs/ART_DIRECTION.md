@@ -6,7 +6,7 @@ against this document.
 ## The look
 
 **Stylized mobile tactical RTS with a premium board-game miniature
-appearance.** Think a beautifully painted tabletop army viewed from above —
+appearance.** Think a beautifully painted tabletop army viewed from above,
 not photoreal history, and not cartoon caricature.
 
 Core qualities:
@@ -19,11 +19,11 @@ Core qualities:
 
 ## Proportions
 
-Adult but deliberately stocky — soldiers read as grown men, not children:
+Adult but deliberately stocky, soldiers read as grown men, not children:
 
 - Approximately **2.6 heads tall**
-- **Large rounded head** — the primary read at gameplay distance
-- **Thick limbs** — no thin, fragile shapes that disappear when zoomed out
+- **Large rounded head**: the primary read at gameplay distance
+- **Thick limbs**: no thin, fragile shapes that disappear when zoomed out
 
 ## Silhouette and equipment
 

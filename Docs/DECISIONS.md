@@ -5,7 +5,7 @@ stays in force until a later entry supersedes it.
 
 ---
 
-## 2026-10-08 — Interim soldier art: KayKit characters (CC0)
+## 2026-10-08: Interim soldier art: KayKit characters (CC0)
 
 **Decision (owner, via the KayKit device-test brief):** replace the capsule
 placeholders with the free CC0 KayKit Adventurers Knight and the Rig_Medium
@@ -30,12 +30,12 @@ sword and shield into the body mesh mid zoom was 1.23M triangles / 1763 batches
 
 ---
 
-## 2026-09-30 — Ordering: destination + facing, destination fix, target lock
+## 2026-09-30: Ordering: destination + facing, destination fix, target lock
 
 **Implemented (step 1, awaiting device test):**
 - **Ghost march tried and removed.** Letting marching formations pass through friendly soldiers stopped archers being shoved (up to 20 m to 0.4 m) but caused visible clipping and bursts when the unit turned solid again. Owner decision: ghosting is not a feature. Melee-on-melee contact stays physical. Archers caught in a marching unit's path are for route planning and a rescue rule to solve (step 2).
 - **Destination fix.** A move order never ends inside a friendly formation's footprint (where it stands or is headed). Toggle: `CombatConfig.destinationFix`.
-- **Target lock.** An Attacking formation keeps marching at its ordered target while a corner brushes a bystander. It stops to fight only when contact with non-target enemies reaches 40% of its men for 1.5 s, or it is surrounded; contact with the ordered target always engages. Tunables: `targetLock`, `targetLockBlockedFraction`, `targetLockBlockedSeconds` (CombatConfig). Without routing it only delays a blocked unit (~5 s in the `lock` test) — it cannot yet go around.
+- **Target lock.** An Attacking formation keeps marching at its ordered target while a corner brushes a bystander. It stops to fight only when contact with non-target enemies reaches 40% of its men for 1.5 s, or it is surrounded; contact with the ordered target always engages. Tunables: `targetLock`, `targetLockBlockedFraction`, `targetLockBlockedSeconds` (CombatConfig). Without routing it only delays a blocked unit (~5 s in the `lock` test), it cannot yet go around.
 
 **Implemented (step 2, awaiting device test):**
 - **Route planning.** `RoutePlanner` bends a straight leg around friendly blocks (soft) and enemy blocks (extra 7 m margin, so a plain move stays out of contact range), shorter side first, with string-pulling. `Formation.SteerAlongRoute` follows it, re-planning every 0.75 s or when the goal moves; an attack goes straight at its target but bends around bystanders. No route found = straight line. Toggle: `CombatConfig.routePlanning`.
@@ -65,19 +65,19 @@ sword and shield into the body mesh mid zoom was 1.23M triangles / 1763 batches
 
 ---
 
-## 2026-09-21 — Chunks B, C, D: battles end, panic inputs, officer grades
+## 2026-09-21: Chunks B, C, D: battles end, panic inputs, officer grades
 
 Built the same day as the morale approval below; this entry records what
 shipped and the calls made while building it.
 
 **Routing is permanent.** `routedCanRally` (MoraleConfig) is off: routers run
-off the map and are removed from the battle — not casualties, not
+off the map and are removed from the battle, not casualties, not
 targets, never coming back. The rally code from Chunk A stays behind the
 flag. A permanently routed formation counts as fallen for the collapse rule.
 
 **Battles end by line collapse.** A team loses the moment `collapseFraction`
 (0.5) of its formations are Routing or destroyed, counted from
-`BattleSetup.formations` filtered by team — never an assumed 8. Ending the
+`BattleSetup.formations` filtered by team, never an assumed 8. Ending the
 battle at that moment is the latch. Both teams collapsing on the same check is
 a draw. The old "no living soldiers" check is gone.
 
@@ -85,7 +85,7 @@ a draw. The old "no living soldiers" check is gone.
 small and low-contrast until the final `timerWarningSeconds` (60). On expiry
 the side with more intact formations (alive and not Routing; BrokenRanks
 counts as intact) wins; equal is a draw. Result text states the reason:
-`… — RED LINE COLLAPSED`, `… — TIME`, `DRAW — …`.
+`…, RED LINE COLLAPSED`, `…, TIME`, `DRAW, …`.
 
 **No Reform command.** The button and all player reform input are removed.
 BrokenRanks reforms automatically for both teams through the shared
@@ -107,7 +107,7 @@ highest-grade officer in the main pack; else on the pack's center. No special
 leaderless behavior yet.
 
 **Stop chasing.** A formation whose attack target routs or dies clears the
-order and holds position and facing — ranged units included. Routing
+order and holds position and facing, ranged units included. Routing
 formations are excluded from every order and charge target query (player,
 AI, charge resolution). Charge pursuit is unchanged: pursuing packs still hunt
 routers, which is where historical casualties came from.
@@ -116,17 +116,17 @@ routers, which is where historical casualties came from.
 behind an enable bool in MoraleConfig:
 
 - *Flank/rear* (`enableFlankShock`): a casualty's shock is multiplied by the
-  zone of the killing blow — front 1, flank 2, rear 3. The zone rides with the
+  zone of the killing blow, front 1, flank 2, rear 3. The zone rides with the
   blow from the attack through any deferred hit; arrows count as front.
 - *Outnumbered* (`enableOutnumberShock`): shock decay becomes
   `shockDecayPerSecond / (1 + 1 × extra enemy formations engaged)`. No constant
-  input — below the decay rate it would do nothing.
+  input, below the decay rate it would do nothing.
 - *Contagion* (`enableContagion`): a formation routing adds 15 shock to every
   same-team formation within 30 m anchor to anchor.
 - *Officer death* (`enableOfficerShock`): an officer killed (not one who fled)
   adds his `deathShock` to his formation, on top of the normal casualty shock.
 
-**Display.** A wavering halo behind the badge (never over it — badge color is
+**Display.** A wavering halo behind the badge (never over it, badge color is
 faction identity): shown below `haloEnter` 40, hidden above `haloExit` 43,
 yellow → red and pulsing 1 → 2.5 Hz as morale falls toward 15. The pulse
 carries the signal so it survives colorblindness and red banners. Both teams.
@@ -137,7 +137,7 @@ of the selected or inspected formation only.
 kills weigh 0.5; panic intake capped at 8/s (queued, not discarded; officer
 deaths bypass); ceilings 2.5 contact / 1.5 rest; officer death shock
 24 / 28 / 12 / 4 / 4; halo band 50 / 53. Seeded 2× check: first rout 30 s after
-contact at ~33 % losses with shock ≈ 1–6 — routs now come from the contact
+contact at ~33 % losses with shock ≈ 1–6, routs now come from the contact
 ceiling, so the remaining pacing lever is lethality (`globalDamageScale`), not
 panic.
 
@@ -148,15 +148,15 @@ starting strength inside 3 s weigh 2.0, higher of zone and burst weight);
 surround shock 8/s per engaged zone beyond the first, unscaled and uncapped.
 `FormationMorale` keeps per-source totals (`ShockSource`) and `BattleRecorder`
 writes the breakdown and primary cause with every rout. Seeded 2× checks at
-`globalDamageScale` 0.15: no-input battle — first rout 73.7 s after contact,
+`globalDamageScale` 0.15: no-input battle, first rout 73.7 s after contact,
 all seven routs at 54–62 % casualties with Grind primary, collapse at 112 s;
-flank test — pinned century routed 7.8 s after the flank contact at 11 %
+flank test, pinned century routed 7.8 s after the flank contact at 11 %
 casualties, Surround primary.
 
 **Combat by facing, 2026-09-22.** `CombatConfig` is the third ScriptableObject:
 `globalDamageScale` 0.15, front ×0.5 / flank ×1.5 / rear ×2.0, arcs 60°; the
 fields left `BattleSetup`, so no combat number is scene-pinned. Ranged damage
-uses the same multipliers (arrows at half from the front — kept, historically
+uses the same multipliers (arrows at half from the front, kept, historically
 right). **Zones are decided by formation facing, never by agent position**:
 a formed attacker facing roughly opposite the defender is frontal, roughly the
 same way is rear, otherwise a flank; BrokenRanks and Routing attackers fall
@@ -166,8 +166,8 @@ rear shock and surround counting (an enemy formation counts only with
 zone reads were tried and rejected: engaged lines interleave 1–2.5 m on
 average (up to ~6 m), so positions lie. Officers get `healthMultiplier`
 (Centurion / Signifer 2.0, Optio 1.5). `contactCeilingScale` 1.1. Seeded 2×
-checks: adjacent lines — 21,638 hits all frontal, surround never fired, no
-routs in 180 s, ~11 % casualties at 60 s and ~60 % at 180 s; flank test —
+checks: adjacent lines, 21,638 hits all frontal, surround never fired, no
+routs in 180 s, ~11 % casualties at 60 s and ~60 % at 180 s; flank test,
 pinned century routed 31 s after flank contact at 13.75 % casualties,
 Surround primary, Signifer / Optio / Tesserarius / Cornicen alive.
 
@@ -178,7 +178,7 @@ in contact. Now: pursuit and any loose (BrokenRanks) spell last
 contact (`reformStartEngagedFraction`) and aborts at 30 % (was 12 %, which
 would have cancelled every reform); and a century still locked in melee after
 9 s **re-forms in place** (slots rebuilt around the pack, facing the enemy,
-state Engaged) instead of deadlocking — historically a unit in a fight could
+state Engaged) instead of deadlocking, historically a unit in a fight could
 not walk away, and turning your back was a rout. This is an exception to
 "reforming requires disengagement", which now governs only the walk back to
 the standard. `engagedSlotWeight` (CombatConfig, 0.3, was hardcoded 0.12)
@@ -187,24 +187,24 @@ holds clashing lines together; measured interleave did not clearly improve
 
 **Personal space, 2026-09-29.** Soldier body colliders are 0.5 m radius
 (`CombatConfig.soldierColliderRadius`, was 0.35), applied at spawn to every
-soldier — friend and enemy, every state — for a 1.0 m minimum gap. Visuals are
+soldier, friend and enemy, every state, for a 1.0 m minimum gap. Visuals are
 not scaled. Physics already collided all soldiers, so this relaxes no rule
 (the "enemies are never pushed" rule only ever covered steering nudges).
 Seeded 2× lines run: enemy interleave dropped from avg 0.3–4.5 m (max ~7 m) to
 avg 0–1.0 m (max 2.4 m); idle reserve speed 0.000 m/s (no jitter); but a
 180 s frontal fight now costs ~12–13 % casualties instead of ~30 %, with no
-routs — fewer soldiers reach contact, so pace needs a `globalDamageScale`
+routs, fewer soldiers reach contact, so pace needs a `globalDamageScale`
 retune on device.
 
 **Observed, not tuned.** The first no-input battle chain-routed at 5–12.5 %
 losses (contact burst + zone weights + contagion stacking) and ended 36 s
-after first contact at 7.7 % loser casualties — far under the 15–30 % target.
+after first contact at 7.7 % loser casualties, far under the 15–30 % target.
 Tuning happens on device against the enable bools; nothing was adjusted to hit
 the test targets.
 
 ---
 
-## 2026-09-21 — Morale, routing, automatic recovery, and the win condition
+## 2026-09-21: Morale, routing, automatic recovery, and the win condition
 
 **Morale is approved.** This supersedes the "No morale" clause in the standing
 Scope convention below, which is updated to match. Terrain, progression,
@@ -212,7 +212,7 @@ multiplayer, and advanced enemy tactics still require explicit approval.
 
 **Every formation has a Morale value from 0 to 100.** Casualties lower it.
 Morale recovers with time out of melee, up to a **rest ceiling** set by the
-formation's cumulative losses — a century that has lost more men cannot
+formation's cumulative losses, a century that has lost more men cannot
 recover as high. While in melee, a stricter **contact ceiling** applies, so a
 slow, steady bleed eventually routs a unit even when no single moment of
 losses would.
@@ -224,11 +224,11 @@ avoids that. This is the project's first ScriptableObject.
 
 **States follow the original four-state design.**
 
-- **Ordered** and **Engaged** — unchanged.
-- **Disordered** — the design name for the live `BrokenRanks` state. Loose,
+- **Ordered** and **Engaged**: unchanged.
+- **Disordered**: the design name for the live `BrokenRanks` state. Loose,
   agent-native combat; soldiers keep fighting. This is what a century becomes
   after a charge. Behavior unchanged.
-- **Routing** — a new state, entered when morale falls below 15. Soldiers flee
+- **Routing**: a new state, entered when morale falls below 15. Soldiers flee
   and stop acquiring targets, the formation's badge disappears, and the
   formation cannot be ordered. It rallies automatically once morale is above
   35 and it is not in melee. Arrow fire does not block rallying directly, but
@@ -241,13 +241,13 @@ this decision.
 **The Reform button is removed; all recovery is automatic.** Disordered
 formations reform on their own after disengaging (see *Automatic reform*
 below). Routing formations rally on their own when morale recovers. Reforming
-still requires disengagement from melee — the game decides when, not the
+still requires disengagement from melee, the game decides when, not the
 player.
 
 **Automatic reform.** A Disordered formation reforms automatically whenever
 it is **not in melee**. Only active melee blocks it: enemies nearby do not,
 and arrow fire does not. The soldiers run to their slots and reform even with
-enemies close. One shared rule serves both sides — it replaces the
+enemies close. One shared rule serves both sides, it replaces the
 `reformSafeRadius` check in `EnemyCommander.TryReformBroken`, and the AI gets
 no rule of its own.
 
@@ -264,11 +264,11 @@ commitment.
 **`MoraleConfig` wiring.** `BattleSetup` holds a serialized reference to the
 `MoraleConfig` asset, assigned in `Battle.unity`. That reference is the only
 morale-related field on `BattleSetup`. If it is null, the game logs a loud
-error — it never silently falls back to default values.
+error, it never silently falls back to default values.
 
 **Win condition.** A side collapses when 50 % of its formations are Routing or
-destroyed. The count is read at runtime from that side's actual formations —
-never a hardcoded 8 — so a different army size works unchanged. **Collapse
+destroyed. The count is read at runtime from that side's actual formations,
+never a hardcoded 8, so a different army size works unchanged. **Collapse
 latches:** once a side reaches it, the battle is decided, even if units rally
 afterwards. This replaces the current rule, which ends the battle only when one
 side has no living soldiers.
@@ -285,12 +285,12 @@ implementation:
   abort, and restart the moment contact clears.
 - Where a routing formation flees to, and where it re-forms after rallying.
 - Whether "50 %" means at least half, and how odd formation counts round.
-- What counts as "intact" at the time limit — for example, whether a
+- What counts as "intact" at the time limit, for example, whether a
   Disordered formation counts.
 - Whether both sides collapsing on the same check is a draw.
 - **Decided 2026-09-29: keep the simulation in `Update` for now.** Moving it
   (Formation pipeline, engagement scan, morale tick, attacks, projectiles, AI
-  — all `Update` / `Time.deltaTime` today; only soldier movement is fixed-step)
+  all `Update` / `Time.deltaTime` today; only soldier movement is fixed-step)
   to `FixedUpdate` or substepping is a large change to the most tuned code in
   the game, and it buys nothing while play is single-player at 30–120 fps
   (results only diverge at large frame steps, e.g. the 10× test). Revisit when
@@ -301,7 +301,7 @@ implementation:
   huge step.
 ---
 
-## 2026-07-24 — Art pipeline hard reset: Tripo Studio Pro + Blender
+## 2026-07-24: Art pipeline hard reset: Tripo Studio Pro + Blender
 
 **Generator.** **Tripo Studio Pro is selected as the first 3D generator.** Pro
 was purchased and the Tripo → Blender DCC Bridge transfer was verified working.
@@ -315,7 +315,7 @@ Neither may be revived as the active pipeline without a new decision recorded
 here.
 
 **Blender owns production.** **Blender owns the canonical rigs and production
-assets** — one canonical humanoid skeleton, skin weights, sockets, materials,
+assets**: one canonical humanoid skeleton, skin weights, sockets, materials,
 and the `.blend` source files. `.blend` is the editable source of truth; FBX is
 the Unity handoff.
 
@@ -353,7 +353,7 @@ Blender masters and Meshy candidate exports are gone for good.
 **Runtime placeholders retained.** The existing `Assets/Art/` legionary and
 archer models, materials, animator controllers, banner sprites, and battlefield
 textures were kept. They are visually superseded but every one of them is
-referenced by `Battle.unity`, a prefab, or a runtime `Resources.Load` call —
+referenced by `Battle.unity`, a prefab, or a runtime `Resources.Load` call,
 the game does not run without them. They are temporary placeholders pending
 Tripo/Blender production.
 
@@ -374,5 +374,5 @@ before polish; prefer the smallest implementation that proves the gameplay
 thesis.
 
 **Git LFS is not configured** and was deliberately not introduced during the
-reset. See the note in `README.md`/`Docs/ART_PIPELINE.md` about file sizes —
+reset. See the note in `README.md`/`Docs/ART_PIPELINE.md` about file sizes,
 this will need revisiting once real `.blend` masters land in `ArtSource/`.

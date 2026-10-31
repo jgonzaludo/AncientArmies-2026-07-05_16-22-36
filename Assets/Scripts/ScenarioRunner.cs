@@ -112,7 +112,7 @@ public class ScenarioRunner : MonoBehaviour
             {
                 float aiEnd = bs.BattleTime + 240f;   // AI runs can stall; cap them
                 while (bs != null && bs.Phase != BattlePhase.Ended && (!aiScenario || bs.BattleTime < aiEnd)) yield return null;
-                if (aiScenario && bs != null && bs.Phase != BattlePhase.Ended) BattleRecorder.NoteEnd(bs, "SCENARIO END — ai plan " + bs.GetComponent<EnemyCommander>().ChosenPlan);
+                if (aiScenario && bs != null && bs.Phase != BattlePhase.Ended) BattleRecorder.NoteEnd(bs, "SCENARIO END, ai plan " + bs.GetComponent<EnemyCommander>().ChosenPlan);
             }
             yield return null;
             ResultFiles.Add(BattleRecorder.LastFilePath);
@@ -221,7 +221,7 @@ public class ScenarioRunner : MonoBehaviour
         BattleRecorder.Note("pass RESULT arrival=" + (bs.BattleTime - t0).ToString("0.0") + "s archerMoveMax=" + maxDisp.ToString("0.0") +
             "m archerMoveAvgFinal=" + (sum / Mathf.Max(1, arch.soldiers.Count)).ToString("0.0") + "m overlapArcherFrames=" + overlapFrames +
             " overlappingArchersAtEnd=" + overlapNow);
-        BattleRecorder.NoteEnd(bs, "SCENARIO END — pass");
+        BattleRecorder.NoteEnd(bs, "SCENARIO END, pass");
     }
 
     // Drift: placed destination vs where the block really ends up. Open-ground
@@ -274,7 +274,7 @@ public class ScenarioRunner : MonoBehaviour
                 " anchorErr=" + Vector3.Distance(o.dest, f.AnchorPos).ToString("0.0") + "m centroidErr=" + Vector3.Distance(o.dest, c).ToString("0.0") + "m soldierToSlot avg=" + (sumS / Mathf.Max(1, f.soldiers.Count)).ToString("0.00") + " max=" + maxS.ToString("0.0"));
         }
         BattleRecorder.Note("drift archers trace: " + tr);
-        BattleRecorder.NoteEnd(bs, "SCENARIO END — drift");
+        BattleRecorder.NoteEnd(bs, "SCENARIO END, drift");
     }
 
     // KayKit visuals: a normal AI battle with rendering on at a fixed zoom. Logs frame-time
@@ -390,7 +390,7 @@ public class ScenarioRunner : MonoBehaviour
             " avgMs=" + (avg * 1000f).ToString("0.0") + " p95Ms=" + (p95 * 1000f).ToString("0.0") + " fpsAvg=" + (1f / Mathf.Max(0.0001f, avg)).ToString("0") +
             " batches=" + (statN > 0 ? (drawSum / statN).ToString("0") : "n/a") + " setPass=" + (statN > 0 ? (passSum / statN).ToString("0") : "n/a") + " tris=" + (statN > 0 ? (triSum / statN).ToString("0") : "n/a"));
         BattleRecorder.Note("kk clips: " + sbc);
-        BattleRecorder.NoteEnd(bs, "SCENARIO END — kk");
+        BattleRecorder.NoteEnd(bs, "SCENARIO END, kk");
     }
 
     // One blue and one red soldier (melee, plus an archer) from the front, side, back and the game camera's angle, in play mode with the real lighting.
@@ -427,7 +427,7 @@ public class ScenarioRunner : MonoBehaviour
         }
         sheet.Apply();
         System.IO.File.WriteAllBytes(System.IO.Path.Combine(Application.dataPath, "..", "Temp", "turntable.png"), sheet.EncodeToPNG());
-        BattleRecorder.NoteEnd(bs, "SCENARIO END — turntable");
+        BattleRecorder.NoteEnd(bs, "SCENARIO END, turntable");
     }
 
     // Shield fit: bake the real skinned mesh in every pose and count left-arm vertices (the first 584 of the merged mesh) that sit
@@ -476,7 +476,7 @@ public class ScenarioRunner : MonoBehaviour
             foreach (var c in best) if (c.n <= baseCount * frac) { sb.Append("smallest offset with <=" + (frac * 100) + "% of the clipping: " + c.off.ToString("0.00") + " (|" + c.mag.ToString("0.00") + "| m, " + c.n + " verts) | "); break; }
         }
         BattleRecorder.Note(sb.ToString());
-        BattleRecorder.NoteEnd(bs, "SCENARIO END — shieldfit");
+        BattleRecorder.NoteEnd(bs, "SCENARIO END, shieldfit");
     }
 
     // One soldier, every animation state, in PLAY mode with the real Animator and the scene's real lighting.
@@ -516,7 +516,7 @@ public class ScenarioRunner : MonoBehaviour
         sheet.Apply();
         System.IO.File.WriteAllBytes(System.IO.Path.Combine(Application.dataPath, "..", "Temp", archer ? "play_sheet_archer.png" : "play_sheet.png"), sheet.EncodeToPNG());
         BattleRecorder.Note("animsheet states: " + string.Join(", ", states));
-        BattleRecorder.NoteEnd(bs, "SCENARIO END — animsheet");
+        BattleRecorder.NoteEnd(bs, "SCENARIO END, animsheet");
     }
 
     // Style check: real in-game captures of both armies at a close and a normal zoom, no fighting.
@@ -551,12 +551,12 @@ public class ScenarioRunner : MonoBehaviour
             if (rig != null) rig.PanBy(new Vector3(0f, 0f, -200f));
             for (int i = 0; i < 200; i++) yield return null;
         }
-        BattleRecorder.NoteEnd(bs, "SCENARIO END — shots");
+        BattleRecorder.NoteEnd(bs, "SCENARIO END, shots");
     }
 
     // Edge contact: Blue's left edge clips the right edge of Red C1 (offset 9 m), then Blue is ordered to attack it.
     // Logs, every 3 s after first contact, the share of Blue's men in contact and the angle between Blue's facing
-    // and the direction to the enemy block — with and without the swing-in rule.
+    // and the direction to the enemy block, with and without the swing-in rule.
     private IEnumerator EdgeScenario(BattleSetup bs)
     {
         var blue = Find(bs, "Blue Century 1"); var red = Find(bs, "Red Century 1");
@@ -578,7 +578,7 @@ public class ScenarioRunner : MonoBehaviour
             yield return null;
         }
         BattleRecorder.Note(sb.ToString());
-        BattleRecorder.NoteEnd(bs, "SCENARIO END — edge");
+        BattleRecorder.NoteEnd(bs, "SCENARIO END, edge");
     }
 
     // Back to front: both rear Blue centuries are ordered through the archers and
@@ -641,7 +641,7 @@ public class ScenarioRunner : MonoBehaviour
           BattleRecorder.Note("b2f dragged: " + sbd); }
         var sb = new System.Text.StringBuilder(); foreach (var kv in worst) sb.Append(kv.Key.Replace("Century ", "C").Replace("Archers ", "A")).Append('=').Append(kv.Value.ToString("0")).Append(' ');
         BattleRecorder.Note("b2f RESULT arrival=" + (bs.BattleTime - t0).ToString("0.0") + "s peakDrag=" + peak.ToString("0.0") + "m finalMax=" + max.ToString("0.0") + "m finalAvg=" + (sum / Mathf.Max(1, n)).ToString("0.00") + "m soldiersMoved>3m=" + far + "/" + n + " | perFormationMax " + sb);
-        BattleRecorder.NoteEnd(bs, "SCENARIO END — b2f");
+        BattleRecorder.NoteEnd(bs, "SCENARIO END, b2f");
     }
 
     // Target lock: Blue attacks the far Red century while a neighbouring Red
@@ -676,7 +676,7 @@ public class ScenarioRunner : MonoBehaviour
         foreach (var kv in firstBy) sbf.Append(kv.Key).Append('@').Append(kv.Value.ToString("0.0")).Append("s ");
         BattleRecorder.Note("lock firstContacts: " + sbf + "| engagedAt=" + engagedAt.ToString("0.0") + " with " + engagedWith + "soldiersOnTarget=" + engagedOnTarget);
         BattleRecorder.Note("lock RESULT finalState=" + blue.State + " target=" + (blue.attackTarget != null ? blue.attackTarget.displayName : "-"));
-        BattleRecorder.NoteEnd(bs, "SCENARIO END — lock");
+        BattleRecorder.NoteEnd(bs, "SCENARIO END, lock");
     }
 
     private IEnumerator ChargeScenario(BattleSetup bs)
@@ -689,7 +689,7 @@ public class ScenarioRunner : MonoBehaviour
         float until = bs.BattleTime + 90f;
         while (bs.Phase == BattlePhase.Active && bs.BattleTime < until) yield return null;
         yield return null;
-        if (bs.Phase != BattlePhase.Ended) BattleRecorder.NoteEnd(bs, "SCENARIO END — charge, 90 s");
+        if (bs.Phase != BattlePhase.Ended) BattleRecorder.NoteEnd(bs, "SCENARIO END, charge, 90 s");
     }
 
     // Adjacent lines: each Red front century attacks the Blue century opposite
@@ -730,7 +730,7 @@ public class ScenarioRunner : MonoBehaviour
                .Append(" morale=").Append(f.Morale != null ? f.Morale.Value.ToString("0") : "-")
                .Append(" officers[").Append(OfficersAlive(f)).Append("] | ");
         BattleRecorder.Note(end.ToString());
-        if (bs.Phase != BattlePhase.Ended) BattleRecorder.NoteEnd(bs, "SCENARIO END — lines, 180 s after contact");
+        if (bs.Phase != BattlePhase.Ended) BattleRecorder.NoteEnd(bs, "SCENARIO END, lines, 180 s after contact");
     }
 
     private static Formation Find(BattleSetup bs, string name)
@@ -765,7 +765,7 @@ public class ScenarioRunner : MonoBehaviour
         BattleRecorder.Note("atEnd blueOfficers[" + OfficersAlive(blue) + "] blueCasualtyPct=" +
                             (100f * (blue.TotalSpawned - blue.soldiers.Count - blue.EscapedCount) / blue.TotalSpawned).ToString("0.0"));
         if (bs.Phase != BattlePhase.Ended)
-            BattleRecorder.NoteEnd(bs, blue.IsRouting ? "SCENARIO END — Blue Century 4 routed" : "SCENARIO END — no rout within 150 s of the flank order");
+            BattleRecorder.NoteEnd(bs, blue.IsRouting ? "SCENARIO END, Blue Century 4 routed" : "SCENARIO END, no rout within 150 s of the flank order");
     }
 
     private void RestoreAndFinish(Dictionary<FieldInfo, object> saved, MoraleConfig cfg)

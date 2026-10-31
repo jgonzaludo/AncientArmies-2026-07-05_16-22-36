@@ -8,13 +8,13 @@ public enum ShockSource { Grind, FrontCasualty, Burst, Flank, Rear, Arrow, Surro
 
 // One formation's morale (DECISIONS 2026-09-21). Pure math: Formation feeds it
 // casualties, the alive count and the melee situation, and reads Value back.
-// It never changes formation state — Formation owns the rout and rally.
+// It never changes formation state, Formation owns the rout and rally.
 //
 // Reported morale = Base - ShockDebt, clamped to 0-100.
-//   Base      — capped by a ceiling built from cumulative losses against
+//   Base, capped by a ceiling built from cumulative losses against
 //               STARTING strength; only recovery raises it. Deliberately
 //               gentle: a frontal grind alone routs only at very heavy losses.
-//   ShockDebt — panic, the main road to a rout: being surrounded, sudden
+//   ShockDebt, panic, the main road to a rout: being surrounded, sudden
 //               massacres, flank and rear kills, contagion, officer deaths.
 //               Everything arrives through AddShock and decays at all times,
 //               slower while more than one enemy formation is in contact.
@@ -56,7 +56,7 @@ public class FormationMorale
 
     public float SourceTotal(ShockSource s) => sourceTotals[(int)s];
 
-    // The largest contributor so far — read at the moment of a rout.
+    // The largest contributor so far, read at the moment of a rout.
     public ShockSource PrimaryCause
     {
         get
@@ -69,7 +69,7 @@ public class FormationMorale
 
     // The one door for sudden pressure. scaled: multiplied by panicScale
     // (everything except officer deaths and surround). capped: rate-limited by
-    // maxShockPerSecond — the excess queues and lands on later ticks, never
+    // maxShockPerSecond, the excess queues and lands on later ticks, never
     // discarded (casualties and contagion; the cap smooths single-tick spikes,
     // it must not blunt sustained encirclement or an officer's death).
     public void AddShock(float amount, ShockSource source, bool scaled = true, bool capped = true)
@@ -83,7 +83,7 @@ public class FormationMorale
 
     // A soldier of this formation was killed. Weight by the zone of the blow
     // (steady frontal losses are muted), or by the burst rule when more than
-    // burstThreshold of starting strength has fallen inside burstWindow —
+    // burstThreshold of starting strength has fallen inside burstWindow,
     // whichever is higher. A sudden massacre panics; a grind does not.
     public void RecordCasualty(DamageZone zone, bool ranged)
     {

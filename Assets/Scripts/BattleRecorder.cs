@@ -6,7 +6,7 @@ using UnityEngine;
 using UnityEngine.SceneManagement;
 
 // Test tooling: records a battle's events in SIMULATION time
-// (BattleSetup.BattleTime) and writes one compact JSON file at battle end —
+// (BattleSetup.BattleTime) and writes one compact JSON file at battle end,
 // first contact per formation pair, every state change with morale / shock /
 // alive / casualty %, every officer death, and the end with its reason, plus
 // a summary. Self-installs on scene load. Editor and development builds.

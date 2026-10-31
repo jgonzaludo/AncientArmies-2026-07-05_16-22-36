@@ -23,7 +23,7 @@ creates local disorder, and reforming requires genuine disengagement.
    It is repository-relative, so it resolves on any clone with no per-machine
    setup.
 
-There are no build or install commands — this is a plain Unity project.
+There are no build or install commands, this is a plain Unity project.
 
 ## Running the game
 
@@ -50,7 +50,7 @@ Assets/                     Unity project assets
 Packages/                   Unity package manifest and lock file
 ProjectSettings/            Unity project configuration
 ThirdPartyPackages/         Local Unity packages (Tripo Unity DCC Bridge)
-ArtSource/                  Art production source — NEVER inside Assets/
+ArtSource/                  Art production source, NEVER inside Assets/
 Docs/                       Authoritative project documentation
 ```
 

@@ -4,7 +4,7 @@ using UnityEngine;
 // Officer grades per SoldierRole (Chunk D). A separate ScriptableObject from
 // MoraleConfig because grades are command structure, not morale. Grades are
 // open-ended integers: higher outranks lower, 0 is a line soldier, and grades
-// 5+ are reserved for army-level officers — nothing here assumes a maximum.
+// 5+ are reserved for army-level officers, nothing here assumes a maximum.
 // Future factions map their own role names onto the same grade numbers.
 [CreateAssetMenu(fileName = "OfficerRanks", menuName = "Ancient Armies/Officer Ranks")]
 public class OfficerRanks : ScriptableObject
