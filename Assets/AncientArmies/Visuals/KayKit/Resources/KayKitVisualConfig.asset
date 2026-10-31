@@ -13,8 +13,16 @@ MonoBehaviour:
   m_Name: KayKitVisualConfig
   m_EditorClassIdentifier: Assembly-CSharp::KayKitVisualConfig
   useKayKitVisual: 1
-  blueMaterial: {fileID: 2100000, guid: 700cae86d2a2d4911a7809c9a2718f17, type: 2}
-  redMaterial: {fileID: 2100000, guid: a2397220e42754b2bb924b29c407a7fe, type: 2}
+  blueMaterials:
+  - {fileID: 2100000, guid: a8e526baee7e04ff1bf136a7453b28bb, type: 2}
+  - {fileID: 2100000, guid: 66edb808bbae841d88bcebfb5a7e471a, type: 2}
+  - {fileID: 2100000, guid: 8c238f475f56f4405939601fbe3fbc78, type: 2}
+  - {fileID: 2100000, guid: 817f2dd9e46d3493a92f3fc657f2795d, type: 2}
+  redMaterials:
+  - {fileID: 2100000, guid: 55d9ce1498e5a40f78fb395062053436, type: 2}
+  - {fileID: 2100000, guid: bc3a567897f904959be253a4ce896938, type: 2}
+  - {fileID: 2100000, guid: a701f37767efe4aaf8cfa696962bf68b, type: 2}
+  - {fileID: 2100000, guid: 750e9df1befa842b2ae5f2726ee283a5, type: 2}
   bowMaterial: {fileID: 2100000, guid: 9df4776a00bb54e3f8d149f48faa31e4, type: 2}
   crossFade: 0.15
   walkReferenceSpeed: 1.6

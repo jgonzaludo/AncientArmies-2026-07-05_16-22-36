@@ -33,6 +33,7 @@ public class OfficerGradeMarkers : MonoBehaviour
 
     private void OnGUI()
     {
+        if (SimSpeed.RenderOff || (!Debug.isDebugBuild && !Application.isEditor) || (BattleSetup.Instance != null && BattleSetup.Instance.Phase == BattlePhase.Ended)) return;   // debug readouts never ship in a release build   // scripted headless runs disable cameras; drawing GUI then errors
         var bs = BattleSetup.Instance;
         if (bs == null || bs.officerRanks == null || bs.Phase == BattlePhase.Ended) return;
         if (commander == null) { commander = bs.GetComponent<PlayerCommander>(); if (commander == null) return; }
@@ -73,10 +74,10 @@ public class OfficerGradeMarkers : MonoBehaviour
         if (pillTex == null)
         {
             pillTex = new Texture2D(1, 1, TextureFormat.RGBA32, false);
-            pillTex.SetPixel(0, 0, new Color(0f, 0f, 0f, 0.72f));
+            pillTex.SetPixel(0, 0, new Color(0f, 0f, 0f, 0.55f));
             pillTex.Apply();
         }
-        int fontSize = Mathf.Max(14, Mathf.RoundToInt(Screen.height * 0.03f));   // ~3 % of screen height
+        int fontSize = Mathf.Max(12, Mathf.RoundToInt(Screen.height * 0.024f));   // ~2.4 % of screen height
         int pad = Mathf.Max(3, fontSize / 5);
         style = new GUIStyle(GUI.skin.label)
         {

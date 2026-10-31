@@ -19,9 +19,9 @@ public class FormationImposterRenderer : MonoBehaviour
 {
     [Header("Tier thresholds (soldier height in 1080p-reference pixels)")]
     [Tooltip("Enter impostor mode at or below this soldier pixel height")]
-    [SerializeField] private float impostorEnterPixels = 30f;
+    [SerializeField] private float impostorEnterPixels = 18f;
     [Tooltip("Leave impostor mode above this (hysteresis)")]
-    [SerializeField] private float impostorExitPixels = 36f;
+    [SerializeField] private float impostorExitPixels = 22f;
     [Tooltip("Soldier shadow casting turns off below this")]
     [SerializeField] private float shadowsOffPixels = 50f;
     [Tooltip("Soldier shadow casting returns at or above this (hysteresis)")]

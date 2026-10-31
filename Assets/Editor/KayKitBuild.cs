@@ -19,6 +19,11 @@ public static class KayKitBuild
     const string Res = Out + "Resources/";
     const float TargetHeight = 1.9f;
     const float EmissionLevel = 0.34f;
+    const float ShieldOutward = 0.15f;
+    const float CapMinYFrac = 0.66f;       // helmet team cap: triangles above this share of the helmet's height take the team colour
+    const float StripeHalfWidth = 0.065f;  // helmet team stripe: half-width in model units (the Knight is 2.4 units tall before scaling)
+    const float StripeLift = 0.012f;       // lifted off the dome along its normal so it never z-fights
+    const float StripeMinYFrac = 0.35f;    // ...and only above this share of the helmet's height
 
     // clip name -> (source fbx, loops)
     static readonly (string clip, string fbx, bool loop)[] Clips =
@@ -90,7 +95,7 @@ public static class KayKitBuild
             mi.clipAnimations = chosen.ToArray();
             mi.SaveAndReimport();
         }
-        foreach (var f in new[] { "sword_1handed", "shield_square", "bow" })
+        foreach (var f in new[] { "sword_1handed", "shield_square", "bow", "arrow_bow" })
         {
             var pi = (ModelImporter)AssetImporter.GetAtPath(Raw + "Props/" + f + ".fbx");
             pi.materialImportMode = ModelImporterMaterialImportMode.None;
@@ -106,11 +111,16 @@ public static class KayKitBuild
         var shieldTiles = new HashSet<(int, int)>();
         foreach (var uv in shieldMesh.uv) shieldTiles.Add((Mathf.Clamp((int)(uv.x * 8f), 0, 7), Mathf.Clamp((int)((1f - uv.y) * 4f), 0, 3)));
         log.AppendLine("shield atlas tiles: " + string.Join(" ", shieldTiles.Select(t => "(" + t.Item1 + "," + t.Item2 + ")")));
-        var blueTex = MakeTeamTexture(srcTex, Out + "Textures/knight_team_blue.png", blue: true, shieldTiles);
-        var redTex = MakeTeamTexture(srcTex, Out + "Textures/knight_team_red.png", blue: false, shieldTiles);
-        var blueMat = MakeMaterial(Out + "Materials/Mat_KayKit_Blue.mat", blueTex);
-        var redMat = MakeMaterial(Out + "Materials/Mat_KayKit_Red.mat", redTex);
-        log.AppendLine("team textures (body + sword + shield in one atlas): " + Out + "Textures/knight_team_blue.png , " + Out + "Textures/knight_team_red.png");
+        var blueMats = new Material[SkinTones.Length]; var redMats = new Material[SkinTones.Length];
+        for (int k = 0; k < SkinTones.Length; k++)
+        {
+            var bt = MakeTeamTexture(srcTex, Out + "Textures/knight_blue_" + SkinNames[k] + ".png", true, k, shieldTiles);
+            var rt = MakeTeamTexture(srcTex, Out + "Textures/knight_red_" + SkinNames[k] + ".png", false, k, shieldTiles);
+            blueMats[k] = MakeMaterial(Out + "Materials/Mat_KayKit_Blue_" + SkinNames[k] + ".mat", bt);
+            redMats[k] = MakeMaterial(Out + "Materials/Mat_KayKit_Red_" + SkinNames[k] + ".mat", rt);
+        }
+        var blueMat = blueMats[0]; var redMat = redMats[0];
+        log.AppendLine("team x skin textures: " + Out + "Textures/knight_{blue|red}_{default|olive|tan|brown}.png (armour-only team colour)");
         var rangerTex = AssetDatabase.LoadAssetAtPath<Texture2D>(Raw + "Props/ranger_texture.png");
         var bowMat = MakeMaterial(Out + "Materials/Mat_KayKit_Bow.mat", rangerTex);
         log.AppendLine("team textures: " + Out + "Textures/knight_team_blue.png , " + Out + "Textures/knight_team_red.png");
@@ -154,6 +164,24 @@ public static class KayKitBuild
         MergeParts(inst2.transform, keep2, new List<(Mesh, Transform)>(), new StringBuilder(), out Transform[] bones2, out float _);
         BuildPrefab(inst2, parts2, mergedArcher, bones2, scale, blueMat, bowMat, melee: false, Res + "VIS_KayKit_Archer.prefab", log);
 
+        // ---------- 3b. arrow prefab (Projectile loads it by name) ----------
+        {
+            var ag = (GameObject)PrefabUtility.InstantiatePrefab(AssetDatabase.LoadAssetAtPath<GameObject>(Raw + "Props/arrow_bow.fbx"));
+            PrefabUtility.UnpackPrefabInstance(ag, PrefabUnpackMode.Completely, InteractionMode.AutomatedAction);
+            var rr = ag.GetComponentsInChildren<Renderer>(true);
+            foreach (var r in rr) { r.sharedMaterial = bowMat; r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off; r.lightProbeUsage = UnityEngine.Rendering.LightProbeUsage.Off; r.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.Off; }
+            var ab = rr[0].bounds;
+            // the Projectile root flies along +Z: turn the model's long axis onto +Z (tip direction is checked in the preview)
+            var holder = new GameObject("VIS_KayKit_Arrow");
+            ag.transform.SetParent(holder.transform, false);
+            int axis = ab.size.x >= ab.size.y && ab.size.x >= ab.size.z ? 0 : (ab.size.y >= ab.size.z ? 1 : 2);
+            ag.transform.localRotation = axis == 0 ? Quaternion.Euler(0f, -90f, 0f) : axis == 1 ? Quaternion.Euler(90f, 0f, 0f) : Quaternion.identity;
+            if (File.Exists(Res + "VIS_KayKit_Arrow.prefab")) AssetDatabase.DeleteAsset(Res + "VIS_KayKit_Arrow.prefab");
+            PrefabUtility.SaveAsPrefabAsset(holder, Res + "VIS_KayKit_Arrow.prefab");
+            UnityEngine.Object.DestroyImmediate(holder);
+            log.AppendLine("arrow prefab: size=" + ab.size + " longAxis=" + axis);
+        }
+
         // ---------- 4. controllers ----------
         MakeController(Out + "Controllers/AC_KayKit_Melee.controller", melee: true, log);
         MakeController(Out + "Controllers/AC_KayKit_Archer.controller", melee: false, log);
@@ -164,7 +192,7 @@ public static class KayKitBuild
         if (AssetDatabase.LoadAssetAtPath<KayKitVisualConfig>(cfgPath) == null)
             AssetDatabase.CreateAsset(ScriptableObject.CreateInstance<KayKitVisualConfig>(), cfgPath);
         var cfg = AssetDatabase.LoadAssetAtPath<KayKitVisualConfig>(cfgPath);
-        cfg.blueMaterial = blueMat; cfg.redMaterial = redMat; cfg.bowMaterial = bowMat;
+        cfg.blueMaterials = blueMats; cfg.redMaterials = redMats; cfg.bowMaterial = bowMat;
         EditorUtility.SetDirty(cfg);
 
         ki.isReadable = false; ki.SaveAndReimport();
@@ -174,6 +202,79 @@ public static class KayKitBuild
     }
 
     // ---------- helpers ----------
+
+    // A clean stripe on the helmet: sample the dome's top surface along x = +-StripeHalfWidth for z from brow to nape, lift each sample a
+    // hair along the surface normal and join them into a ribbon (both windings), UV on the team armour tile so it takes the team colour.
+    static void AddHelmetStripe(List<Vector3> verts, List<Vector3> norms, List<Vector2> uvs, List<BoneWeight> weights, List<int> tris,
+                                int baseIdx, int vcount, StringBuilder log)
+    {
+        float minZ = float.MaxValue, maxZ = float.MinValue, minY = float.MaxValue, maxY = float.MinValue;
+        for (int i = 0; i < vcount; i++) { var q = verts[baseIdx + i]; minZ = Mathf.Min(minZ, q.z); maxZ = Mathf.Max(maxZ, q.z); minY = Mathf.Min(minY, q.y); maxY = Mathf.Max(maxY, q.y); }
+        float yMin = minY + StripeMinYFrac * (maxY - minY);
+        Vector2 stripeUv = new Vector2((3 + 0.5f) / 8f, 1f - 0.5f / 4f);   // middle of the team-tinted steel tile (3,0)
+        const int cols = 5, steps = 18;                       // 5 points across so the ribbon follows the dome's curve instead of cutting a chord through it
+        var rowsIdx = new List<int[]>();
+        for (int k = 0; k <= steps; k++)
+        {
+            float z = Mathf.Lerp(minZ + 0.08f * (maxZ - minZ), maxZ - 0.04f * (maxZ - minZ), k / (float)steps);
+            var row = new int[cols]; bool ok = true;
+            var hits = new SurfacePoint[cols];
+            for (int j = 0; j < cols && ok; j++)
+            {
+                hits[j] = SurfaceHit(verts, tris, Mathf.Lerp(-StripeHalfWidth, StripeHalfWidth, j / (float)(cols - 1)), z);
+                if (!hits[j].ok || hits[j].p.y < yMin) ok = false;
+            }
+            if (!ok) continue;
+            for (int j = 0; j < cols; j++) row[j] = AddStripeVertex(verts, norms, uvs, weights, baseIdx, vcount, hits[j], stripeUv);
+            rowsIdx.Add(row);
+        }
+        for (int i = 0; i + 1 < rowsIdx.Count; i++)
+            for (int j = 0; j + 1 < cols; j++)
+            {
+                int a = rowsIdx[i][j], b = rowsIdx[i][j + 1], c = rowsIdx[i + 1][j], d = rowsIdx[i + 1][j + 1];
+                tris.Add(a); tris.Add(b); tris.Add(c); tris.Add(b); tris.Add(d); tris.Add(c);   // one winding
+                tris.Add(a); tris.Add(c); tris.Add(b); tris.Add(b); tris.Add(c); tris.Add(d);   // and the other, so it shows from whichever side
+            }
+        int stripeSamples = rowsIdx.Count;
+        log.AppendLine("helmet stripe: " + stripeSamples + " rows, width " + (2 * StripeHalfWidth).ToString("0.00") + " m");
+    }
+
+    struct SurfacePoint { public bool ok; public Vector3 p, n; }
+    static SurfacePoint SurfaceHit(List<Vector3> verts, List<int> tri, float x, float z)   // over every triangle merged so far: the head and the helmet
+    
+    {
+        var best = new SurfacePoint(); float bestY = float.MinValue;
+        for (int t = 0; t + 2 < tri.Count; t += 3)
+        {
+            Vector3 a = verts[tri[t]], b = verts[tri[t + 1]], c = verts[tri[t + 2]];
+            float d = (b.z - c.z) * (a.x - c.x) + (c.x - b.x) * (a.z - c.z);
+            if (Mathf.Abs(d) < 1e-8f) continue;
+            float u = ((b.z - c.z) * (x - c.x) + (c.x - b.x) * (z - c.z)) / d, w = ((c.z - a.z) * (x - c.x) + (a.x - c.x) * (z - c.z)) / d, vv = 1f - u - w;
+            if (u < 0f || w < 0f || vv < 0f) continue;
+            float y = u * a.y + w * b.y + vv * c.y;
+            if (y > bestY)
+            {
+                bestY = y; var n = Vector3.Cross(b - a, c - a).normalized; if (n.y < 0f) n = -n;
+                best = new SurfacePoint { ok = true, p = new Vector3(x, y, z), n = n };
+            }
+        }
+        return best;
+    }
+
+    static int AddStripeVertex(List<Vector3> verts, List<Vector3> norms, List<Vector2> uvs, List<BoneWeight> weights, int baseIdx, int vcount, SurfacePoint sp, Vector2 uv)
+    {
+        int nearest = 0; float nd = float.MaxValue;
+        for (int i = 0; i < vcount; i++) { float d = (verts[baseIdx + i] - sp.p).sqrMagnitude; if (d < nd) { nd = d; nearest = i; } }
+        verts.Add(sp.p + sp.n * StripeLift); norms.Add(sp.n); uvs.Add(uv); weights.Add(weights[baseIdx + nearest]);
+        return verts.Count - 1;
+    }
+
+    static Vector2 NaturalSteelUV(Vector2 uv)
+    {
+        int c = Mathf.Clamp((int)(uv.x * 8f), 0, 7), r = Mathf.Clamp((int)((1f - uv.y) * 4f), 0, 3);
+        if (!SteelCopies.TryGetValue((c, r), out var to)) return uv;
+        return new Vector2(uv.x + (to.Item1 - c) / 8f, uv.y - (to.Item2 - r) / 4f);
+    }
 
     static Mesh MergeParts(Transform root, List<SkinnedMeshRenderer> parts, List<(Mesh mesh, Transform slot)> props, StringBuilder log, out Transform[] bones, out float height)
     {
@@ -203,11 +304,37 @@ public static class KayKitBuild
             var v = m.vertices; var n = m.normals; var uv = m.uv; var bw = m.boneWeights;
             for (int i = 0; i < v.Length; i++)
             {
-                verts.Add(M.MultiplyPoint3x4(v[i])); norms.Add(M.MultiplyVector(n[i]).normalized); uvs.Add(uv[i]);
+                verts.Add(M.MultiplyPoint3x4(v[i])); norms.Add(M.MultiplyVector(n[i]).normalized); uvs.Add(part.name.Contains("Helmet") ? NaturalSteelUV(uv[i]) : uv[i]);
                 var w = bw[i];
                 weights.Add(new BoneWeight { boneIndex0 = map[w.boneIndex0], boneIndex1 = map[w.boneIndex1], boneIndex2 = map[w.boneIndex2], boneIndex3 = map[w.boneIndex3], weight0 = w.weight0, weight1 = w.weight1, weight2 = w.weight2, weight3 = w.weight3 });
             }
-            foreach (int t in m.triangles) tris.Add(t + baseIdx);
+            if (part.name.Contains("Helmet"))
+            {
+                // team cap: the helmet triangles above CapMinYFrac of its height keep the ORIGINAL uv - the team-coloured armour tile - on duplicated
+                // vertices; the rest use the natural-steel copy. The cap's lower edge follows a ring of the helmet's own facets, so it reads clean
+                // from the game camera (a thin centre stripe was either jagged or buried in the dome).
+                float minY = float.MaxValue, maxY = float.MinValue;
+                for (int i = 0; i < v.Length; i++) { var q = verts[baseIdx + i]; minY = Mathf.Min(minY, q.y); maxY = Mathf.Max(maxY, q.y); }
+                float cut = minY + CapMinYFrac * (maxY - minY);
+                var tri = m.triangles; int capped = 0;
+                for (int t = 0; t < tri.Length; t += 3)
+                {
+                    float cy = (verts[baseIdx + tri[t]].y + verts[baseIdx + tri[t + 1]].y + verts[baseIdx + tri[t + 2]].y) / 3f;
+                    if (cy > cut)
+                    {
+                        capped++;
+                        for (int k = 0; k < 3; k++)
+                        {
+                            int src = tri[t + k];
+                            verts.Add(verts[baseIdx + src]); norms.Add(norms[baseIdx + src]); uvs.Add(uv[src]); weights.Add(weights[baseIdx + src]);
+                            tris.Add(verts.Count - 1);
+                        }
+                    }
+                    else { tris.Add(tri[t] + baseIdx); tris.Add(tri[t + 1] + baseIdx); tris.Add(tri[t + 2] + baseIdx); }
+                }
+                log.AppendLine("helmet team cap: " + capped + " of " + tri.Length / 3 + " triangles above y=" + cut.ToString("0.00"));
+            }
+            else foreach (int t in m.triangles) tris.Add(t + baseIdx);
         }
         // props rigidly skinned to their hand slot (slot bone, else its parent hand bone): v_root = slot->root * v_prop
         foreach (var (pm, slot) in props)
@@ -216,11 +343,14 @@ public static class KayKitBuild
             if (bi < 0) bi = Array.IndexOf(names, slot.parent.name);
             if (bi < 0) throw new Exception("no bone for prop slot " + slot.name);
             Matrix4x4 M = root.worldToLocalMatrix * slot.localToWorldMatrix;
+            // the shield slab is centred on the hand slot, which buries the forearm armour in it (38% of the arm vertices across the
+            // animation set sat inside it, measured): slide it 0.15 m out along the slot's Z so the arm is behind its back face
+            if (slot.name == "handslot.l") M = M * Matrix4x4.Translate(new Vector3(0f, 0f, ShieldOutward));
             int baseIdx = verts.Count;
             var v = pm.vertices; var n = pm.normals; var uv = pm.uv;
             for (int i = 0; i < v.Length; i++)
             {
-                verts.Add(M.MultiplyPoint3x4(v[i])); norms.Add(M.MultiplyVector(n[i]).normalized); uvs.Add(uv[i]);
+                verts.Add(M.MultiplyPoint3x4(v[i])); norms.Add(M.MultiplyVector(n[i]).normalized); uvs.Add(slot.name == "handslot.r" ? NaturalSteelUV(uv[i]) : uv[i]);   // the sword keeps natural steel
                 weights.Add(new BoneWeight { boneIndex0 = bi, weight0 = 1f });
             }
             foreach (int t in pm.triangles) tris.Add(t + baseIdx);
@@ -301,30 +431,78 @@ public static class KayKitBuild
         return null;
     }
 
-    static Texture2D MakeTeamTexture(string srcPath, string dstPath, bool blue, HashSet<(int, int)> shieldTiles)
+    // Natural-steel copies: the helmet and sword sample steel tiles that the body armour shares, so their UVs are moved
+    // onto spare, untinted copies of those tiles (bottom row of the atlas, unused by the soldier).
+    public static readonly Dictionary<(int, int), (int, int)> SteelCopies = new Dictionary<(int, int), (int, int)>
+    { { (3, 0), (5, 3) }, { (7, 0), (6, 3) }, { (7, 1), (7, 3) }, { (4, 0), (4, 3) }, { (2, 1), (3, 3) } };
+
+    // Four skin tones: face tile (0,0) and its shade tile (1,0). Index 0 is the KayKit default.
+    static readonly (Color face, Color shade)[] SkinTones =
+    {
+        (new Color32(0xF6, 0xC0, 0x9C, 255), new Color32(0xDA, 0xAE, 0x7D, 255)),   // default
+        (new Color32(0xE8, 0xB8, 0x8A, 255), new Color32(0xCB, 0x9A, 0x68, 255)),   // olive
+        (new Color32(0xD9, 0xA0, 0x70, 255), new Color32(0xB5, 0x79, 0x4A, 255)),   // tan
+        (new Color32(0xBD, 0x81, 0x56, 255), new Color32(0x98, 0x60, 0x3A, 255)),   // brown
+    };
+    static readonly Color[] BrowColors =
+    {
+        new Color32(0x5B, 0x3F, 0x26, 255),   // default skin: dark brown
+        new Color32(0x2F, 0x22, 0x18, 255),   // olive: black-brown
+        new Color32(0x4A, 0x2F, 0x1C, 255),   // tan: dark chestnut
+        new Color32(0x1F, 0x17, 0x12, 255),   // brown: near black
+    };
+    static readonly string[] SkinNames = { "default", "olive", "tan", "brown" };
+
+    static void ScaleTile(Color[] px, int W, int H, int c, int r, Color target)
+    {
+        int tw = W / 8, th = H / 4, x0 = c * tw, y0 = H - (r + 1) * th;
+        Color mid = px[(y0 + th / 2) * W + x0 + tw / 2];
+        Vector3 k = new Vector3(mid.r > 0.001f ? target.r / mid.r : 1f, mid.g > 0.001f ? target.g / mid.g : 1f, mid.b > 0.001f ? target.b / mid.b : 1f);
+        for (int y = y0; y < y0 + th; y++)
+            for (int x = x0; x < x0 + tw; x++)
+            {
+                Color p = px[y * W + x];
+                px[y * W + x] = new Color(Mathf.Clamp01(p.r * k.x), Mathf.Clamp01(p.g * k.y), Mathf.Clamp01(p.b * k.z), 1f);
+            }
+    }
+
+    static Texture2D MakeTeamTexture(string srcPath, string dstPath, bool blue, int skin, HashSet<(int, int)> shieldTiles)
     {
         var tex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
         tex.LoadImage(File.ReadAllBytes(srcPath));
         int W = tex.width, H = tex.height, tw = W / 8, th = H / 4;
         var px = tex.GetPixels();
-        // Team palette: the two saturated-red tiles go blue (blue team) / stay red; the dark
-        // slate cloth+armour tiles take the team hue so a century reads blue or red at a glance.
-        // Skin, leather, gold trim and bright steel are left alone.
-        float teamHue = blue ? 0.60f : 0.99f;
+        var orig = (Color[])px.Clone();
+        // 1. natural-steel copies into the spare tiles (before any tinting)
+        foreach (var kv in SteelCopies)
+        {
+            int sx = kv.Key.Item1 * tw, sy = H - (kv.Key.Item2 + 1) * th, dx = kv.Value.Item1 * tw, dy = H - (kv.Value.Item2 + 1) * th;
+            for (int y = 0; y < th; y++) for (int x = 0; x < tw; x++) px[(dy + y) * W + dx + x] = orig[(sy + y) * W + sx + x];
+        }
+        // 2. skin: only the two face tiles change, to the chosen tone (the eyes, leather and trim stay as they are)
+        if (skin > 0) ScaleTile(px, W, H, 0, 0, SkinTones[skin].face);
+        // eyebrows (and the hair under the helmet) sample tile (1,0): a darker brow colour per tone, all darker than KayKit's pale golden default
+        ScaleTile(px, W, H, 1, 0, BrowColors[skin]);
+        // 3. armour only: steel plates and the tabard take the team colour; everything else is natural
+        float hue = blue ? 0.575f : 0.005f;            // blue aims a little under the banner hue (lighting pushes it toward indigo)
+        float armourSat = blue ? 0.70f : 0.78f;
+        var steel = new HashSet<(int, int)> { (3, 0), (7, 0), (2, 1) };
+        var darkSteel = new HashSet<(int, int)> { (7, 1), (4, 0) };
+        var tabard = new HashSet<(int, int)> { (0, 1), (2, 2) };
         for (int y = 0; y < H; y++)
             for (int x = 0; x < W; x++)
             {
+                int c = x / tw, r = (H - 1 - y) / th;
+                var t = (c, r);
                 Color col = px[y * W + x];
                 Color.RGBToHSV(col, out float h, out float sat, out float v);
-                int c = x / tw, r = (H - 1 - y) / th;   // tile column, row from the top
-                if (shieldTiles.Contains((c, r)) && sat > 0.30f && !((c == 0 && r == 1) || (c == 2 && r == 2)))
-                { px[y * W + x] = Color.HSVToRGB(blue ? 0.60f : 0.99f, Mathf.Clamp01(Mathf.Max(sat, 0.65f)), Mathf.Clamp01(v * 1.15f)); continue; }
-                bool redTile = (c == 0 && r == 1) || (c == 2 && r == 2);
-                if (redTile)
-                { if (blue) px[y * W + x] = Color.HSVToRGB(0.60f, Mathf.Clamp01(sat * 0.95f), v); continue; }
-                bool darkCloth = sat < 0.40f && v >= 0.10f && v <= 0.55f;   // slate / near-black greys
-                if (darkCloth)
-                    px[y * W + x] = Color.HSVToRGB(teamHue, blue ? 0.62f : 0.72f, Mathf.Clamp01(v * (blue ? 1.45f : 1.2f) + 0.06f));
+                if (steel.Contains(t)) px[y * W + x] = Color.HSVToRGB(hue, armourSat, Mathf.Clamp01(v * 1.15f + 0.05f));
+                else if (darkSteel.Contains(t)) px[y * W + x] = Color.HSVToRGB(hue, armourSat, Mathf.Clamp01(v * 1.15f + 0.05f));
+                else if (tabard.Contains(t)) px[y * W + x] = blue ? Color.HSVToRGB(0.575f, Mathf.Clamp01(sat * 0.95f), Mathf.Clamp01(v * 1.05f))
+                                                                  : Color.HSVToRGB(h, Mathf.Clamp01(sat * 0.95f), Mathf.Clamp01(v * 1.2f));
+                else if (c == 4 && r == 1) px[y * W + x] = Color.HSVToRGB(0.115f, Mathf.Lerp(sat, 0.62f, 0.7f), v);   // banner gold trim
+                else if (shieldTiles.Contains(t) && sat > 0.30f)
+                    px[y * W + x] = Color.HSVToRGB(blue ? 0.575f : 0.005f, Mathf.Clamp01(Mathf.Max(sat, 0.65f)), Mathf.Clamp01(v * 1.15f));
             }
         tex.SetPixels(px); tex.Apply();
         File.WriteAllBytes(dstPath, tex.EncodeToPNG());
@@ -332,7 +510,7 @@ public static class KayKitBuild
         AssetDatabase.ImportAsset(dstPath);
         var ti = (TextureImporter)AssetImporter.GetAtPath(dstPath);
         ti.mipmapEnabled = true; ti.filterMode = FilterMode.Bilinear; ti.textureCompression = TextureImporterCompression.Compressed;
-        ti.maxTextureSize = 512;   // a gradient palette atlas: half resolution loses nothing
+        ti.maxTextureSize = 512;
         ti.SaveAndReimport();
         return AssetDatabase.LoadAssetAtPath<Texture2D>(dstPath);
     }

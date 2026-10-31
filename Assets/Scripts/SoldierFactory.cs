@@ -44,7 +44,7 @@ public static class SoldierFactory
         // Capsule body + cube weapon: the weapon doubles as the facing
         // indicator, which is the only readable heading cue a pill has.
         Renderer bodyR; Transform weaponT = null;
-        GameObject kayKit = TryCreateKayKit(root, f, ranged);
+        GameObject kayKit = TryCreateKayKit(root, f, ranged, slot);
         if (kayKit != null) bodyR = kayKit.GetComponentInChildren<SkinnedMeshRenderer>(true);
         else
         {
@@ -101,7 +101,7 @@ public static class SoldierFactory
     private static KayKitVisualConfig kayKitCfg;
     private static GameObject kayKitMelee, kayKitArcher;
     private static bool kayKitLoaded;
-    private static GameObject TryCreateKayKit(GameObject root, Formation f, bool ranged)
+    private static GameObject TryCreateKayKit(GameObject root, Formation f, bool ranged, int slot)
     {
         if (!kayKitLoaded)
         {
@@ -117,7 +117,10 @@ public static class SoldierFactory
         go.name = "VisualRoot";
         go.transform.localPosition = Vector3.zero;
         go.transform.localRotation = Quaternion.identity;
-        Material team = f.team == Team.Blue ? kayKitCfg.blueMaterial : kayKitCfg.redMaterial;
+        // skin tone: a stable per-soldier pick (formation name + slot), so a century has a mix and every run looks the same
+        var mats = f.team == Team.Blue ? kayKitCfg.blueMaterials : kayKitCfg.redMaterials;
+        int hash = slot * 7 + 3; foreach (char ch in f.displayName) hash = hash * 31 + ch;
+        Material team = mats[(hash & 0x7fffffff) % mats.Length];
         foreach (var r in go.GetComponentsInChildren<Renderer>(true))
         {
             // the body mesh carries body + sword + shield in one team atlas; only the archer's bow keeps its own wood material

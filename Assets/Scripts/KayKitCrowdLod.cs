@@ -6,8 +6,8 @@ using UnityEngine;
 //   >= 110 px  mesh LOD0, animator every frame, nobody hidden
 //   70-110     mesh LOD1
 //   45-70      mesh LOD2, animator every 2nd frame
-//   30-45      mesh LOD3, animator every 3rd frame, every 2nd man not drawn
-//   <= 30      the impostor renderer takes over (this class does nothing there)
+//   22-45      mesh LOD3 (lowest), animator every 4th frame, everyone still drawn
+//   <= 18      the impostor renderer takes over (this class does nothing there)
 // Hidden men are still simulated; only their drawing is skipped, and the
 // impostor quads / remaining men keep the block readable.
 public static class KayKitCrowdLod
@@ -18,6 +18,8 @@ public static class KayKitCrowdLod
     public static int Version { get; private set; }
     private static int frame = -1;
     private static int tier;
+
+    public static void ResetVersionForTest() { Version++; }   // scenario hook: makes every soldier re-apply its tier
 
     public static void Refresh()
     {
@@ -35,8 +37,8 @@ public static class KayKitCrowdLod
         {
             tier = want; Version++;
             MeshLod = Mathf.Clamp(tier, 0, 3);
-            AnimStride = tier <= 1 ? 1 : (tier == 2 ? 2 : 3);
-            ThinMod = tier >= 3 ? 2 : 0;
+            AnimStride = tier <= 1 ? 1 : (tier == 2 ? 2 : 4);
+            ThinMod = 0;   // nobody is hidden: far men get simpler, not removed (the impostor blocks only take over very far out)
         }
     }
 }

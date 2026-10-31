@@ -86,6 +86,21 @@ public static class KayKitPreview
     public static bool CloseUp;
     public static string Render() { CloseUp = false; return Do(); }
     public static string RenderClose() { CloseUp = true; return Do(); }
+    public static string RenderArrow()
+    {
+        var prefab = Resources.Load<GameObject>("VIS_KayKit_Arrow");
+        if (prefab == null) return "arrow prefab missing";
+        var pru = new PreviewRenderUtility();
+        pru.camera.orthographic = true; pru.camera.orthographicSize = 0.8f; pru.camera.transform.position = new Vector3(3f, 1f, 0f); pru.camera.transform.LookAt(Vector3.zero);
+        pru.camera.backgroundColor = new Color(0.72f, 0.69f, 0.58f); pru.camera.clearFlags = CameraClearFlags.SolidColor; pru.ambientColor = Color.white; pru.lights[0].intensity = 1f;
+        var go = Object.Instantiate(prefab); pru.AddSingleGO(go);   // flies along +Z: the camera looks from +X so +Z is to the screen's left... marker below
+        var marker = GameObject.CreatePrimitive(PrimitiveType.Sphere); marker.transform.localScale = Vector3.one * 0.12f; marker.transform.position = new Vector3(0f, 0f, 1f); pru.AddSingleGO(marker);
+        pru.BeginPreview(new Rect(0, 0, 800, 400), GUIStyle.none); pru.camera.Render();
+        var tex = pru.EndPreview() as RenderTexture; var prev = RenderTexture.active; RenderTexture.active = tex;
+        var t2 = new Texture2D(tex.width, tex.height, TextureFormat.RGB24, false); t2.ReadPixels(new Rect(0, 0, tex.width, tex.height), 0, 0); t2.Apply(); RenderTexture.active = prev;
+        System.IO.File.WriteAllBytes(System.IO.Path.Combine(Application.dataPath, "..", "Temp", "kaykit_arrow.png"), t2.EncodeToPNG()); pru.Cleanup();
+        return "wrote Temp/kaykit_arrow.png (white ball = +Z, the direction of flight)";
+    }
     static string Do()
     {
         var cfg = Resources.Load<KayKitVisualConfig>("KayKitVisualConfig");
@@ -100,9 +115,9 @@ public static class KayKitPreview
         pru.ambientColor = new Color(0.212f, 0.227f, 0.259f); pru.lights[0].intensity = 1f; pru.lights[1].intensity = 0f;   // the Battle scene's real ambient and one white sun pru.lights[0].transform.rotation = Quaternion.Euler(50f, -30f, 0f);
         var sb = new System.Text.StringBuilder();
         var specs = new[] {
-            (melee, cfg.blueMaterial, "Idle_A", 0.3f, -3.0f), (melee, cfg.redMaterial, "Melee_1H_Attack_Stab", 0.45f, -1.0f),
-            (archer, cfg.blueMaterial, "Ranged_Bow_Draw", 0.5f, 1.0f), (archer, cfg.redMaterial, "Ranged_Bow_Aiming_Idle", 0.4f, 3.0f) };
-        if (CloseUp) specs = new[] { (melee, cfg.blueMaterial, "Idle_A", 0.3f, -2.4f), (melee, cfg.blueMaterial, "Melee_1H_Attack_Stab", 0.45f, 0.0f), (archer, cfg.blueMaterial, "Ranged_Bow_Draw", 0.6f, 2.4f) };
+            (melee, cfg.blueMaterials[0], "Idle_A", 0.3f, -3.0f), (melee, cfg.redMaterials[0], "Melee_1H_Attack_Stab", 0.45f, -1.0f),
+            (archer, cfg.blueMaterials[0], "Ranged_Bow_Draw", 0.5f, 1.0f), (archer, cfg.redMaterials[0], "Ranged_Bow_Aiming_Idle", 0.4f, 3.0f) };
+        if (CloseUp) specs = new[] { (melee, cfg.blueMaterials[0], "Idle_A", 0.3f, -2.4f), (melee, cfg.blueMaterials[0], "Melee_1H_Attack_Stab", 0.45f, 0.0f), (archer, cfg.blueMaterials[0], "Ranged_Bow_Draw", 0.6f, 2.4f) };
         var clips = AssetDatabase.FindAssets("t:AnimationClip", new[] { "Assets/ThirdParty/KayKit/Animations" })
             .SelectMany(g => AssetDatabase.LoadAllAssetsAtPath(AssetDatabase.GUIDToAssetPath(g)).OfType<AnimationClip>()).GroupBy(c => c.name).ToDictionary(g => g.Key, g => g.First());
         var insts = new System.Collections.Generic.List<GameObject>();
@@ -129,5 +144,303 @@ public static class KayKitPreview
         System.IO.File.WriteAllBytes(System.IO.Path.Combine(Application.dataPath, "..", "Temp", "kaykit_preview.png"), t2.EncodeToPNG());
         pru.Cleanup();
         return sb.ToString() + "wrote Temp/kaykit_preview.png";
+    }
+}
+
+public static class KayKitTiles
+{
+    // Which 8x4 atlas tiles each Knight part samples (by vertex count), with the tile's average colour.
+    public static string ByPart()
+    {
+        var go = AssetDatabase.LoadAssetAtPath<GameObject>("Assets/ThirdParty/KayKit/Characters/Knight.fbx");
+        var tex = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/ThirdParty/KayKit/Characters/knight_texture.png");
+        var ti = (TextureImporter)AssetImporter.GetAtPath("Assets/ThirdParty/KayKit/Characters/knight_texture.png");
+        var raw = new Texture2D(2, 2); raw.LoadImage(System.IO.File.ReadAllBytes("Assets/ThirdParty/KayKit/Characters/knight_texture.png"));
+        var sb = new System.Text.StringBuilder();
+        foreach (var r in go.GetComponentsInChildren<SkinnedMeshRenderer>(true))
+        {
+            var counts = new System.Collections.Generic.Dictionary<(int, int), int>();
+            foreach (var uv in r.sharedMesh.uv)
+            {
+                var k = (Mathf.Clamp((int)(uv.x * 8f), 0, 7), Mathf.Clamp((int)((1f - uv.y) * 4f), 0, 3));
+                counts[k] = counts.TryGetValue(k, out int c) ? c + 1 : 1;
+            }
+            sb.Append(r.name).Append(": ");
+            foreach (var kv in counts.OrderByDescending(k => k.Value))
+            {
+                int tw = raw.width / 8, th = raw.height / 4;
+                var col = raw.GetPixel(kv.Key.Item1 * tw + tw / 2, raw.height - 1 - (kv.Key.Item2 * th + th / 2));
+                sb.Append("(" + kv.Key.Item1 + "," + kv.Key.Item2 + ")x" + kv.Value + "=#" + ColorUtility.ToHtmlStringRGB(col) + "  ");
+            }
+            sb.AppendLine();
+        }
+        return sb.ToString();
+    }
+}
+
+public static class KayKitMeshTiles
+{
+    public static string Merged()
+    {
+        var sb = new System.Text.StringBuilder();
+        foreach (var n in new[] { "KayKit_Melee_Merged", "KayKit_Archer_Merged" })
+        {
+            var m = AssetDatabase.LoadAssetAtPath<Mesh>("Assets/AncientArmies/Visuals/KayKit/Meshes/" + n + ".asset");
+            var counts = new System.Collections.Generic.Dictionary<(int, int), int>();
+            foreach (var uv in m.uv) { var k = (Mathf.Clamp((int)(uv.x * 8f), 0, 7), Mathf.Clamp((int)((1f - uv.y) * 4f), 0, 3)); counts[k] = counts.TryGetValue(k, out int c) ? c + 1 : 1; }
+            sb.Append(n + ": ").AppendLine(string.Join(" ", counts.OrderByDescending(k => k.Value).Select(k => "(" + k.Key.Item1 + "," + k.Key.Item2 + ")x" + k.Value)));
+        }
+        return sb.ToString();
+    }
+}
+
+public static class KayKitIso
+{
+    // The two team prefabs seen from the game camera angle (40 deg pitch, from behind), neutral white light.
+    public static string Render()
+    {
+        var cfg = Resources.Load<KayKitVisualConfig>("KayKitVisualConfig");
+        var melee = Resources.Load<GameObject>("VIS_KayKit_Melee");
+        var pru = new PreviewRenderUtility();
+        pru.camera.orthographic = true; pru.camera.orthographicSize = 1.5f;
+        pru.camera.transform.position = new Vector3(0f, 1f, -6f) + Quaternion.Euler(40f, 0f, 0f) * Vector3.back * 0f;
+        pru.camera.transform.rotation = Quaternion.Euler(40f, 0f, 0f);
+        pru.camera.transform.position = new Vector3(0f, 1.2f, 0f) - pru.camera.transform.forward * 10f;
+        pru.camera.backgroundColor = new Color(0.72f, 0.69f, 0.58f); pru.camera.clearFlags = CameraClearFlags.SolidColor;
+        pru.ambientColor = new Color(0.55f, 0.55f, 0.55f); pru.lights[0].intensity = 1.0f; pru.lights[1].intensity = 0.4f;
+        float x = -2.2f;
+        foreach (var mats in new[] { cfg.blueMaterials, cfg.redMaterials })
+            for (int k = 0; k < 4; k++)
+            {
+                if (k >= mats.Length) continue;
+                var go = Object.Instantiate(melee); pru.AddSingleGO(go);
+                go.transform.position = new Vector3(x, 0f, 0f); x += 0.62f;
+                foreach (var r in go.GetComponentsInChildren<Renderer>(true)) r.sharedMaterial = mats[k];
+                var clips = AssetDatabase.LoadAllAssetsAtPath("Assets/ThirdParty/KayKit/Animations/Rig_Medium_General.fbx").OfType<AnimationClip>().FirstOrDefault(c => c.name == "Idle_A");
+                if (clips != null) clips.SampleAnimation(go, 0.2f);
+            }
+        pru.BeginPreview(new Rect(0, 0, 1800, 500), GUIStyle.none); pru.camera.Render();
+        var tex = pru.EndPreview() as RenderTexture; var prev = RenderTexture.active; RenderTexture.active = tex;
+        var t2 = new Texture2D(tex.width, tex.height, TextureFormat.RGB24, false); t2.ReadPixels(new Rect(0, 0, tex.width, tex.height), 0, 0); t2.Apply(); RenderTexture.active = prev;
+        System.IO.File.WriteAllBytes(System.IO.Path.Combine(Application.dataPath, "..", "Temp", "kaykit_iso.png"), t2.EncodeToPNG()); pru.Cleanup();
+        return "wrote Temp/kaykit_iso.png";
+    }
+}
+
+public static class KayKitAnimSheet
+{
+    public static readonly string[] ClipNames = { "Idle_A", "Melee_Blocking", "Walking_A", "Running_A", "Melee_1H_Attack_Stab", "Melee_1H_Attack_Chop",
+        "Melee_1H_Attack_Slice_Diagonal", "Melee_Block_Hit", "Hit_A", "Death_A", "Death_A_Pose", "Cheering" };
+    static readonly string[] Fbx = { "General", "CombatMelee", "MovementBasic", "MovementBasic", "CombatMelee", "CombatMelee", "CombatMelee", "CombatMelee", "General", "General", "General", "Simulation" };
+
+    // Reads Temp/prop_offsets.txt: "shield px py pz rx ry rz" and "sword ..." lines (local to the hand slot), so the offsets can be tried without a rebuild.
+    public static string Render()
+    {
+        var offs = new System.Collections.Generic.Dictionary<string, float[]>();
+        string op = System.IO.Path.Combine(Application.dataPath, "..", "Temp", "prop_offsets.txt");
+        if (System.IO.File.Exists(op))
+            foreach (var line in System.IO.File.ReadAllLines(op)) { var p = line.Split(' '); if (p.Length >= 7) offs[p[0]] = p.Skip(1).Select(x => float.Parse(x, System.Globalization.CultureInfo.InvariantCulture)).ToArray(); }
+        var cfg = Resources.Load<KayKitVisualConfig>("KayKitVisualConfig");
+        var mat = cfg.blueMaterials[0];
+        var knight = AssetDatabase.LoadAssetAtPath<GameObject>("Assets/ThirdParty/KayKit/Characters/Knight.fbx");
+        var pru = new PreviewRenderUtility();
+        pru.camera.orthographic = true; pru.camera.orthographicSize = 1.75f; pru.camera.nearClipPlane = 0.1f; pru.camera.farClipPlane = 40f; pru.camera.aspect = 1f;
+        pru.camera.backgroundColor = new Color(0.72f, 0.69f, 0.58f); pru.camera.clearFlags = CameraClearFlags.SolidColor;
+        pru.ambientColor = new Color(0.85f, 0.85f, 0.85f); pru.lights[0].intensity = 1.1f; pru.lights[1].intensity = 0.6f;
+        var go = (GameObject)Object.Instantiate(knight); pru.AddSingleGO(go);
+        foreach (var r in go.GetComponentsInChildren<SkinnedMeshRenderer>(true))
+        {
+            if (r.name.Contains("Cape") || r.name.Contains("Visor")) { r.gameObject.SetActive(false); continue; }
+            r.sharedMaterial = mat;
+        }
+        System.Action<string, string> attach = (path, slotName) =>
+        {
+            var prop = (GameObject)Object.Instantiate(AssetDatabase.LoadAssetAtPath<GameObject>(path));
+            var slot = go.GetComponentsInChildren<Transform>(true).First(t => t.name == slotName);
+            prop.transform.SetParent(slot, false);
+            string key = slotName == "handslot.l" ? "shield" : "sword";
+            var o = offs.ContainsKey(key) ? offs[key] : new float[6];
+            prop.transform.localPosition = new Vector3(o[0], o[1], o[2]); prop.transform.localRotation = Quaternion.Euler(o[3], o[4], o[5]);
+            foreach (var rr in prop.GetComponentsInChildren<Renderer>(true)) rr.sharedMaterial = mat;
+        };
+        attach("Assets/ThirdParty/KayKit/Props/sword_1handed.fbx", "handslot.r");
+        attach("Assets/ThirdParty/KayKit/Props/shield_square.fbx", "handslot.l");
+        var clipMap = new System.Collections.Generic.Dictionary<string, AnimationClip>();
+        for (int i = 0; i < ClipNames.Length; i++)
+            clipMap[ClipNames[i]] = AssetDatabase.LoadAllAssetsAtPath("Assets/ThirdParty/KayKit/Animations/Rig_Medium_" + Fbx[i] + ".fbx").OfType<AnimationClip>().FirstOrDefault(c => c.name == ClipNames[i]);
+        int cols = 6, tw = 360, th = 360;
+        Texture2D sheet = null;
+        for (int i = 0; i < ClipNames.Length; i++)
+            for (int k = 0; k < 2; k++)
+            {
+                var clip = clipMap[ClipNames[i]];
+                if (clip != null) clip.SampleAnimation(go, clip.length * (k == 0 ? 0.25f : 0.6f));
+                var focus = new Vector3(0f, 1.15f, 0f);
+                pru.camera.transform.position = focus + Quaternion.Euler(14f, -38f, 0f) * new Vector3(0f, 0f, 8f);   // front-left three-quarter: the shield arm faces the camera
+                pru.camera.transform.LookAt(focus);
+                pru.BeginPreview(new Rect(0, 0, tw, th), GUIStyle.none); pru.camera.Render();
+                var tex = pru.EndPreview() as RenderTexture; var prev = RenderTexture.active; RenderTexture.active = tex;
+                if (sheet == null) sheet = new Texture2D(cols * tex.width, 4 * tex.height, TextureFormat.RGB24, false);   // the preview target can be 2x the requested size on a retina screen
+                int idx = i * 2 + k; int cx = (idx % cols) * tex.width, cy = (3 - idx / cols) * tex.height;
+                sheet.ReadPixels(new Rect(0, 0, tex.width, tex.height), cx, cy); RenderTexture.active = prev;
+            }
+        sheet.Apply();
+        System.IO.File.WriteAllBytes(System.IO.Path.Combine(Application.dataPath, "..", "Temp", "anim_sheet.png"), sheet.EncodeToPNG());
+        pru.Cleanup();
+        return "wrote Temp/anim_sheet.png (12 clips x 2 poses, row-major: " + string.Join(", ", ClipNames) + ")";
+    }
+}
+
+public static class KayKitShieldVariants
+{
+    // Walking + slice poses with the shield nudged 0.14 m along each local axis of the hand slot: which direction frees the arm?
+    public static string Render()
+    {
+        var cfg = Resources.Load<KayKitVisualConfig>("KayKitVisualConfig");
+        var mat = cfg.blueMaterials[0];
+        var knight = AssetDatabase.LoadAssetAtPath<GameObject>("Assets/ThirdParty/KayKit/Characters/Knight.fbx");
+        var offsets = new[] { Vector3.zero, Vector3.right * 0.14f, Vector3.left * 0.14f, Vector3.up * 0.14f, Vector3.down * 0.14f, Vector3.forward * 0.14f, Vector3.back * 0.14f };
+        var clips = new[] { ("MovementBasic", "Walking_A", 0.25f), ("CombatMelee", "Melee_1H_Attack_Slice_Diagonal", 0.25f), ("CombatMelee", "Melee_Blocking", 0.4f) };
+        var pru = new PreviewRenderUtility();
+        pru.camera.orthographic = true; pru.camera.orthographicSize = 1.5f; pru.camera.nearClipPlane = 0.1f; pru.camera.farClipPlane = 40f; pru.camera.aspect = 1f;
+        pru.camera.backgroundColor = new Color(0.72f, 0.69f, 0.58f); pru.camera.clearFlags = CameraClearFlags.SolidColor;
+        pru.ambientColor = new Color(0.9f, 0.9f, 0.9f); pru.lights[0].intensity = 1.1f; pru.lights[1].intensity = 0.6f;
+        var go = (GameObject)Object.Instantiate(knight); pru.AddSingleGO(go);
+        foreach (var r in go.GetComponentsInChildren<SkinnedMeshRenderer>(true)) { if (r.name.Contains("Cape") || r.name.Contains("Visor")) r.gameObject.SetActive(false); else r.sharedMaterial = mat; }
+        var slot = go.GetComponentsInChildren<Transform>(true).First(t => t.name == "handslot.l");
+        var shield = (GameObject)Object.Instantiate(AssetDatabase.LoadAssetAtPath<GameObject>("Assets/ThirdParty/KayKit/Props/shield_square.fbx"));
+        shield.transform.SetParent(slot, false); foreach (var rr in shield.GetComponentsInChildren<Renderer>(true)) rr.sharedMaterial = mat;
+        Texture2D sheet = null;
+        for (int row = 0; row < clips.Length; row++)
+        {
+            var clip = AssetDatabase.LoadAllAssetsAtPath("Assets/ThirdParty/KayKit/Animations/Rig_Medium_" + clips[row].Item1 + ".fbx").OfType<AnimationClip>().First(c => c.name == clips[row].Item2);
+            for (int col = 0; col < offsets.Length; col++)
+            {
+                shield.transform.localPosition = offsets[col]; shield.transform.localRotation = Quaternion.identity;
+                clip.SampleAnimation(go, clip.length * clips[row].Item3);
+                pru.camera.transform.position = new Vector3(0f, 1.15f, 0f) + Quaternion.Euler(12f, -50f, 0f) * new Vector3(0f, 0f, 8f);
+                pru.camera.transform.LookAt(new Vector3(0f, 1.15f, 0f));
+                pru.BeginPreview(new Rect(0, 0, 300, 300), GUIStyle.none); pru.camera.Render();
+                var tex = pru.EndPreview() as RenderTexture; var prev = RenderTexture.active; RenderTexture.active = tex;
+                if (sheet == null) sheet = new Texture2D(offsets.Length * tex.width, clips.Length * tex.height, TextureFormat.RGB24, false);
+                sheet.ReadPixels(new Rect(0, 0, tex.width, tex.height), col * tex.width, (clips.Length - 1 - row) * tex.height); RenderTexture.active = prev;
+            }
+        }
+        sheet.Apply();
+        System.IO.File.WriteAllBytes(System.IO.Path.Combine(Application.dataPath, "..", "Temp", "shield_variants.png"), sheet.EncodeToPNG()); pru.Cleanup();
+        return "wrote Temp/shield_variants.png: columns = none, +X, -X, +Y, -Y, +Z, -Z; rows = walk, slice, block";
+    }
+}
+
+public static class KayKitPrefabSheet
+{
+    // The REAL game prefab (merged mesh, props skinned in, Animator + controller), every state played through the Animator the way the game plays it.
+    public static string Render()
+    {
+        var cfg = Resources.Load<KayKitVisualConfig>("KayKitVisualConfig");
+        var prefab = Resources.Load<GameObject>(System.IO.File.Exists(System.IO.Path.Combine(Application.dataPath, "..", "Temp", "sheet_archer.txt")) ? "VIS_KayKit_Archer" : "VIS_KayKit_Melee");
+        bool archer = prefab.name.Contains("Archer");
+        string[] states = archer
+            ? new[] { "Ranged_Bow_Aiming_Idle", "Idle_A", "Walking_A", "Running_A", "Ranged_Bow_Draw", "Ranged_Bow_Release", "Hit_A", "Death_A", "Death_A_Pose", "Cheering" }
+            : new[] { "Idle_A", "Melee_Blocking", "Walking_A", "Running_A", "Melee_1H_Attack_Stab", "Melee_1H_Attack_Chop", "Melee_1H_Attack_Slice_Diagonal", "Melee_Block_Hit", "Hit_A", "Death_A", "Death_A_Pose", "Cheering" };
+        var pru = new PreviewRenderUtility();
+        pru.camera.orthographic = true; pru.camera.orthographicSize = 1.7f; pru.camera.nearClipPlane = 0.1f; pru.camera.farClipPlane = 40f; pru.camera.aspect = 1f;
+        pru.camera.backgroundColor = new Color(0.72f, 0.69f, 0.58f); pru.camera.clearFlags = CameraClearFlags.SolidColor;
+        pru.ambientColor = new Color(0.9f, 0.9f, 0.9f); pru.lights[0].intensity = 1.1f; pru.lights[1].intensity = 0.6f;
+        var go = (GameObject)Object.Instantiate(prefab); pru.AddSingleGO(go);
+        foreach (var r in go.GetComponentsInChildren<Renderer>(true)) if (!(r.gameObject.name.ToLower().Contains("bow"))) r.sharedMaterial = cfg.blueMaterials[0];
+        var anim = go.GetComponent<Animator>(); anim.applyRootMotion = false; anim.cullingMode = AnimatorCullingMode.AlwaysAnimate;
+        var smr = go.GetComponentInChildren<SkinnedMeshRenderer>(); smr.updateWhenOffscreen = true;   // editor preview: never cull the skinning
+        int cols = 6, rows = Mathf.CeilToInt(states.Length * 2 / (float)cols);
+        Texture2D sheet = null; var log = new System.Text.StringBuilder();
+        for (int i = 0; i < states.Length; i++)
+            for (int k = 0; k < 2; k++)
+            {
+                anim.Rebind();
+                anim.Play(Animator.StringToHash(states[i]), 0, k == 0 ? 0.25f : 0.6f);
+                anim.Update(0f);
+                anim.Update(0.001f);
+                pru.camera.transform.position = new Vector3(0f, 1.1f, 0f) + Quaternion.Euler(12f, -40f, 0f) * new Vector3(0f, 0f, 8f);
+                pru.camera.transform.LookAt(new Vector3(0f, 1.1f, 0f));
+                pru.BeginPreview(new Rect(0, 0, 360, 360), GUIStyle.none); pru.camera.Render();
+                var tex = pru.EndPreview() as RenderTexture; var prev = RenderTexture.active; RenderTexture.active = tex;
+                if (sheet == null) sheet = new Texture2D(cols * tex.width, rows * tex.height, TextureFormat.RGB24, false);
+                int idx = i * 2 + k; sheet.ReadPixels(new Rect(0, 0, tex.width, tex.height), (idx % cols) * tex.width, (rows - 1 - idx / cols) * tex.height); RenderTexture.active = prev;
+            }
+        sheet.Apply();
+        System.IO.File.WriteAllBytes(System.IO.Path.Combine(Application.dataPath, "..", "Temp", archer ? "prefab_sheet_archer.png" : "prefab_sheet.png"), sheet.EncodeToPNG());
+        pru.Cleanup();
+        return "wrote prefab sheet (" + (archer ? "archer" : "melee") + "), order: " + string.Join(", ", states);
+    }
+}
+
+public static class UiFrames
+{
+    // Sprite import for the victory-screen frames. Borders are 9-slice caps in pixels of the 1024-wide source.
+    public static string Import()
+    {
+        var sb = new System.Text.StringBuilder();
+        foreach (var (name, border) in new[] { ("UI_Frame_Panel", 0), ("UI_Frame_Ribbon", 100), ("UI_Frame_Plate", 78), ("UI_Frame_Button", 120) })
+        {
+            string path = "Assets/Art/UI/Frames/Resources/" + name + ".png";
+            AssetDatabase.ImportAsset(path);
+            var ti = (TextureImporter)AssetImporter.GetAtPath(path);
+            ti.textureType = TextureImporterType.Sprite; ti.spriteImportMode = SpriteImportMode.Single;
+            ti.mipmapEnabled = false; ti.alphaIsTransparency = true; ti.filterMode = FilterMode.Bilinear; ti.maxTextureSize = 1024;
+            ti.textureCompression = TextureImporterCompression.Compressed;
+            ti.spriteBorder = new Vector4(border, 0f, border, 0f);
+            ti.SaveAndReimport();
+            sb.AppendLine(name + " sprite border L/R=" + border);
+        }
+        return sb.ToString();
+    }
+}
+
+public static class KayKitHeadUV
+{
+    // Which parts of the face sample which part of the atlas: tile + 8 vertical buckets, with the mean position (model space) of the vertices.
+    public static string Dump()
+    {
+        var go = AssetDatabase.LoadAssetAtPath<GameObject>("Assets/ThirdParty/KayKit/Characters/Knight.fbx");
+        var head = go.GetComponentsInChildren<SkinnedMeshRenderer>(true).First(r => r.name.Contains("Head"));
+        var m = head.sharedMesh; var uv = m.uv; var v = m.vertices; var M = head.transform.localToWorldMatrix;
+        var raw = new Texture2D(2, 2); raw.LoadImage(System.IO.File.ReadAllBytes("Assets/ThirdParty/KayKit/Characters/knight_texture.png"));
+        var groups = new System.Collections.Generic.Dictionary<string, (int n, Vector3 sum, Vector3 min, Vector3 max, Color col)>();
+        for (int i = 0; i < uv.Length; i++)
+        {
+            int c = Mathf.Clamp((int)(uv[i].x * 8f), 0, 7), r = Mathf.Clamp((int)((1f - uv[i].y) * 4f), 0, 3);
+            float fy = (1f - uv[i].y) * 4f - r; int bucket = Mathf.Clamp((int)(fy * 8f), 0, 7);
+            var p = M.MultiplyPoint3x4(v[i]); string k = "(" + c + "," + r + ") v" + bucket;
+            groups.TryGetValue(k, out var g);
+            Color col = raw.GetPixel(Mathf.Clamp((int)(uv[i].x * raw.width), 0, raw.width - 1), Mathf.Clamp((int)(uv[i].y * raw.height), 0, raw.height - 1));
+            groups[k] = (g.n + 1, g.sum + p, g.n == 0 ? p : Vector3.Min(g.min, p), g.n == 0 ? p : Vector3.Max(g.max, p), col);
+        }
+        var sb = new System.Text.StringBuilder("Head vertices: " + uv.Length + "\\n");
+        foreach (var kv in groups.OrderBy(k => k.Key))
+            sb.AppendLine(kv.Key + ": n=" + kv.Value.n + " colour #" + ColorUtility.ToHtmlStringRGB(kv.Value.col) + " mean=" + (kv.Value.sum / kv.Value.n).ToString("0.000") + " x[" + kv.Value.min.x.ToString("0.00") + "," + kv.Value.max.x.ToString("0.00") + "] y[" + kv.Value.min.y.ToString("0.00") + "," + kv.Value.max.y.ToString("0.00") + "] z[" + kv.Value.min.z.ToString("0.00") + "," + kv.Value.max.z.ToString("0.00") + "]");
+        return sb.ToString();
+    }
+}
+
+public static class KayKitBrows
+{
+    // Triangles on the front of the face between the eyes and the brow line: tile, v-bucket, colour, position.
+    public static string Dump()
+    {
+        var go = AssetDatabase.LoadAssetAtPath<GameObject>("Assets/ThirdParty/KayKit/Characters/Knight.fbx");
+        var head = go.GetComponentsInChildren<SkinnedMeshRenderer>(true).First(r => r.name.Contains("Head"));
+        var m = head.sharedMesh; var uv = m.uv; var v = m.vertices; var tri = m.triangles; var M = head.transform.localToWorldMatrix;
+        var raw = new Texture2D(2, 2); raw.LoadImage(System.IO.File.ReadAllBytes("Assets/ThirdParty/KayKit/Characters/knight_texture.png"));
+        var sb = new System.Text.StringBuilder();
+        for (int t = 0; t < tri.Length; t += 3)
+        {
+            Vector3 c = (M.MultiplyPoint3x4(v[tri[t]]) + M.MultiplyPoint3x4(v[tri[t + 1]]) + M.MultiplyPoint3x4(v[tri[t + 2]])) / 3f;
+            if (c.z < 0.33f || c.y < 1.58f || c.y > 1.85f) continue;
+            Vector2 u = (uv[tri[t]] + uv[tri[t + 1]] + uv[tri[t + 2]]) / 3f;
+            int col = Mathf.Clamp((int)(u.x * 8f), 0, 7), row = Mathf.Clamp((int)((1f - u.y) * 4f), 0, 3);
+            Color pix = raw.GetPixel((int)(u.x * raw.width), (int)(u.y * raw.height));
+            sb.AppendLine("tri " + (t / 3) + " centre (" + c.x.ToString("0.00") + "," + c.y.ToString("0.00") + "," + c.z.ToString("0.00") + ") tile (" + col + "," + row + ") #" + ColorUtility.ToHtmlStringRGB(pix));
+        }
+        return sb.ToString();
     }
 }

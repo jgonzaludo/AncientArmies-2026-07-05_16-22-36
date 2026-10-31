@@ -39,6 +39,11 @@ public class KayKitSoldierVisual : MonoBehaviour
 
     private Soldier s;
     private KayKitVisualConfig cfg;
+    // facing counters (scenario check): men walking/running, and how many of those frames the gameplay root vs the model faced >100 degrees off their motion
+    public static int FaceFrames, RootBackFrames, ModelBackFrames;
+    private Transform visualT;
+    private Rigidbody body;
+    private Vector3 smoothVel;   // low-passed velocity: a one-frame collision reversal must not spin the model
     private Animator anim;
     private SkinnedMeshRenderer smr;
     private bool ranged;
@@ -55,10 +60,15 @@ public class KayKitSoldierVisual : MonoBehaviour
     public void Init(Soldier soldier, KayKitVisualConfig config, GameObject visualRoot, bool isRanged)
     {
         s = soldier; cfg = config; ranged = isRanged;
+        visualT = visualRoot.transform;
+        body = s.GetComponent<Rigidbody>();
         anim = visualRoot.GetComponentInChildren<Animator>(true);
         smr = visualRoot.GetComponentInChildren<SkinnedMeshRenderer>(true);
         s.suppressFallRotation = true;   // the death clip plays instead
         s.suppressTint = true;           // team colour lives in the material; MPBs would break the SRP Batcher
+        // Soldier.Init already applied the old capsule tint (an MPB _BaseColor) before this flag existed: wipe it, or it multiplies the whole
+        // model (faces, helmets, boots all turn team-coloured) and every soldier loses SRP batching
+        foreach (var r in visualRoot.GetComponentsInChildren<Renderer>(true)) r.SetPropertyBlock(null);
         s.deferRangedRelease = isRanged;
         s.deferMeleeImpact = !isRanged;
         s.OnAttack += OnAttack;
@@ -171,6 +181,8 @@ public class KayKitSoldierVisual : MonoBehaviour
         {
             lodVersion = KayKitCrowdLod.Version;
             smr.forceMeshLod = (short)KayKitCrowdLod.MeshLod;
+            // physics-body smoothing is invisible once the men are small: skip it from the mid tiers outward
+            if (body != null) body.interpolation = KayKitCrowdLod.MeshLod >= 2 ? RigidbodyInterpolation.None : RigidbodyInterpolation.Interpolate;
             if (!offscreen) smr.enabled = !ThinnedOut();
         }
         if (anim != null && !offscreen)
@@ -180,6 +192,8 @@ public class KayKitSoldierVisual : MonoBehaviour
             anim.enabled = tick;
             anim.speed = baseSpeed * stride;   // a skipped frame advances the clock by the whole stride
         }
+
+        FaceMovement();
 
         if (t < oneShotUntil) return;   // an attack/hit clip is playing
 
@@ -202,6 +216,32 @@ public class KayKitSoldierVisual : MonoBehaviour
             want = ranged ? Aim : (st == FormationState.Engaged && s.IsEngaged ? Block : Idle);
         }
         if (want != current) Play(want, cfg.crossFade);
+    }
+
+    // The MODEL faces the way it is moving, whatever the gameplay root faces (the root keeps the
+    // combat/formation facing that damage zones and target preference read). Recalled, sidestepping
+    // or withdrawing men therefore never walk backwards. In melee contact a short shuffle keeps the
+    // fighting stance; only real travel turns the model, and an attack in progress is never turned.
+    private void FaceMovement()
+    {
+        if (visualT == null || offscreen) return;
+        Vector3 v = s.Velocity; v.y = 0f;
+        float sp = v.magnitude;
+        smoothVel = Vector3.Lerp(smoothVel, v, 1f - Mathf.Exp(-Time.deltaTime / 0.12f));
+        float ssp = smoothVel.magnitude;
+        Vector3 rootFwd = s.transform.forward; rootFwd.y = 0f;
+        bool attacking = s.IsInCommittedCombatAction;
+        float need = s.IsEngaged ? 1.5f : 0.6f;
+        Quaternion want = s.transform.rotation;
+        if (ssp > need && !attacking && smoothVel.sqrMagnitude > 0.01f) want = Quaternion.LookRotation(smoothVel / ssp, Vector3.up);
+        if (sp > 0.6f)
+        {
+            FaceFrames++;
+            if (Vector3.Dot(rootFwd.normalized, v / sp) < -0.17f) RootBackFrames++;
+            Vector3 mf = visualT.forward; mf.y = 0f;
+            if (Vector3.Dot(mf.normalized, v / sp) < -0.17f) ModelBackFrames++;
+        }
+        visualT.rotation = Quaternion.RotateTowards(visualT.rotation, want, 900f * Time.deltaTime);
     }
 
     private bool ThinnedOut()
