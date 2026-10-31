@@ -115,6 +115,6 @@ public class MoraleConfig : ScriptableObject
     public bool forceGradeMarkers = false;
 
     [Header("Debug")]
-    [Tooltip("Show each formation's morale and state, plus temporary officer grades, for on-device tuning")]
+    [Tooltip("Show each formation's state and morale under its block")]
     public bool showDebugMorale = true;
 }

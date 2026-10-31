@@ -142,6 +142,7 @@ public class BattleSetup : MonoBehaviour
     private void Awake()
     {
         Instance = this;
+        if (GetComponent<RouteLines>() == null) gameObject.AddComponent<RouteLines>();
         Application.runInBackground = true;
         SimSeed.ApplyIfPending();   // reproducible battles: seed before anything random spawns
         if (moraleConfig == null)

@@ -46,6 +46,10 @@ public class Soldier : MonoBehaviour
     public int MeleeAttackVariant { get; private set; }
     public DamageZone LastHitZone { get; private set; }   // zone / kind of the last blow taken (visuals pick a block vs a stagger)
     public bool LastHitRanged { get; private set; }
+    private float targetHoldUntil;       // sticky targets: no range-based drop before this time
+    private Vector3 lastDirSample; private float nextDirSample;   // reversal counter (battle logs)
+    private float firstHurtTime = -1f;   // time-to-kill record (battle logs): first damage taken -> death
+    private int hitsTaken;
 
     [Tooltip("Relative weights: thrust / over-shield / diagonal slash")]
     [SerializeField] private Vector3 meleeVariantWeights = new Vector3(0.5f, 0.25f, 0.25f);
@@ -104,7 +108,11 @@ public class Soldier : MonoBehaviour
     private float skill = 1f;                 // fixed per-soldier variation, not hidden dice
     private Coroutine flashRoutine;
 
+    public bool IsRecalling { get; private set; }
+    private const float RecallDist = 2.5f;
+    private const float RecallSpeedBoost = 1.25f;
     private Vector3 sepVel;                   // cached friendly-separation push
+    private Vector3 yieldVel;                 // cached sidestep away from a marching friendly block
     private int sepTick;                      // staggered so a quarter of soldiers recompute per tick
     private static int sepStagger;
 
@@ -232,6 +240,28 @@ public class Soldier : MonoBehaviour
         else lockRecovery = Mathf.Min(1f, lockRecovery + Time.fixedDeltaTime / LockRampSeconds);
         desired *= lockRecovery;
 
+        // Recall: a soldier knocked more than RecallDist from its slot, and not in
+        // melee contact, drops everything else — even a drawn bow — and runs back
+        // flat out. Applied AFTER the action lock, which would otherwise zero it.
+        {
+            var rcc = BattleSetup.Instance != null ? BattleSetup.Instance.combatConfig : null;
+            bool stick = rcc != null && rcc.stickyTargets;
+            float enter = stick ? rcc.recallEnter : RecallDist, exit = stick ? rcc.recallExit : RecallDist;
+            float d2s = toSlot.sqrMagnitude;
+            bool liveTarget = target != null && target.Alive;
+            // a melee man with a live target fights (the combat pull handles him); archers always return,
+            // they hold their slot while shooting. A recall latches until the man is back near his slot.
+            bool mayRecall = !routing && formation.State != FormationState.BrokenRanks && !IsEngaged && (!stick || S.isRanged || !liveTarget);
+            if (!mayRecall) IsRecalling = false;
+            else if (IsRecalling) IsRecalling = d2s > exit * exit;
+            else IsRecalling = d2s > enter * enter;
+        }
+        if (IsRecalling)
+        {
+            pendingShotTarget = null;
+            desired = Arrive(toSlot, ms * RecallSpeedBoost);
+        }
+
         // never stray past the leash, even with broken ranks; the leash
         // tightens (and its center moves) while pursuing
         Vector3 fromAnchor = pos - formation.AnchorPos;
@@ -243,7 +273,7 @@ public class Soldier : MonoBehaviour
         // cached in between; biases the desired velocity, never overpowers it.
         // Kept partially active while locked so overlaps still resolve gently.
         if ((sepTick++ & 3) == 0) RecomputeSeparation(pos);
-        desired += sepVel * Mathf.Max(0.4f, lockRecovery);
+        desired += sepVel * Mathf.Max(0.4f, lockRecovery) + yieldVel;
 
         Vector3 vel = rb.linearVelocity;
         vel.y = 0f;
@@ -298,8 +328,11 @@ public class Soldier : MonoBehaviour
 
         // Phase 6F: grid-local neighbors instead of the whole team registry —
         // at 640 friends the full scan was the hottest loop in the game.
-        int nearby = BattleGrid.CollectFriends(pos, team, sepDist, sepBuffer);
-        Vector3 push = Vector3.zero;
+        var cc = bs.combatConfig;
+        bool yielding = cc != null && cc.yieldToMarching && !formation.IsMarching;
+        float yDist = yielding ? cc.yieldDistance : 0f;
+        int nearby = BattleGrid.CollectFriends(pos, team, Mathf.Max(sepDist, yDist), sepBuffer);
+        Vector3 push = Vector3.zero, yieldPush = Vector3.zero;
         for (int i = 0; i < nearby; i++)
         {
             Soldier f = sepBuffer[i];
@@ -307,6 +340,21 @@ public class Soldier : MonoBehaviour
             Vector3 away = pos - f.transform.position;
             away.y = 0f;
             float d2 = away.sqrMagnitude;
+            bool marchingFriend = f.formation.IsMarching;
+            if (yielding && f.formation != formation && (marchingFriend || f.IsRecalling) && d2 < yDist * yDist)
+            {
+                // yield: sidestep out of a marching friendly block's line, or out of the
+                // way of a friend running back to its own formation (never push it,
+                // never be carried along by it); recovers by itself once it has passed
+                Vector3 heading = marchingFriend ? f.formation.AnchorForward
+                                                  : f.formation.GetSlotWorldPos(f.slotIndex) - f.transform.position;   // where the returning man is trying to go
+                heading.y = 0f;
+                if (heading.sqrMagnitude < 0.01f) heading = f.formation.AnchorForward;
+                Vector3 right = Vector3.Cross(Vector3.up, heading.normalized);
+                float side = Vector3.Dot(away, right) >= 0f ? 1f : -1f;
+                float w = 1f - Mathf.Sqrt(d2) / yDist;
+                yieldPush += (right * side + away.normalized * 0.5f) * w;
+            }
             if (d2 >= sep2) continue;
             if (d2 < 0.0001f)
             {
@@ -319,6 +367,7 @@ public class Soldier : MonoBehaviour
             push += away * ((sepDist - d) / (sepDist * d));   // unit dir * penetration 0..1
         }
         sepVel = Vector3.ClampMagnitude(push * bs.separationMaxPush, bs.separationMaxPush);
+        yieldVel = yielding ? Vector3.ClampMagnitude(yieldPush * cc.yieldSpeed, cc.yieldSpeed) : Vector3.zero;
     }
 
     // ---------------- combat ----------------
@@ -347,6 +396,16 @@ public class Soldier : MonoBehaviour
         {
             retargetTimer = 0.3f;
             AcquireTarget();
+        }
+
+        if (Time.time >= nextDirSample)
+        {
+            nextDirSample = Time.time + 0.5f;
+            Vector3 vv = Velocity; vv.y = 0f;
+            // only men in a fight (a live target) count: the thousands marching in formation would drown the signal
+            bool moving = vv.magnitude > 0.8f && target != null && target.Alive && formation.State != FormationState.Routing;
+            if (moving) { Vector3 dn = vv.normalized; BattleRecorder.NoteMovingSample(lastDirSample != Vector3.zero && Vector3.Dot(dn, lastDirSample) < -0.3f); lastDirSample = dn; }
+            else lastDirSample = Vector3.zero;
         }
 
         attackTimer -= Time.deltaTime;
@@ -429,12 +488,17 @@ public class Soldier : MonoBehaviour
         float radius = formation.GetAcquireRadius(this);
         if (radius <= 0f) { SetTarget(null); return; }
 
+        var cc = BattleSetup.Instance != null ? BattleSetup.Instance.combatConfig : null;
+        bool sticky = cc != null && cc.stickyTargets;
         if (target != null && target.Alive)
         {
             float d = (target.transform.position - transform.position).magnitude;
             // committed melee: never swap opponents while one is at sword's reach
             if (!S.isRanged && d <= S.strikeRange * 1.2f) return;
-            if (d < radius * 1.25f) return;   // hysteresis: keep current fight
+            // hysteresis: keep current fight; a freshly chosen target is held longer and farther
+            float keep = radius * 1.25f;
+            if (sticky && Time.time < targetHoldUntil) keep = Mathf.Max(keep, radius * cc.heldKeepRadiusScale);
+            if (d < keep) return;
         }
         SetTarget(null);
 
@@ -485,6 +549,9 @@ public class Soldier : MonoBehaviour
     private void SetTarget(Soldier t)
     {
         if (target == t) return;
+        // live target abandoned for another one (not because it died): the 'target switching' the battle log counts
+        if (target != null && target.Alive && t != null) BattleRecorder.NoteTargetSwitch();
+        else if (target != null && target.Alive && t == null) BattleRecorder.NoteTargetDrop();
         if (!S.isRanged)
         {
             if (target != null)
@@ -498,6 +565,7 @@ public class Soldier : MonoBehaviour
             if (t != null) t.rangedAttackerCount++;
         }
         target = t;
+        if (t != null) targetHoldUntil = Time.time + (BattleSetup.Instance != null && BattleSetup.Instance.combatConfig != null ? BattleSetup.Instance.combatConfig.targetHoldSeconds : 1.5f);
     }
 
     // Called by the visual controller at the firing clip's release frame (or
@@ -642,6 +710,8 @@ public class Soldier : MonoBehaviour
     {
         if (!Alive) return;
         LastHitZone = zone; LastHitRanged = ranged;
+        if (firstHurtTime < 0f) firstHurtTime = Time.time;
+        hitsTaken++;
         Health -= dmg;
         if (Health <= 0f)
         {
@@ -657,6 +727,7 @@ public class Soldier : MonoBehaviour
     private void Die(DamageZone zone, bool ranged)
     {
         Alive = false;
+        BattleRecorder.NoteKill(S.unitName + "/" + role, ranged, firstHurtTime < 0f ? 0f : Time.time - firstHurtTime, hitsTaken);
         pendingMeleeTarget = null;   // a dead soldier never finishes a swing
         SetTarget(null);             // release the contact-line reservation
         formation.NotifyDeath(this, zone, ranged);

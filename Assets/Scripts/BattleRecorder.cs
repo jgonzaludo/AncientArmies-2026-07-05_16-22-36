@@ -24,7 +24,10 @@ public class BattleRecorder : MonoBehaviour
     private readonly List<string> routOrder = new List<string>();
     private float firstContact = -1f;
     public float FirstContactTime => firstContact;   // -1 until any formations touch
-    private readonly int[] hits = new int[3];         // front / flank / rear hits landed this battle
+    private readonly int[] hits = new int[3];
+    private int movingSamples, reversalSamples;   // 0.5 s samples of men moving > 0.8 m/s; those that reversed direction since the last sample
+    // time-to-kill record: victim "unit/role" + cause -> count, total/min/max seconds from first damage to death, total hits taken
+    private readonly Dictionary<string, (int n, double sumT, float minT, float maxT, double sumH)> kills = new Dictionary<string, (int, double, float, float, double)>();         // front / flank / rear hits landed this battle
     private bool written;
     public string label = "";   // set by ScenarioRunner; empty for manual play
 
@@ -82,6 +85,38 @@ public class BattleRecorder : MonoBehaviour
         var ranks = r.bs.officerRanks;
         if (ranks == null || !ranks.IsOfficer(s.role)) return;
         r.Add(r.bs.BattleTime, "officerDeath", "\"role\":" + Q(s.role.ToString()) + "," + r.Snapshot(f));
+    }
+
+    private int targetSwitches, targetDrops;
+    public static void NoteTargetSwitch() { var r = Instance; if (r != null) r.targetSwitches++; }
+    public static void NoteTargetDrop() { var r = Instance; if (r != null) r.targetDrops++; }
+
+    public static void NoteMovingSample(bool reversed)
+    {
+        var r = Instance; if (r == null) return;
+        r.movingSamples++; if (reversed) r.reversalSamples++;
+    }
+
+    public static void NoteKill(string victim, bool arrow, float ttk, int hitsTaken)
+    {
+        var r = Instance; if (r == null) return;
+        string k = victim + "|" + (arrow ? "arrow" : "sword");
+        r.kills.TryGetValue(k, out var v);
+        r.kills[k] = (v.n + 1, v.sumT + ttk, v.n == 0 ? ttk : Mathf.Min(v.minT, ttk), Mathf.Max(v.maxT, ttk), v.sumH + hitsTaken);
+    }
+
+    private string KillsJson()
+    {
+        var sb = new StringBuilder(",\"kills\":{");
+        bool first = true;
+        foreach (var kv in kills)
+        {
+            if (!first) sb.Append(','); first = false;
+            sb.Append(Q(kv.Key)).Append(":{\"n\":").Append(kv.Value.n).Append(",\"avgTtk\":").Append(F((float)(kv.Value.sumT / kv.Value.n)))
+              .Append(",\"minTtk\":").Append(F(kv.Value.minT)).Append(",\"maxTtk\":").Append(F(kv.Value.maxT))
+              .Append(",\"avgHits\":").Append(F((float)(kv.Value.sumH / kv.Value.n))).Append('}');
+        }
+        return sb.Append('}').ToString();
     }
 
     public static void NoteHit(DamageZone zone)
@@ -154,7 +189,7 @@ public class BattleRecorder : MonoBehaviour
           .Append(",\"contactToEnd\":").Append(firstContact < 0f ? "null" : F(end - firstContact))
           .Append(",\"maxRoutsIn5s\":").Append(maxWindow)
           .Append(",\"hits\":{\"front\":").Append(hits[0]).Append(",\"flank\":").Append(hits[1]).Append(",\"rear\":").Append(hits[2]).Append('}')
-          .Append(",\"routOrder\":[");
+          .Append(KillsJson()).Append(",\"targetSwitches\":").Append(targetSwitches).Append(",\"targetDrops\":").Append(targetDrops).Append(",\"reversals\":{\"movingSamples\":").Append(movingSamples).Append(",\"reversed\":").Append(reversalSamples).Append(",\"pct\":").Append(F(movingSamples > 0 ? 100f * reversalSamples / movingSamples : 0f)).Append("}").Append(",\"routOrder\":[");
         for (int i = 0; i < routOrder.Count; i++) { if (i > 0) sb.Append(','); sb.Append(Q(routOrder[i])); }
         sb.Append("],\"casualtyPct\":{");
         bool firstTeam = true;
@@ -191,6 +226,10 @@ public class BattleRecorder : MonoBehaviour
     public static void NoteDeath(Formation f, Soldier s) { }
     public static void Note(string text) { }
     public static void NoteHit(DamageZone zone) { }
+    public static void NoteKill(string victim, bool arrow, float ttk, int hitsTaken) { }
+    public static void NoteMovingSample(bool reversed) { }
+    public static void NoteTargetSwitch() { }
+    public static void NoteTargetDrop() { }
     public static void NoteEnd(BattleSetup setup, string result) { }
 }
 #endif

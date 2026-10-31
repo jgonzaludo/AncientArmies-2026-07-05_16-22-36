@@ -496,7 +496,7 @@ public class PlayerCommander : MonoBehaviour
             var preview = PreviewFor(f);
             if (preview == null) continue;
             preview.SetCandidate(ClampDest(pt + arrange * (f.AnchorPos - pivot), zMin, zMax),
-                                 facing);
+                                 dragFacingLocked ? facing : f.AnchorForward);   // each unit shows its own current facing until twisted
             if (!fedCandidates.Contains(preview)) fedCandidates.Add(preview);
         }
     }
@@ -554,8 +554,9 @@ public class PlayerCommander : MonoBehaviour
         travel.y = 0f;
         bool fwdOk = avgFwd.sqrMagnitude > 0.01f;
         Vector3 fwd = fwdOk ? new Vector3(avgFwd.x, 0f, avgFwd.z).normalized : Vector3.forward;
-        groupFacing = dragFacingLocked ? dragLockedFacing
-            : travel.sqrMagnitude > 0.04f ? travel.normalized : fwd;
+        // facing is preserved: the group keeps the facing it has now unless the second
+        // finger (twist) locks a new one — it never turns to the direction of travel
+        groupFacing = dragFacingLocked ? dragLockedFacing : fwd;
         // a locked facing is stable by construction; an inferred travel
         // facing needs a meaningful drag distance before it may rotate the
         // arrangement
@@ -626,7 +627,7 @@ public class PlayerCommander : MonoBehaviour
             {
                 if (f == null || f.soldiers.Count == 0) continue;
                 f.IssueMove(ClampDest(pt + arrange * (f.AnchorPos - pivot), zMin, zMax));
-                f.SetDestinationFacing(groupFacing);
+                if (dragFacingLocked) f.SetDestinationFacing(groupFacing);   // else IssueMove keeps the unit's own facing
             }
             BattleVisuals.SpawnPulse(pt, false);
         }

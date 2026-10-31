@@ -35,6 +35,15 @@ public class EnemyCommander : MonoBehaviour
     private enum CommanderPhase { Advance, Engagement }
     private enum Role { MainLine, Reserve, Archer }
 
+    public enum AiPlan { Random, Frontal, FlankOne, DoubleFlank }
+    [Header("Plan")]
+    [Tooltip("Chosen at battle start. Frontal: the existing line. FlankOne / DoubleFlank: the outermost main-line century (centuries) march a wide route to a staging point beside the enemy line, then attack the nearest enemy block from the side. Random picks one with the battle seed")]
+    public AiPlan plan = AiPlan.Random;
+    [Tooltip("Flankers stage this far outside the enemy line's outermost block (world units)")]
+    public float flankStageOutside = 28f;
+    [Tooltip("Staging z is this far toward our own side of the enemy line's average z (world units). Small = abreast of the enemy line, so the final attack arrives from the side")]
+    public float flankStageZ = 8f;
+
     [Header("Cadence")]
     [Tooltip("Seconds between strategic passes")]
     public float decisionInterval = 1.5f;
@@ -82,6 +91,9 @@ public class EnemyCommander : MonoBehaviour
     public float commitCooldown = 12f;
 
     [Header("Reform")]
+
+    private readonly List<Formation> flankers = new List<Formation>();
+    public AiPlan ChosenPlan { get; private set; }
 
     private CommanderPhase phase = CommanderPhase.Advance;
     private bool classified;
@@ -180,11 +192,62 @@ public class EnemyCommander : MonoBehaviour
             }
         }
 
+        ChoosePlan();
+
         // Reserves and archers keep their own lateral station behind the line.
         foreach (var f in reserves)
             f.IssueMove(ClampToField(new Vector3(f.AnchorPos.x, 0f, lineZ + reserveBackset)));
         foreach (var f in archers)
             f.IssueMove(ClampToField(new Vector3(f.AnchorPos.x, 0f, lineZ + archerBackset)));
+    }
+
+    // Flank plans. Flankers leave the main-line roster (so the lane scorer does
+    // not retask them), march by RoutePlanner to a staging point outside the
+    // enemy line, and then join the ordinary line logic with an attack on the
+    // nearest enemy block. They are released early if caught in melee or routing.
+    private void ChoosePlan()
+    {
+        flankers.Clear();
+        AiPlan p = plan == AiPlan.Random ? (AiPlan)Random.Range(1, 4) : plan;
+        ChosenPlan = p;
+        if (p == AiPlan.Frontal || mainLine.Count < 3) return;   // keep a real line behind the flankers
+        float bx = 0f, bz = 0f; int bn = 0;
+        foreach (var f in BattleSetup.Instance.formations)
+        {
+            if (f.team != Team.Blue || f.stats.isRanged) continue;
+            bx = Mathf.Max(bx, Mathf.Abs(f.AnchorPos.x)); bz += f.AnchorPos.z; bn++;
+        }
+        float stageZ = (bn > 0 ? bz / bn : 0f) + flankStageZ;
+        float stageX = bx + flankStageOutside;
+        var left = mainLine[0]; var right = mainLine[mainLine.Count - 1];
+        bool pickLeft = p == AiPlan.DoubleFlank || Random.value < 0.5f;
+        bool pickRight = p == AiPlan.DoubleFlank || !pickLeft;
+        if (pickLeft) { flankers.Add(left); left.IssueMove(ClampToField(new Vector3(-stageX, 0f, stageZ))); }
+        if (pickRight) { flankers.Add(right); right.IssueMove(ClampToField(new Vector3(stageX, 0f, stageZ))); }
+        foreach (var f in flankers) mainLine.Remove(f);
+    }
+
+    private void RunFlankers()
+    {
+        for (int i = flankers.Count - 1; i >= 0; i--)
+        {
+            var f = flankers[i];
+            bool gone = f == null || f.soldiers.Count == 0 || f.IsRouting;
+            if (!gone && f.State == FormationState.Ordered && !f.HasMoveDestination)
+            {
+                // staged: attack the nearest enemy block, then the main-line scorer owns it
+                Formation nearest = null; float bd = float.MaxValue;
+                foreach (var t in blues)
+                {
+                    float d = (t.AnchorPos - f.AnchorPos).sqrMagnitude;
+                    if (d < bd) { bd = d; nearest = t; }
+                }
+                if (nearest != null) IssueAttackOrCharge(f, nearest);
+                gone = true;
+            }
+            else if (!gone && f.State == FormationState.Engaged) gone = true;   // caught early: fight like the line
+            if (gone) { if (f != null && f.soldiers.Count > 0 && !f.IsRouting) mainLine.Add(f); flankers.RemoveAt(i); }
+        }
     }
 
     // Red spawns at +z facing -z, so its phase line sits at positive z, a
@@ -209,6 +272,8 @@ public class EnemyCommander : MonoBehaviour
     {
         RefreshRosters();
         if (blues.Count == 0) return;
+
+        RunFlankers();
 
         // Broken red centuries pull themselves together whenever it is safe,
         // regardless of battle phase — reforming is defensive housekeeping.
