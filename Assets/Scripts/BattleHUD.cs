@@ -122,7 +122,7 @@ public class BattleHUD : MonoBehaviour
         panelGO.SetActive(true);
 
         // A fully broken selection takes no orders, it regroups on its own
-        // (Chunk B). Offering CHARGE or ROTATE there is noise; hide them.
+        // Offering CHARGE or ROTATE there is noise; hide them.
         // Mixed selections keep the full row so the coherent formations stay
         // commandable.
         bool allBroken = AllLiveBroken(selection);
@@ -517,7 +517,7 @@ public class BattleHUD : MonoBehaviour
             if (BattleSetup.Instance != null) BattleSetup.Instance.RestartBattle();
         });
 
-        // ---- Countdown (Chunk B): a stall backstop, so it stays small and
+        // ---- Countdown: a stall backstop, so it stays small and
         // low-contrast until the final timerWarningSeconds ----
         timerText = MakeText(canvasT, "TimerText", 34, TextAnchor.UpperCenter, new Color(1f, 1f, 1f, 0.9f));
         var tRT = timerText.rectTransform;

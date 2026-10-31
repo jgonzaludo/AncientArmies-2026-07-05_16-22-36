@@ -2,7 +2,7 @@ using UnityEngine;
 
 public enum Team { Blue, Red }
 
-// Century role slots (Phase 1). Roles are data first: every role currently
+// Century role slots. Roles are data first: every role currently
 // spawns the generic legionary/archer visual, but the composition system
 // reserves the positions so specialist prefabs can be swapped in later
 // without touching spawn logic. A century is 80 TOTAL soldiers, specialists

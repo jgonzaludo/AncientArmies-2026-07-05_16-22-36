@@ -1,15 +1,15 @@
 using System.Collections.Generic;
 using UnityEngine;
 
-// Routing (Chunk A) is appended last so existing values keep their numbers.
+// Routing is appended last so existing values keep their numbers.
 public enum FormationState { Ordered, Attacking, Engaged, BrokenRanks, Withdrawing, Reforming, Charging, Routing }
 
-// Current strategic order (Phase 2). Stored, never inferred: a move order
+// Current strategic order. Stored, never inferred: a move order
 // keeps its DestinationPosition and DestinationFacing from issue to arrival,
 // so current facing, travel direction, and final facing are three values.
 public enum OrderType { None, Move, Attack, Reform, BreakRanks, Withdraw, Charge }
 
-// Rotate-command maneuvers (Patch 4): a formation turns like a rectangular
+// Rotate-command maneuvers: a formation turns like a rectangular
 // body, not a liquid. SmallTurn/AboutFace snap facing and redress in place;
 // Wheel rotates the whole slot grid rigidly around an inner front corner.
 public enum FormationManeuverState { None, SmallTurn, Wheel, AboutFace, Redressing }
@@ -33,7 +33,7 @@ public class Formation : MonoBehaviour
     [Tooltip("How fast an engaged formation wheels its canonical facing toward the melee contact (deg/s). Directional flank/rear bonuses persist while it turns, then fade, an ill-timed Rotate can no longer leave a unit permanently rear-facing its attackers")]
     public float engagedReorientSpeedDeg = 25f;
 
-    [Header("Defensive pivot (Phase 2)")]
+    [Header("Defensive pivot")]
     [Tooltip("Unit-type permission: rigid future types (pikes) can turn this off")]
     public bool allowDefensivePivot = true;
     [Tooltip("A flank/rear threat must persist this long before the formation starts pivoting")]
@@ -43,7 +43,7 @@ public class Formation : MonoBehaviour
     [Tooltip("Pivot speed multiplier while lightly engaged")]
     public float lightEngagePivotFactor = 0.5f;
 
-    [Header("Reform (Phase 3)")]
+    [Header("Reform")]
     [Tooltip("Reform completes when this fraction of survivors stands in the new slots")]
     public float reformCompleteFraction = 0.75f;
     [Tooltip("Reform aborts back to Broken when this fraction of reforming survivors is melee-engaged (projectile fire alone never aborts)")]
@@ -51,7 +51,7 @@ public class Formation : MonoBehaviour
     [Tooltip("Fallback: reform completes after this many seconds regardless of stragglers")]
     public float reformTimeoutSeconds = 25f;
 
-    [Header("Rotate maneuvers (Patch 4)")]
+    [Header("Rotate maneuvers")]
     [Tooltip("Yaw deltas at or below this pivot in place (facing snaps, slots keep their owners)")]
     public float smallTurnMaxDeg = 20f;
     [Tooltip("Yaw deltas at or above this are an about-face: soldiers turn in place and ranks are reinterpreted via nearest-slot remap")]
@@ -114,7 +114,7 @@ public class Formation : MonoBehaviour
     public float OrderTime { get; private set; } = -1f;   // when the current move/attack order was issued (visual grouping key)
     public bool HasMoveDestination => hasDestination;      // read-only, for visuals
 
-    // ---- order model (Phase 2) ----
+    // ---- order model ----
     public OrderType CurrentOrderType { get; private set; } = OrderType.None;
     public Vector3 DestinationPosition => destination;
     public Vector3 DestinationFacing { get; private set; } = Vector3.forward;
@@ -137,13 +137,13 @@ public class Formation : MonoBehaviour
         return dest + Quaternion.LookRotation(fwd, Vector3.up) * slotOffsets[slot];
     }
 
-    // ---- break/reform rally (Phase 3) ----
+    // ---- break/reform rally ----
     // Frozen at the formation center the moment ranks break; the banner sits
     // here and Reform rebuilds here. Never recomputed from scattering soldiers.
     public Vector3 RallyAnchor { get; private set; }
     private Quaternion rallyFacing = Quaternion.identity;
 
-    // ---- archer combat state (Phase 3): firing is engagement for slot
+    // ---- archer combat state: firing is engagement for slot
     // compaction purposes, but not melee entrapment ----
     private float lastRangedShotTime = -999f;
     public void NotifyRangedShot() { lastRangedShotTime = Time.time; }
@@ -253,7 +253,7 @@ public class Formation : MonoBehaviour
         get { float h = 0f; foreach (var s in soldiers) h += s.Health; return h; }
     }
 
-    // Aggregate formation health (Phase 5): denominator is EVERY ORIGINAL
+    // Aggregate formation health: denominator is EVERY ORIGINAL
     // member, so dead soldiers count as zero, 40 healthy survivors of 80
     // reads 50%, not 100%.
     public float TotalMaxHealth => TotalSpawned * stats.maxHealth;
@@ -281,7 +281,7 @@ public class Formation : MonoBehaviour
 
     private float flankThreatTime;   // defensive-pivot reaction timer
 
-    // morale (Chunk A): the math lives in FormationMorale; this class owns the
+    // morale: the math lives in FormationMorale; this class owns the
     // state changes it triggers (rout, rally). Null until the config exists.
     private FormationMorale morale;
     public FormationMorale Morale => morale;
@@ -409,8 +409,8 @@ public class Formation : MonoBehaviour
     public void IssueMove(Vector3 dest)
     {
         // Broken centuries take no movement orders, Reform is their only
-        // command (Phase 3); Reforming centuries are mid-recovery; Routing
-        // centuries take no orders at all (Chunk A).
+        // command; Reforming centuries are mid-recovery; Routing
+        // centuries take no orders at all.
         if (State == FormationState.BrokenRanks || State == FormationState.Reforming ||
             State == FormationState.Routing) return;
         Maneuver = FormationManeuverState.None;   // a new order supersedes a turn
@@ -546,7 +546,7 @@ public class Formation : MonoBehaviour
 
     // Nearest living enemy formation within maxDist of a point. Bounded by the
     // caller's radius so charge targeting and pursuit flow stay local.
-    // Routing formations are not targets for orders and charges (Chunk B);
+    // Routing formations are not targets for orders and charges;
     // only a pursuit or pack retarget hunts them (includeRouting).
     private Formation NearestEnemyFormation(Vector3 point, float maxDist, bool includeRouting = false)
     {
@@ -565,7 +565,7 @@ public class Formation : MonoBehaviour
         return best;
     }
 
-    // Rotate command, classified by the shortest signed yaw delta (Patch 4):
+    // Rotate command, classified by the shortest signed yaw delta:
     //   <= smallTurnMaxDeg  -> small turn: facing snaps, slot owners keep their
     //                          slots, soldiers pivot in place and redress.
     //   >= aboutFaceMinDeg  -> about-face: facing snaps and the nearest-slot
@@ -717,7 +717,7 @@ public class Formation : MonoBehaviour
     // Cost: <= n^2/2 sqr-distance checks per recompute, n <= ~50 per
     // formation, on a several-per-second interval, no allocations beyond the
     // grow-only scratch arrays.
-    // Optional `members` (Chunk A): filled parallel to `positions` with true
+    // Optional `members`: filled parallel to `positions` with true
     // for each point in the winning cluster, the rally needs to know which
     // officers are actually in the main pack. Omitted, it costs nothing.
     public static Vector3 ComputeDominantGroup(List<Vector3> positions, float linkDist,
@@ -819,7 +819,7 @@ public class Formation : MonoBehaviour
         if (soldiers.Count == 0 || State == FormationState.BrokenRanks || IsRouting) return;
         // Freeze the rally point and tactical facing at the moment ranks
         // break: the banner stays here and Reform rebuilds here, regardless
-        // of where the soldiers scatter (Phase 3 locked behavior).
+        // of where the soldiers scatter.
         RallyAnchor = AnchorPos;
         rallyFacing = AnchorRot;
         IsPursuing = false;   // a deliberate break is anchored, not a pursuit
@@ -831,7 +831,7 @@ public class Formation : MonoBehaviour
         OnOrderIssued?.Invoke();
     }
 
-    // The reform itself (automatic since Chunk B, there is no Reform
+    // The reform itself (automatic now, there is no Reform
     // command): survivor-only slots at RallyAnchor facing rallyFacing, then
     // the ordinary Reforming state, completion at reformCompleteFraction,
     // abort to Broken at reformAbortEngagedFraction.
@@ -939,7 +939,7 @@ public class Formation : MonoBehaviour
             case FormationState.Engaged:
                 if (s.IsEngaged) return BattleSetup.Instance != null ? BattleSetup.Instance.combatConfig.engagedSlotWeight : 0.3f;
                 return NearCombat(s) ? 0.35f : 0.75f;
-            case FormationState.BrokenRanks: return 0f;   // Phase 3: zero slot steering while broken
+            case FormationState.BrokenRanks: return 0f;   // zero slot steering while broken
             case FormationState.Routing: return 0f;       // fleeing men hold no slots
             case FormationState.Withdrawing: return 1f;
             case FormationState.Reforming: return 1f;
@@ -1042,9 +1042,9 @@ public class Formation : MonoBehaviour
 
     private void UpdateAutoClose()
     {
-        // Patch 4 priority: auto-close never runs mid-melee (the column-local
+        // engaged priority: auto-close never runs mid-melee (the column-local
         // rank promotion handles vacancies there without a global remap) and
-        // never during an explicit Rotate maneuver. Phase 3 extends this to
+        // never during an explicit Rotate maneuver. archer combat extends this to
         // FIRING formations: an archer century mid-volley keeps its casualty
         // gaps, full compaction happens only through an explicit Reform.
         if (State != FormationState.Ordered && State != FormationState.Attacking) return;
@@ -1117,7 +1117,7 @@ public class Formation : MonoBehaviour
                                      1f - Mathf.Exp(-2f * Time.deltaTime));
             return;
         }
-        // Routing (Chunk A): the anchor, and so the banner and the eventual
+        // Routing: the anchor, and so the banner and the eventual
         // rally point, goes with the fleeing men instead of staying where
         // the line broke.
         if (IsRouting && DominantGroupCount > 0)
@@ -1126,7 +1126,7 @@ public class Formation : MonoBehaviour
                                      1f - Mathf.Exp(-2f * Time.deltaTime));
             return;
         }
-        // Phase 3: broken centuries have NO centralized movement, the anchor
+        // broken centuries have NO centralized movement, the anchor
         // stays at the rally point and soldiers act as individuals.
         bool charging = State == FormationState.Charging;
         bool chasing = State == FormationState.Attacking && attackTarget != null;
@@ -1157,7 +1157,7 @@ public class Formation : MonoBehaviour
         {
             if (attackTarget.soldiers.Count == 0 || attackTarget.IsRouting)
             {
-                // Target destroyed or routing (Phase 2H / Chunk B): clear the
+                // Target destroyed or routing: clear the
                 // explicit target, hold position and CURRENT tactical facing. Local threats are
                 // handled by soldier-level acquisition; the formation never
                 // spins toward a distant map-wide "nearest enemy".
@@ -1194,7 +1194,7 @@ public class Formation : MonoBehaviour
             }
             if (!chasing && !charging)
             {
-                // Arrival (Phase 2): settle onto the STORED destination facing
+                // Arrival: settle onto the STORED destination facing
                 // never whatever direction the final approach happened to be.
                 hasDestination = false;
                 if (CurrentOrderType == OrderType.Move)
@@ -1294,7 +1294,7 @@ public class Formation : MonoBehaviour
 
         if (BattleSetup.Instance == null) return;
 
-        // Phase 6F: per-soldier nearest-enemy via the spatial grid. The scan
+        // per-soldier nearest-enemy via the spatial grid. The scan
         // radius covers every consumer of NearestEnemyDist (edge engagement 6,
         // visual guard 12); beyond it the distance is treated as infinite.
         const float scanRadius = 14f;
@@ -1406,7 +1406,7 @@ public class Formation : MonoBehaviour
         float angle = Vector3.Angle(AnchorForward, to);
         if (angle < 30f) { flankThreatTime = 0f; return; }   // frontal: already facing it
 
-        // Conditional defensive pivot (Phase 2I): heavily engaged formations
+        // Conditional defensive pivot: heavily engaged formations
         // are pinned, soldiers defend visually, but the tactical flank stays
         // exposed until the FORMATION has genuinely turned. Lighter contact
         // pivots slowly after a reaction delay. The flank/rear damage bonus
@@ -1443,7 +1443,7 @@ public class Formation : MonoBehaviour
 
     private void UpdateStateMachine()
     {
-        // Morale break (Chunk A) pre-empts every state: whatever the century
+        // Morale break pre-empts every state: whatever the century
         // was doing, it now runs.
         var cfg = MoraleCfg;
         if (morale != null && cfg != null && !IsRouting && morale.Value < cfg.routeThreshold)
@@ -1525,7 +1525,7 @@ public class Formation : MonoBehaviour
                     attackTarget = null;
                     if (!CanStartReform()) { ReformInPlace(); break; }
                 }
-                // Automatic reform (Chunk B), both teams, one rule: only
+                // Automatic reform, both teams, one rule: only
                 // active melee blocks it. The standard is planted on the
                 // Signifer / senior officer still with the main pack.
                 if (!IsPursuing && CanStartReform())   // a charge's pursuit runs its full time first
@@ -1539,7 +1539,7 @@ public class Formation : MonoBehaviour
 
             case FormationState.Reforming:
                 reformTimer += Time.deltaTime;
-                // Abort on MEANINGFUL melee contact only (Phase 3E): a
+                // Abort on MEANINGFUL melee contact only: a
                 // configurable fraction of survivors melee-engaged. Projectile
                 // hits never set IsEngaged, so arrow fire cannot cancel a
                 // reform; one isolated straggler fighting stays under the
@@ -1563,7 +1563,7 @@ public class Formation : MonoBehaviour
                 break;
 
             case FormationState.Routing:
-                // Rally (Chunk A): morale recovered past rallyThreshold and the
+                // Rally: morale recovered past rallyThreshold and the
                 // shared start rule passes -> the ordinary reform path, around
                 // the senior officer still with the main pack.
                 if (cfg != null && cfg.routedCanRally && morale != null &&
@@ -1580,7 +1580,7 @@ public class Formation : MonoBehaviour
                 }
                 break;
         }
-        // No Reform command exists (Chunk B): BrokenRanks reforms itself
+        // No Reform command exists: BrokenRanks reforms itself
         // through CanStartReform for both teams. Routing is permanent unless
         // routedCanRally is on.
     }
@@ -1602,7 +1602,7 @@ public class Formation : MonoBehaviour
         rallyFacing = AnchorRot;
     }
 
-    // ---------------- morale (Chunk A) ----------------
+    // ---------------- morale ----------------
 
     // Created on the first frame the config exists (TotalSpawned is final by
     // then) and ticked only while the battle is Active, so the deployment
@@ -1639,7 +1639,7 @@ public class Formation : MonoBehaviour
         fleeThreatTimer = 0f;
         foreach (var s in soldiers) s.DropTarget();
 
-        // Contagion (Chunk C): a line breaking near you is its own pressure.
+        // Contagion: a line breaking near you is its own pressure.
         var cfg = MoraleCfg;
         if (cfg != null && cfg.enableContagion && BattleSetup.Instance != null)
         {
@@ -1713,7 +1713,7 @@ public class Formation : MonoBehaviour
         }
     }
 
-    // Where a reforming century plants its standard (Chunk D): on the Signifer
+    // Where a reforming century plants its standard: on the Signifer
     // if reformOnStandardFirst and he is alive IN the main pack (Romans formed
     // on the standard), else the highest-grade officer alive in the main
     // pack, else the pack's center. "Main pack" is the dominant cluster,

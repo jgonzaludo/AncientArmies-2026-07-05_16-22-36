@@ -57,7 +57,7 @@ public class MoraleConfig : ScriptableObject
     [Tooltip("Seconds after any casualty (melee or arrow) before recovery resumes")]
     public float recoveryLossCooldown = 3f;
 
-    [Header("Automatic reform (shared rule; used by rally in Chunk A)")]
+    [Header("Automatic reform (shared rule; used by rally)")]
     [Tooltip("Max fraction of soldiers engaged (enemy within 3 m) to START a reform. 0 = nobody in contact")]
     public float reformStartEngagedFraction = 0.15f;
     [Tooltip("How long a century stays loose (BrokenRanks) before it regroups: a charge's pursuit lasts this long. Then, if contact has dropped, it walks back to the standard; if it is still locked in melee it re-forms in place and fights on as a line")]

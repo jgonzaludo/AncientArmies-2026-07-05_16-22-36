@@ -8,7 +8,7 @@ public class Soldier : MonoBehaviour
     public Team team;
     public Formation formation;
     public int slotIndex;
-    public SoldierRole role = SoldierRole.Legionary;   // data-reserved century role (Phase 1)
+    public SoldierRole role = SoldierRole.Legionary;   // data-reserved century role
 
     public bool Alive { get; private set; } = true;
     public bool IsEngaged;                    // maintained by the formation's engagement scan
@@ -81,7 +81,7 @@ public class Soldier : MonoBehaviour
     private Animator visualAnimator;       // pose-evaluated on impostor wake
     private bool animatorCached;
 
-    // Contact-line saturation (Phase 4): melee attackers register on their
+    // Contact-line saturation: melee attackers register on their
     // victim so scoring can spread strikes along the boundary instead of the
     // whole rear rank swarming one enemy.
     [System.NonSerialized] public int meleeAttackerCount;
@@ -98,7 +98,7 @@ public class Soldier : MonoBehaviour
     private const float RangedSpreadPenaltyPerAttacker = 0.35f;
     private float targetSalt = 1f;   // 0.97..1.03, fixed per soldier
 
-    // grid query scratch (Phase 6F): shared, main-thread only
+    // grid query scratch: shared, main-thread only
     private static readonly Soldier[] sepBuffer = new Soldier[24];
     private static readonly Soldier[] targetBuffer = new Soldier[96];
 
@@ -126,7 +126,7 @@ public class Soldier : MonoBehaviour
     private float actionLockTimer;
     private float lockRecovery = 1f;          // 0 locked -> 1 free, quick ramp
 
-    // Action-priority reads (Patch 4): derived from gameplay state only.
+    // Action-priority reads: derived from gameplay state only.
     public bool IsInCommittedCombatAction => actionLockTimer > 0f || pendingShotTarget != null;
     public bool IsImmediatelyThreatened => IsEngaged;
     public bool CanPerformStrongSlotCorrection =>
@@ -148,7 +148,7 @@ public class Soldier : MonoBehaviour
     private const float FaceIdleDegPerSec = 240f;     // settling on formation facing (~pivot clip pace)
     private const float FaceStartSpeed = 0.45f;       // m/s: begin facing movement
     private const float FaceStopSpeed = 0.25f;        // m/s: fall back to hold/idle facing
-    // separation tuning now lives on BattleSetup (Phase 4 central exposure)
+    // separation tuning now lives on BattleSetup
     private static readonly int BaseColorId = Shader.PropertyToID("_BaseColor");
 
     public void Init(Formation f, int slot, Rigidbody rb, Renderer body, Transform weapon,
@@ -196,7 +196,7 @@ public class Soldier : MonoBehaviour
         toSlot.y = 0f;
         Vector3 slotDesire = Arrive(toSlot, ms);
 
-        // Routing (Chunk A): flee instead of fighting or holding a slot, the
+        // Routing: flee instead of fighting or holding a slot, the
         // formation supplies the direction and the field-edge stop
         bool routing = formation.State == FormationState.Routing;
         Vector3 desired;
@@ -278,7 +278,7 @@ public class Soldier : MonoBehaviour
         Vector3 vel = rb.linearVelocity;
         vel.y = 0f;
         rb.linearVelocity = Vector3.MoveTowards(vel, desired, Accel * Time.fixedDeltaTime);
-        // Routers (Chunk B): with rally off they run off the map and leave the
+        // Routers: with rally off they run off the map and leave the
         // battle; with rally on they are held inside the field after
         // separation and collisions have had their say.
         if (routing)
@@ -326,7 +326,7 @@ public class Soldier : MonoBehaviour
                         (packed ? bs.separationFractionPacked : bs.separationFractionOrdered);
         float sep2 = sepDist * sepDist;
 
-        // Phase 6F: grid-local neighbors instead of the whole team registry,
+        // grid-local neighbors instead of the whole team registry,
         // at 640 friends the full scan was the hottest loop in the game.
         var cc = bs.combatConfig;
         bool yielding = cc != null && cc.yieldToMarching && !formation.IsMarching;
@@ -503,7 +503,7 @@ public class Soldier : MonoBehaviour
         SetTarget(null);
 
         if (BattleSetup.Instance == null) return;
-        // Phase 6F: grid-local candidates. The buffer bounds the scan; ring
+        // grid-local candidates. The buffer bounds the scan; ring
         // expansion order means truncation drops only the farthest candidates.
         int found = BattleGrid.CollectEnemies(transform.position, team, radius, targetBuffer);
         float max2 = radius * radius;
@@ -528,7 +528,7 @@ public class Soldier : MonoBehaviour
             // spin away from the local fight for a marginally closer enemy at
             // its back, but a lone rear threat is still acquired
             float score = Vector3.Dot(fwd, to) < 0f ? d2 * 1.6f : d2;
-            // contact-line spread (Phase 4): an enemy already mobbed by the
+            // contact-line spread: an enemy already mobbed by the
             // attacker cap scores badly, so the next rank looks for an open
             // position along the boundary instead of piling on
             if (!S.isRanged && e.meleeAttackerCount >= MaxMeleeAttackersPerTarget)
@@ -544,7 +544,7 @@ public class Soldier : MonoBehaviour
     }
 
     // Central target setter: keeps the victim's attacker counts honest,
-    // melee reservations bound the contact line (Phase 4), ranged counts
+    // melee reservations bound the contact line, ranged counts
     // drive the graduated volley-spread penalty (v1.8.2).
     private void SetTarget(Soldier t)
     {
@@ -590,7 +590,7 @@ public class Soldier : MonoBehaviour
         Health = MaxHealth;
     }
 
-    // The century routed (Chunk A): let go of the fight at once, so no staged
+    // The century routed: let go of the fight at once, so no staged
     // sword hit lands and no drawn arrow flies after the men have broken.
     public void DropTarget()
     {
@@ -671,7 +671,7 @@ public class Soldier : MonoBehaviour
         else
         {
             // Broken and idle: keep the last meaningful visual direction,
-            // there is no formation facing to settle onto (Phase 2 policy).
+            // there is no formation facing to settle onto.
             if (formation.State == FormationState.BrokenRanks) return;
             // idle: the formation's canonical facing, this is what makes an
             // explicit Rotate command end with soldiers facing the arrow

@@ -1,7 +1,7 @@
 using System.Collections.Generic;
 using UnityEngine;
 
-// Officer grades per SoldierRole (Chunk D). A separate ScriptableObject from
+// Officer grades per SoldierRole. A separate ScriptableObject from
 // MoraleConfig because grades are command structure, not morale. Grades are
 // open-ended integers: higher outranks lower, 0 is a line soldier, and grades
 // 5+ are reserved for army-level officers, nothing here assumes a maximum.

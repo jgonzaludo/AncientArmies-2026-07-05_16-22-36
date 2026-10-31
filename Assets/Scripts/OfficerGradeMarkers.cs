@@ -2,7 +2,7 @@ using UnityEngine;
 using UnityEngine.SceneManagement;
 
 // Small grade number above each officer of the SELECTED or INSPECTED
-// formation only, so the battlefield stays clean (Chunk D). Presentation
+// formation only, so the battlefield stays clean. Presentation
 // only: reads OfficerRanks and selection state, never writes anything.
 // Self-installing on scene load; nothing else references it.
 public class OfficerGradeMarkers : MonoBehaviour

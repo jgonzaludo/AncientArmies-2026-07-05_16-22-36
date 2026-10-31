@@ -5,7 +5,7 @@ using UnityEngine.SceneManagement;
 public enum BattlePhase { Pre, Active, Ended }
 
 // Which arc of the defending formation a blow came from. Drives the damage
-// multiplier and, since Chunk C, the casualty's morale shock weight.
+// multiplier and, since the panic inputs were added, the casualty's morale shock weight.
 public enum DamageZone { Front, Flank, Rear }
 
 // Spawns the battlefield at runtime (5v5 by default, random unit mix per
@@ -89,11 +89,11 @@ public class BattleSetup : MonoBehaviour
     [Tooltip("How far behind the front line the archer centuries deploy")]
     public float archerLineOffset = 20f;
 
-    // Battlefield scale (Phase 6). ~410x280 = roughly 11x the old 120x80 area:
+    // Battlefield scale. ~410x280 = roughly 11x the old 120x80 area:
     // room for wings, reserves, and maneuver without empty-travel tedium. At
     // formation march speed 2.6 m/s, two armies separated by armySeparation
     // and advancing on each other meet in armySeparation / 5.2 ≈ 46 s.
-    [Header("V1 battlefield scale (Phase 6)")]
+    [Header("Battlefield scale")]
     public float fieldHalfX = 205f;
     // 170 (was 140): armySeparation 240 + the deeper line offsets put the
     // reserve rear rank at z=-164.6, the old 140 left it 16.6 m OFF the
@@ -108,10 +108,10 @@ public class BattleSetup : MonoBehaviour
     [Tooltip("Pull starting deployment inward from each map edge so rear ranks clear the boundary")]
     public float spawnEdgeInset = 20f;
 
-    // Centralized soldier-spacing tuning (Phase 4). Soldiers read these so
+    // Centralized soldier-spacing tuning. Soldiers read these so
     // the whole contact feel is adjustable in one place; the melee opponent
     // distance itself comes from UnitStats.strikeRange.
-    [Header("V1 spacing & contact (Phase 4)")]
+    [Header("Spacing and contact")]
     [Tooltip("Minimum friendly separation while ordered, as a fraction of formation spacing")]
     public float separationFractionOrdered = 0.85f;
     [Tooltip("Minimum friendly separation while packed into melee/broken, as a fraction of formation spacing")]
@@ -175,7 +175,7 @@ public class BattleSetup : MonoBehaviour
         if (Instance == this) Instance = null;
     }
 
-    // Spatial partition for all soldier neighbor queries (Phase 6F). Rebuilt
+    // Spatial partition for all soldier neighbor queries. Rebuilt
     // every physics tick, cheap index writes, so separation, targeting, and
     // engagement scans stay O(local density) at 1,280 soldiers.
     private void FixedUpdate()
@@ -437,7 +437,7 @@ public class BattleSetup : MonoBehaviour
             var ground = GameObject.CreatePrimitive(PrimitiveType.Plane);
             ground.name = "Ground";
             ground.transform.position = Vector3.zero;
-            // Phase 6: field is parameterized (default 410 x 280, ~11x the old
+            // field is parameterized (default 410 x 280, ~11x the old
             // area), a Unity plane is 10x10 at scale 1
             ground.transform.localScale = new Vector3(fieldHalfX * 0.2f, 1f, fieldHalfZ * 0.2f);
             BattlefieldDecor.Decorate(ground);      // light tiled grass albedo

@@ -1,7 +1,7 @@
 using System.Collections.Generic;
 using UnityEngine;
 
-// Phase 7: a Roman-inspired coordinated commander for the 8-century red army
+// a Roman-inspired coordinated commander for the 8-century red army
 // (6 melee + 2 archers). Two layers replace the flat V1.1 target-scorer:
 //
 //   Battle phases:  Advance -> Engagement.
@@ -300,7 +300,7 @@ public class EnemyCommander : MonoBehaviour
         {
             if (f.soldiers.Count == 0) continue;
             if (f.team == Team.Red) reds.Add(f);
-            else if (!f.IsRouting) blues.Add(f);   // routers are never targets (Chunk B)
+            else if (!f.IsRouting) blues.Add(f);   // routers are never targets
         }
         for (int i = mainLine.Count - 1; i >= 0; i--)
             if (mainLine[i].soldiers.Count == 0) mainLine.RemoveAt(i);
@@ -626,5 +626,5 @@ public class EnemyCommander : MonoBehaviour
     }
 
     // Reform is automatic in Formation (CanStartReform) for both teams,
-    // the AI issues no reform orders (Chunk B).
+    // the AI issues no reform orders.
 }

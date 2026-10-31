@@ -51,7 +51,7 @@ public class BattleCamera : MonoBehaviour
         RecomputeBounds();
     }
 
-    // Phase 6: battlefield scale is parameterized on BattleSetup, the setup
+    // battlefield scale is parameterized on BattleSetup, the setup
     // pushes pan bounds and zoom limits here instead of this rig guessing.
     public void Configure(float halfX, float halfZ, float minZoom, float maxZoom)
     {

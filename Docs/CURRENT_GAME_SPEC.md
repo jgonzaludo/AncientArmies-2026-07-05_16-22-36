@@ -128,7 +128,7 @@ button: recovery is automatic. A selection of broken centuries shows
   any HUD button, has no banner, and is never an attack or charge target;
   enemy soldiers still cut down routers within reach and pursuing packs
   still hunt them, that is the pursuit. It counts as fallen for the collapse
-  rule. (`routedCanRally` in MoraleConfig re-enables the Chunk A rally: routers
+  rule. (`routedCanRally` in MoraleConfig re-enables the original rally: routers
   then stop at the field edge and may rally above 35 morale.)
 
 A reform plants the standard on the **Signifer** if he is alive in the main

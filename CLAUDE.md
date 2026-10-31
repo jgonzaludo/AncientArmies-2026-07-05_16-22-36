@@ -12,6 +12,7 @@ Read these before substantial work; they override any assumption:
 - `Docs/ART_DIRECTION.md`: visual target
 - `Docs/ART_PIPELINE.md`: the active art pipeline and its approval gates
 - `Docs/DECISIONS.md`: recorded decisions and their dates
+- `CONTRIBUTING.md`: commit, branch and naming conventions, and the style rules
 
 Do not expand scope beyond the current spec without explicit approval.
 
@@ -121,8 +122,12 @@ Do not rewrite these systems to add a feature. Extend at the seams.
 
 ## Git and the test gate
 
-Work on `dev`. Versions are `0.MINOR.PATCH` git tags on `main`. Commits follow
-Conventional Commits with game scopes.
+Work on short-lived `<type>/<short-name>` branches (for example
+`feat/route-planning`) and merge into `main` by pull request with a merge
+commit, not a squash. Versions are `0.MINOR.PATCH` git tags on `main`. Commits
+and PR titles follow Conventional Commits with game scopes. Name work by the
+feature, never by milestone or phase numbers. Full rules are in
+`CONTRIBUTING.md`.
 
 **Never commit, push, merge, or tag a gameplay change until the owner has
 manually tested it in Play mode and explicitly approved it.** Ask first even

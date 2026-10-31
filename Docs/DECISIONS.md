@@ -32,12 +32,12 @@ sword and shield into the body mesh mid zoom was 1.23M triangles / 1763 batches
 
 ## 2026-09-30: Ordering: destination + facing, destination fix, target lock
 
-**Implemented (step 1, awaiting device test):**
+**Implemented (marching and target lock, awaiting device test):**
 - **Ghost march tried and removed.** Letting marching formations pass through friendly soldiers stopped archers being shoved (up to 20 m to 0.4 m) but caused visible clipping and bursts when the unit turned solid again. Owner decision: ghosting is not a feature. Melee-on-melee contact stays physical. Archers caught in a marching unit's path are for route planning and a rescue rule to solve (step 2).
 - **Destination fix.** A move order never ends inside a friendly formation's footprint (where it stands or is headed). Toggle: `CombatConfig.destinationFix`.
 - **Target lock.** An Attacking formation keeps marching at its ordered target while a corner brushes a bystander. It stops to fight only when contact with non-target enemies reaches 40% of its men for 1.5 s, or it is surrounded; contact with the ordered target always engages. Tunables: `targetLock`, `targetLockBlockedFraction`, `targetLockBlockedSeconds` (CombatConfig). Without routing it only delays a blocked unit (~5 s in the `lock` test), it cannot yet go around.
 
-**Implemented (step 2, awaiting device test):**
+**Implemented (routing, path display and AI plans, awaiting device test):**
 - **Route planning.** `RoutePlanner` bends a straight leg around friendly blocks (soft) and enemy blocks (extra 7 m margin, so a plain move stays out of contact range), shorter side first, with string-pulling. `Formation.SteerAlongRoute` follows it, re-planning every 0.75 s or when the goal moves; an attack goes straight at its target but bends around bystanders. No route found = straight line. Toggle: `CombatConfig.routePlanning`.
 - **Path display.** `RouteLines`: every moving friendly unit draws one quiet line with an arrowhead (enemy routes are never drawn); selected units draw brighter and thicker; units heading to the same place (anchors within 40 m, destinations within 25 m, same order kind) share ONE arrow from the group centre. The line shows the remaining route, so it trims as the unit walks and vanishes on arrival. Destination ghost slot dots and facing arrows already existed.
 - **Facing.** Destination + facing were already stored (`DestinationFacing`, second-finger twist) and applied on arrival; unchanged.
@@ -65,14 +65,14 @@ sword and shield into the body mesh mid zoom was 1.23M triangles / 1763 batches
 
 ---
 
-## 2026-09-21: Chunks B, C, D: battles end, panic inputs, officer grades
+## 2026-09-21: Battles end, panic inputs, officer grades
 
 Built the same day as the morale approval below; this entry records what
 shipped and the calls made while building it.
 
 **Routing is permanent.** `routedCanRally` (MoraleConfig) is off: routers run
 off the map and are removed from the battle, not casualties, not
-targets, never coming back. The rally code from Chunk A stays behind the
+targets, never coming back. The rally code from the first morale pass stays behind the
 flag. A permanently routed formation counts as fallen for the collapse rule.
 
 **Battles end by line collapse.** A team loses the moment `collapseFraction`
@@ -361,9 +361,11 @@ Tripo/Blender production.
 
 ## Standing conventions
 
-**Git.** Work on `dev`; `main` receives only owner-tested bundles. Versions are
-`0.MINOR.PATCH` git tags on `main`. Commits follow Conventional Commits with
-game scopes.
+**Git.** Work on short-lived `<type>/<short-name>` branches and merge into
+`main` by pull request with a merge commit; `main` receives only owner-tested
+work. Versions are `0.MINOR.PATCH` git tags on `main`. Commits and PR titles
+follow Conventional Commits with game scopes, and work is named by the feature,
+never by milestone or phase numbers (see `CONTRIBUTING.md`).
 
 **The test gate.** Never commit, push, merge, or tag a gameplay change until
 the owner has manually tested it in Play mode and explicitly approved it.

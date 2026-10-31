@@ -22,7 +22,7 @@ public class PlayerCommander : MonoBehaviour
     public Formation InspectedEnemy { get; private set; }
     public bool RotateMode { get; private set; }
 
-    // Rotate is a group edit now (Phase 2G): available when every live
+    // Rotate is a group edit now: available when every live
     // selected century is eligible (no auto-facing, not broken, not busy).
     public bool CanEnterRotateMode
     {
@@ -40,7 +40,7 @@ public class PlayerCommander : MonoBehaviour
         }
     }
 
-    // rotate-edit session (Phase 2G): pivot, entry facing, and the rigid
+    // rotate-edit session: pivot, entry facing, and the rigid
     // destination arrangement captured when the mode was entered
     private Vector3 rotatePivot;
     private Vector3 rotateInitialDir;
@@ -100,7 +100,7 @@ public class PlayerCommander : MonoBehaviour
     private Transform rotatePreviewArrow;
     private float lastPinchDist = -1f;
 
-    // order destination clamps read the parameterized battlefield (Phase 6)
+    // order destination clamps read the parameterized battlefield
     private static float FieldX => BattleSetup.Instance != null
         ? BattleSetup.Instance.fieldHalfX - BattleSetup.Instance.fieldEdgeMargin : 54f;
     private static float FieldZ => BattleSetup.Instance != null
@@ -293,7 +293,7 @@ public class PlayerCommander : MonoBehaviour
         }
         if (f.team == Team.Blue)
         {
-            // a routing century cannot be selected or ordered (Chunk A)
+            // a routing century cannot be selected or ordered
             if (f.IsRouting) return;
             // Tap grammar: single tap SWITCHES (exclusive select; tapping the
             // sole selected century deselects it), a true double tap on one
@@ -368,7 +368,7 @@ public class PlayerCommander : MonoBehaviour
     {
         for (int i = selection.Count - 1; i >= 0; i--)
         {
-            // dead or routing centuries leave the selection (Chunk A)
+            // dead or routing centuries leave the selection
             if (selection[i] == null || selection[i].soldiers.Count == 0 || selection[i].IsRouting)
             {
                 if (selection[i] != null) selection[i].SetSelected(false);
@@ -524,7 +524,7 @@ public class PlayerCommander : MonoBehaviour
         }
     }
 
-    // Single source of truth for the group move pose (Phase 2E math): the
+    // Single source of truth for the group move pose: the
     // live drag preview and the issued order both run THIS, so the dots the
     // player sees are exactly the slots the order fills. Pivot at the
     // selected anchors' center; relative offsets rigidly rotated so the whole
@@ -566,7 +566,7 @@ public class PlayerCommander : MonoBehaviour
     }
 
     // destination clamps shared by preview and order; deployment destinations
-    // stay inside the friendly zone (Phase 6C)
+    // stay inside the friendly zone
     private void GetDestBoundsZ(out float zMin, out float zMax)
     {
         zMin = -FieldZ;
@@ -631,7 +631,7 @@ public class PlayerCommander : MonoBehaviour
             }
             BattleVisuals.SpawnPulse(pt, false);
         }
-        // Selection persists after orders (Phase 2): destination previews
+        // Selection persists after orders: destination previews
         // follow the moving centuries until the player deselects.
     }
 
@@ -644,7 +644,7 @@ public class PlayerCommander : MonoBehaviour
         if (enemyRing != null) enemyRing.SetActive(false);
     }
 
-    // ---------------- free-arrow rotate mode (Phase 2G) ----------------
+    // ---------------- free-arrow rotate mode ----------------
     //
     // The Rotate button toggles an edit session: a freely movable facing arrow
     // anchored to the session pivot. Moving centuries edit their DESTINATION

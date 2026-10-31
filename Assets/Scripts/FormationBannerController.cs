@@ -240,7 +240,7 @@ public class FormationBannerController : MonoBehaviour
         stateIconSR.sortingOrder = order + 2;
     }
 
-    // Wavering halo (Chunk D): a peripheral warning that a unit is close to
+    // Wavering halo: a peripheral warning that a unit is close to
     // breaking, behind the badge so the faction color stays untouched. The
     // PULSE carries the signal (rate 1 → 2.5 Hz as morale falls toward the
     // rout threshold); color yellow → red is secondary, so it reads for
