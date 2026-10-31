@@ -40,6 +40,12 @@ public class BattleHUD : MonoBehaviour
     private GameObject startRoot;
     private GameObject endRoot;
     private Text resultText;
+    private Text endReasonText;
+    private readonly Text[] endHeader = new Text[2];
+    private readonly GameObject[] endRow = new GameObject[16];   // 8 per side
+    private readonly Text[] endRowName = new Text[16], endRowCount = new Text[16];
+    private readonly Image[] endRowIcon = new Image[16], endRowFill = new Image[16], endRowPlate = new Image[16];
+    private bool endFilled;
     private Text timerText;
     private RectTransform tideRoot, tideBlue;
     private float tideShown = 0.5f;
@@ -76,15 +82,10 @@ public class BattleHUD : MonoBehaviour
         if (endRoot != null)
         {
             endRoot.SetActive(phase == BattlePhase.Ended);
+            if (phase != BattlePhase.Ended) endFilled = false;
             if (phase == BattlePhase.Ended && resultText != null)
             {
-                string r = BattleSetup.Instance.ResultText;
-                // the screen names only the winner; the reason stays in ResultText for logs and tests
-                int dash = r.IndexOf(" —");
-                resultText.text = dash > 0 ? r.Substring(0, dash) : r;
-                resultText.color = r.StartsWith("BLUE WINS") ? new Color(0.5f, 0.75f, 1f)
-                                 : r.StartsWith("RED WINS") ? new Color(1f, 0.5f, 0.45f)
-                                 : new Color(0.68f, 0.68f, 0.68f);   // draw: grey
+                if (!endFilled) { endFilled = true; FillEndSummary(BattleSetup.Instance.ResultText); }
             }
         }
         if (hintText != null) hintText.gameObject.SetActive(phase == BattlePhase.Active);
@@ -320,14 +321,16 @@ public class BattleHUD : MonoBehaviour
         Transform canvasT = safeGO.transform;
 
         // ---- Hint text (top-left) ----
-        hintText = MakeText(canvasT, "HintText", 24, TextAnchor.UpperLeft, new Color(1f, 1f, 1f, 0.7f));
+        hintText = MakeText(canvasT, "HintText", 20, TextAnchor.UpperLeft, new Color(1f, 1f, 1f, 0.7f));
         hintText.text = "Tap: select · double-tap: add to group · Drag from unit: move (2nd finger turns) · Drag ground: pan · Pinch: zoom";
         RectTransform hintRT = hintText.rectTransform;
         hintRT.anchorMin = new Vector2(0f, 1f);
         hintRT.anchorMax = new Vector2(0f, 1f);
         hintRT.pivot = new Vector2(0f, 1f);
         hintRT.anchoredPosition = new Vector2(25f, -20f);
-        hintRT.sizeDelta = new Vector2(1000f, 50f);
+        hintRT.sizeDelta = new Vector2(600f, 66f);
+        hintText.horizontalOverflow = HorizontalWrapMode.Wrap;   // MakeText defaults to Overflow, which ignored the 600 px limit
+        hintText.verticalOverflow = VerticalWrapMode.Overflow;
 
         // ---- Persistent restart (top-right): available before Start and
         // mid-battle; the end banner has its own primary RESTART ----
@@ -378,15 +381,15 @@ public class BattleHUD : MonoBehaviour
         }
     }
 
-    // Top-center SCENES button expanding a row of scene buttons; the current
+    // Top-right SCENES button expanding a row of scene buttons; the current
     // scene renders accented and disabled, others load on tap.
     private void BuildSceneSwitcher(Transform canvasT)
     {
         Button scenesBtn = MakeButton(canvasT, "ScenesButton", "SCENES", Vector2.zero);
         var sRT = scenesBtn.GetComponent<RectTransform>();
-        sRT.anchorMin = sRT.anchorMax = new Vector2(0.5f, 1f);
-        sRT.pivot = new Vector2(0.5f, 1f);
-        sRT.anchoredPosition = new Vector2(0f, -100f);   // below the tide bar and countdown
+        sRT.anchorMin = sRT.anchorMax = new Vector2(1f, 1f);
+        sRT.pivot = new Vector2(1f, 1f);
+        sRT.anchoredPosition = new Vector2(-25f, -94f);   // top-right corner, under RESTART
         sRT.sizeDelta = new Vector2(170f, 64f);
         var sLabel = scenesBtn.GetComponentInChildren<Text>();
         if (sLabel != null) sLabel.fontSize = 24;
@@ -394,9 +397,9 @@ public class BattleHUD : MonoBehaviour
         sceneRowGO = new GameObject("SceneRow");
         sceneRowGO.transform.SetParent(canvasT, false);
         var rowRT = sceneRowGO.AddComponent<RectTransform>();
-        rowRT.anchorMin = rowRT.anchorMax = new Vector2(0.5f, 1f);
-        rowRT.pivot = new Vector2(0.5f, 1f);
-        rowRT.anchoredPosition = new Vector2(0f, -174f);
+        rowRT.anchorMin = rowRT.anchorMax = new Vector2(1f, 1f);
+        rowRT.pivot = new Vector2(1f, 1f);
+        rowRT.anchoredPosition = new Vector2(-25f, -168f);
         rowRT.sizeDelta = new Vector2(SceneNames.Length * 184f, 64f);
 
         string current = gameObject.scene.name;
@@ -452,24 +455,63 @@ public class BattleHUD : MonoBehaviour
         endRT.anchorMin = endRT.anchorMax = new Vector2(0.5f, 0.5f);
         endRT.pivot = new Vector2(0.5f, 0.5f);
         endRT.anchoredPosition = Vector2.zero;
-        endRT.sizeDelta = new Vector2(900f, 320f);
+        endRT.sizeDelta = new Vector2(1260f, 800f);
 
-        resultText = MakeText(endRoot.transform, "ResultText", 84, TextAnchor.MiddleCenter, Color.white);
-        var resRT = resultText.rectTransform;
-        resRT.anchorMin = new Vector2(0.5f, 0.5f);
-        resRT.anchorMax = new Vector2(0.5f, 0.5f);
-        resRT.pivot = new Vector2(0.5f, 0.5f);
-        resRT.anchoredPosition = new Vector2(0f, 90f);
-        resRT.sizeDelta = new Vector2(900f, 130f);
-
-        Button restartBtn = MakeButton(endRoot.transform, "RestartButton", "RESTART", Vector2.zero, accent: true);
-        var rbRT = restartBtn.GetComponent<RectTransform>();
-        rbRT.anchorMin = rbRT.anchorMax = new Vector2(0.5f, 0.5f);
-        rbRT.pivot = new Vector2(0.5f, 0.5f);
-        rbRT.anchoredPosition = new Vector2(0f, -60f);
-        rbRT.sizeDelta = new Vector2(360f, 110f);
-        var restartLabel = restartBtn.GetComponentInChildren<Text>();
-        if (restartLabel != null) restartLabel.fontSize = 40;
+        // ---- Victory screen: gold-bevel frames (UI_Frame_*), VICTORY / DEFEAT from the player's (Blue) side, the reason, and for
+        // each army the soldiers still standing per formation ----
+        Sprite spPanel = Resources.Load<Sprite>("UI_Frame_Panel"), spRibbon = Resources.Load<Sprite>("UI_Frame_Ribbon"),
+               spPlate = Resources.Load<Sprite>("UI_Frame_Plate"), spButton = Resources.Load<Sprite>("UI_Frame_Button");
+        Image EndImage(string nm, Sprite sp, Vector2 pos, Vector2 size, Image.Type type, Color col)
+        {
+            var g = new GameObject(nm); g.transform.SetParent(endRoot.transform, false);
+            var im = g.AddComponent<Image>(); im.sprite = sp; im.type = type; im.color = col; im.raycastTarget = false;
+            var rt = im.rectTransform; rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0.5f, 0.5f); rt.anchoredPosition = pos; rt.sizeDelta = size;
+            return im;
+        }
+        Text EndText(string nm, int size, TextAnchor al, Color col, Vector2 pos, Vector2 sz, bool shadow)
+        {
+            var t = MakeText(endRoot.transform, nm, size, al, col, shadow);
+            var rt = t.rectTransform; rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0.5f, 0.5f); rt.anchoredPosition = pos; rt.sizeDelta = sz;
+            return t;
+        }
+        var blocker = EndImage("EndBlocker", null, Vector2.zero, new Vector2(4000f, 3000f), Image.Type.Simple, new Color(0f, 0f, 0f, 0.5f));
+        blocker.sprite = null; blocker.color = new Color(0f, 0f, 0f, 0.5f); blocker.raycastTarget = true;   // dims the field and swallows taps
+        var panelIm = EndImage("EndPanel", spPanel, Vector2.zero, new Vector2(1500f, 790f), Image.Type.Simple, Color.white);
+        if (spPanel == null) panelIm.color = new Color(0.1f, 0.14f, 0.25f, 0.96f);
+        EndImage("EndRibbon", spRibbon, new Vector2(0f, 392f), new Vector2(820f, 185f), Image.Type.Sliced, Color.white);
+        resultText = EndText("ResultText", 88, TextAnchor.MiddleCenter, Color.white, new Vector2(0f, 395f), new Vector2(620f, 120f), false);
+        endReasonText = EndText("EndReasonText", 30, TextAnchor.MiddleCenter, new Color(1f, 1f, 1f, 0.82f), new Vector2(0f, 262f), new Vector2(1100f, 46f), true);
+        for (int side = 0; side < 2; side++)
+        {
+            float cx = side == 0 ? -300f : 300f;
+            endHeader[side] = EndText("EndHeader" + side, 32, TextAnchor.MiddleCenter, side == 0 ? new Color(0.62f, 0.82f, 1f) : new Color(1f, 0.64f, 0.58f), new Vector2(cx, 200f), new Vector2(560f, 50f), true);
+            for (int r = 0; r < 8; r++)
+            {
+                int k = side * 8 + r; float y = 135f - r * 56f;
+                endRowPlate[k] = EndImage("EndRow" + k, spPlate, new Vector2(cx, y), new Vector2(540f, 54f), Image.Type.Sliced, Color.white);
+                endRow[k] = endRowPlate[k].gameObject;
+                endRowIcon[k] = EndImage("EndIcon" + k, null, new Vector2(cx - 222f, y + 1f), new Vector2(26f, 44f), Image.Type.Simple, Color.white);
+                endRowIcon[k].transform.SetParent(endRow[k].transform, true);
+                endRowName[k] = EndText("EndName" + k, 24, TextAnchor.MiddleLeft, Color.white, new Vector2(cx - 96f, y + 8f), new Vector2(200f, 30f), false);
+                endRowName[k].transform.SetParent(endRow[k].transform, true);
+                endRowCount[k] = EndText("EndCount" + k, 26, TextAnchor.MiddleRight, new Color(1f, 0.93f, 0.7f), new Vector2(cx + 158f, y + 8f), new Vector2(130f, 30f), false);
+                endRowCount[k].transform.SetParent(endRow[k].transform, true);
+                var barBg = EndImage("EndBarBg" + k, null, new Vector2(cx - 5f, y - 14f), new Vector2(380f, 7f), Image.Type.Simple, new Color(0f, 0f, 0f, 0.55f));
+                barBg.sprite = null; barBg.transform.SetParent(endRow[k].transform, true);
+                endRowFill[k] = EndImage("EndBarFill" + k, null, new Vector2(cx - 5f, y - 14f), new Vector2(380f, 7f), Image.Type.Simple, side == 0 ? new Color(0.35f, 0.62f, 1f) : new Color(1f, 0.42f, 0.36f));
+                endRowFill[k].sprite = null; endRowFill[k].transform.SetParent(endRow[k].transform, true);
+                endRowFill[k].rectTransform.pivot = new Vector2(0f, 0.5f);
+                endRowFill[k].rectTransform.anchoredPosition = new Vector2(-195f, -14f);   // relative to the row plate's centre
+                barBg.rectTransform.anchoredPosition = new Vector2(-5f, -14f);
+            }
+        }
+        var rbGo = new GameObject("RestartButton"); rbGo.transform.SetParent(endRoot.transform, false);
+        var rbImg = rbGo.AddComponent<Image>(); rbImg.sprite = spButton; rbImg.type = Image.Type.Sliced; rbImg.color = spButton != null ? Color.white : new Color(0.13f, 0.35f, 0.75f);
+        var rbRT = rbImg.rectTransform; rbRT.anchorMin = rbRT.anchorMax = rbRT.pivot = new Vector2(0.5f, 0.5f);
+        rbRT.anchoredPosition = new Vector2(0f, -345f); rbRT.sizeDelta = new Vector2(420f, 98f);
+        var restartBtn = rbGo.AddComponent<Button>(); restartBtn.targetGraphic = rbImg;
+        var rbLabel = MakeText(rbGo.transform, "Label", 48, TextAnchor.MiddleCenter, Color.white, true);
+        rbLabel.text = "REMATCH"; var rlRT = rbLabel.rectTransform; rlRT.anchorMin = Vector2.zero; rlRT.anchorMax = Vector2.one; rlRT.offsetMin = rlRT.offsetMax = Vector2.zero;
         restartBtn.onClick.AddListener(() =>
         {
             if (BattleSetup.Instance != null) BattleSetup.Instance.RestartBattle();
@@ -481,7 +523,7 @@ public class BattleHUD : MonoBehaviour
         var tRT = timerText.rectTransform;
         tRT.anchorMin = tRT.anchorMax = new Vector2(0.5f, 1f);
         tRT.pivot = new Vector2(0.5f, 1f);
-        tRT.anchoredPosition = new Vector2(0f, -36f);
+        tRT.anchoredPosition = new Vector2(0f, -40f);
         tRT.sizeDelta = new Vector2(300f, 60f);
         timerText.gameObject.SetActive(false);
 
@@ -493,7 +535,7 @@ public class BattleHUD : MonoBehaviour
         tideRoot.anchorMin = tideRoot.anchorMax = new Vector2(0.5f, 1f);
         tideRoot.pivot = new Vector2(0.5f, 1f);
         tideRoot.anchoredPosition = new Vector2(0f, -10f);
-        tideRoot.sizeDelta = new Vector2(620f, 22f);
+        tideRoot.sizeDelta = new Vector2(620f, 24f);
         Image NewBar(string n, Color c)
         {
             var g = new GameObject(n, typeof(RectTransform), typeof(Image));
@@ -501,6 +543,9 @@ public class BattleHUD : MonoBehaviour
             var im = g.GetComponent<Image>(); im.color = c; im.raycastTarget = false;   // never a tap target
             return im;
         }
+        var frame = NewBar("Frame", new Color(0f, 0f, 0f, 0.6f));
+        frame.rectTransform.anchorMin = Vector2.zero; frame.rectTransform.anchorMax = Vector2.one;
+        frame.rectTransform.offsetMin = new Vector2(-4f, -4f); frame.rectTransform.offsetMax = new Vector2(4f, 4f);
         var red = NewBar("Red", new Color(0.86f, 0.30f, 0.27f, 0.92f));
         red.rectTransform.anchorMin = Vector2.zero; red.rectTransform.anchorMax = Vector2.one;
         red.rectTransform.offsetMin = red.rectTransform.offsetMax = Vector2.zero;
@@ -519,8 +564,8 @@ public class BattleHUD : MonoBehaviour
         var spRT = speedBtn.GetComponent<RectTransform>();
         spRT.anchorMin = spRT.anchorMax = new Vector2(1f, 1f);
         spRT.pivot = new Vector2(1f, 1f);
-        spRT.anchoredPosition = new Vector2(-20f, -20f);
-        spRT.sizeDelta = new Vector2(110f, 64f);
+        spRT.anchoredPosition = new Vector2(-205f, -20f);   // left of RESTART (170 wide at -25)
+        spRT.sizeDelta = new Vector2(96f, 64f);
         speedBtn.onClick.AddListener(() =>
         {
             float next = SimSpeed.Multiplier >= 2f ? 1f : 2f;
@@ -634,6 +679,56 @@ public class BattleHUD : MonoBehaviour
 
     // ---------------- helpers ----------------
 
+    // Victory screen content, from the player's side (Blue): VICTORY / DEFEAT / DRAW, why it ended, and the soldiers still standing per formation.
+    private void FillEndSummary(string result)
+    {
+        var bs = BattleSetup.Instance;
+        if (bs == null) return;
+        int Total(Team t) { int n = 0; foreach (var f in bs.formations) if (f.team == t) n++; return n; }
+        int Broken(Team t) { int n = 0; foreach (var f in bs.formations) if (f.team == t && (f.soldiers.Count == 0 || f.State == FormationState.Routing)) n++; return n; }
+        bool won = result.StartsWith("BLUE WINS"), lost = result.StartsWith("RED WINS");
+        resultText.text = won ? "VICTORY" : lost ? "DEFEAT" : "DRAW";
+        resultText.color = won ? new Color(0.13f, 0.38f, 0.75f) : lost ? new Color(0.72f, 0.16f, 0.13f) : new Color(0.32f, 0.34f, 0.4f);
+        string reason;
+        if (result.Contains("COLLAPSED"))
+        {
+            Team loser = won ? Team.Red : Team.Blue;
+            reason = (loser == Team.Red ? "The enemy line collapsed" : "Your line collapsed") + " — " + Broken(loser) + " of " + Total(loser) + " formations routed or destroyed";
+        }
+        else if (result.Contains("TIME"))
+        {
+            int b = bs.CountIntact(Team.Blue), r = bs.CountIntact(Team.Red);
+            reason = b == r ? "Time expired — both armies equal at " + b + " intact formations"
+                            : "Time expired — " + (b > r ? "you held" : "the enemy held") + " more intact formations (" + Mathf.Max(b, r) + " to " + Mathf.Min(b, r) + ")";
+        }
+        else reason = result;
+        endReasonText.text = reason;
+
+        for (int side = 0; side < 2; side++)
+        {
+            Team team = side == 0 ? Team.Blue : Team.Red;
+            int spawned = 0, alive = 0, row = 0;
+            foreach (var f in bs.formations)
+            {
+                if (f.team != team) continue;
+                spawned += f.TotalSpawned; alive += f.soldiers.Count;
+                if (row >= 8) continue;
+                int k = side * 8 + row++;
+                endRow[k].SetActive(true);
+                endRowName[k].text = f.displayName.Replace("Blue ", "").Replace("Red ", "");
+                endRowCount[k].text = f.soldiers.Count + " / " + f.TotalSpawned;
+                float frac = f.TotalSpawned > 0 ? Mathf.Clamp01((float)f.soldiers.Count / f.TotalSpawned) : 0f;
+                endRowFill[k].rectTransform.sizeDelta = new Vector2(380f * frac, 7f);
+                var icon = Resources.Load<Sprite>("UI_Banner_" + (side == 0 ? "Blue" : "Red") + "_" + (f.stats.isRanged ? "Ranged" : "Melee"));
+                endRowIcon[k].sprite = icon; endRowIcon[k].enabled = icon != null;
+                float a = f.soldiers.Count == 0 ? 0.45f : 1f;   // a wiped-out formation is dimmed
+                endRowPlate[k].color = new Color(1f, 1f, 1f, a); endRowName[k].color = new Color(1f, 1f, 1f, a); endRowCount[k].color = new Color(1f, 0.93f, 0.7f, a);
+            }
+            for (; row < 8; row++) endRow[side * 8 + row].SetActive(false);
+            endHeader[side].text = (side == 0 ? "YOUR ARMY" : "ENEMY") + "   " + alive + " / " + spawned;
+        }
+    }
+
     private Text MakeText(Transform parent, string name, int fontSize, TextAnchor anchor, Color color, bool shadow = true)
     {
         var go = new GameObject(name);
@@ -673,9 +768,11 @@ public class BattleHUD : MonoBehaviour
         rt.sizeDelta = new Vector2(ButtonWidth, ButtonHeight);
 
         var image = go.AddComponent<Image>();
-        image.sprite = RoundedSprite();
+        // gold-bevel frames when the art is present (accent = the blue button, everything else the navy plate); the old rounded boxes otherwise
+        Sprite framed = accent ? FrameSprite("UI_Frame_Button") : FrameSprite("UI_Frame_Plate");
+        image.sprite = framed != null ? framed : RoundedSprite();
         image.type = Image.Type.Sliced;
-        Color baseColor = accent ? AccentColor : ButtonColor;
+        Color baseColor = framed != null ? Color.white : (accent ? AccentColor : ButtonColor);
         image.color = baseColor;
 
         var button = go.AddComponent<Button>();
@@ -683,8 +780,9 @@ public class BattleHUD : MonoBehaviour
 
         ColorBlock colors = button.colors;
         colors.normalColor = baseColor;
-        colors.highlightedColor = Color.Lerp(baseColor, Color.white, 0.15f);
+        colors.highlightedColor = baseColor == Color.white ? new Color(1f, 1f, 1f, 1f) * 1.0f : Color.Lerp(baseColor, Color.white, 0.15f);
         colors.pressedColor = Color.Lerp(baseColor, Color.black, 0.3f);
+        if (baseColor == Color.white) colors.highlightedColor = new Color(1f, 0.97f, 0.85f);
         colors.disabledColor = new Color(baseColor.r, baseColor.g, baseColor.b, 0.35f);
         button.colors = colors;
 
@@ -708,6 +806,13 @@ public class BattleHUD : MonoBehaviour
     // (100) and the 9-slice border must be exactly the corner radius — any
     // mismatch rescales the corner slices per-axis and the buttons distort
     // into ovals instead of keeping a fixed corner radius at every size.
+    private static readonly System.Collections.Generic.Dictionary<string, Sprite> frameCache = new System.Collections.Generic.Dictionary<string, Sprite>();
+    private static Sprite FrameSprite(string name)
+    {
+        if (!frameCache.TryGetValue(name, out var sp)) { sp = Resources.Load<Sprite>(name); frameCache[name] = sp; }
+        return sp;
+    }
+
     private static Sprite RoundedSprite()
     {
         if (roundedSprite != null) return roundedSprite;
