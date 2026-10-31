@@ -30,6 +30,41 @@ sword and shield into the body mesh mid zoom was 1.23M triangles / 1763 batches
 
 ---
 
+## 2026-09-30 — Ordering: destination + facing, destination fix, target lock
+
+**Implemented (step 1, awaiting device test):**
+- **Ghost march tried and removed.** Letting marching formations pass through friendly soldiers stopped archers being shoved (up to 20 m to 0.4 m) but caused visible clipping and bursts when the unit turned solid again. Owner decision: ghosting is not a feature. Melee-on-melee contact stays physical. Archers caught in a marching unit's path are for route planning and a rescue rule to solve (step 2).
+- **Destination fix.** A move order never ends inside a friendly formation's footprint (where it stands or is headed). Toggle: `CombatConfig.destinationFix`.
+- **Target lock.** An Attacking formation keeps marching at its ordered target while a corner brushes a bystander. It stops to fight only when contact with non-target enemies reaches 40% of its men for 1.5 s, or it is surrounded; contact with the ordered target always engages. Tunables: `targetLock`, `targetLockBlockedFraction`, `targetLockBlockedSeconds` (CombatConfig). Without routing it only delays a blocked unit (~5 s in the `lock` test) — it cannot yet go around.
+
+**Implemented (step 2, awaiting device test):**
+- **Route planning.** `RoutePlanner` bends a straight leg around friendly blocks (soft) and enemy blocks (extra 7 m margin, so a plain move stays out of contact range), shorter side first, with string-pulling. `Formation.SteerAlongRoute` follows it, re-planning every 0.75 s or when the goal moves; an attack goes straight at its target but bends around bystanders. No route found = straight line. Toggle: `CombatConfig.routePlanning`.
+- **Path display.** `RouteLines`: every moving friendly unit draws one quiet line with an arrowhead (enemy routes are never drawn); selected units draw brighter and thicker; units heading to the same place (anchors within 40 m, destinations within 25 m, same order kind) share ONE arrow from the group centre. The line shows the remaining route, so it trims as the unit walks and vanishes on arrival. Destination ghost slot dots and facing arrows already existed.
+- **Facing.** Destination + facing were already stored (`DestinationFacing`, second-finger twist) and applied on arrival; unchanged.
+- **AI plans.** `EnemyCommander.plan`: Random (seeded) / Frontal / FlankOne / DoubleFlank. Flankers leave the lane scorer, march a routed course to a staging point 28 m outside the enemy line abreast of it, then attack the nearest block from the side; released early if caught in melee or routing. Test (seed 12345, 2x, idle Blue): DoubleFlank produced 1318 flank and 242 rear hits against 0 for Frontal.
+- **Yield to marching friends.** A standing friendly soldier within 2.6 m of a marching friendly block sidesteps out of its line (up to 3 m/s) instead of being pushed or carried along; it returns to its slot by itself after the block passes. Added after the `b2f` (rear centuries ordered through archers and the front line) test showed soldiers dragged up to 70 m even with routing: peak displacement 66 m -> 7.7 m, 0 of 480 soldiers more than 3 m from their start afterwards. Toggle: `CombatConfig.yieldToMarching` (`yieldDistance`, `yieldSpeed`).
+- **Planner upgrade.** Shortest path over a visibility graph of obstacle outlines (replaces the two-step detour), so a solid friendly line is walked around by its end. Friend margin 2 m.
+- **Drift fix.** The arrival turn onto the stored facing wheeled around the block's front corner, shifting the centre by up to ~6 m (archers). Arrival turns now pivot on the block's centre; the tactical Rotate command keeps its corner wheel. `drift` scenario: placed spot vs real anchor 6.1 m -> 0.2 m, soldiers 0.05 m from slots.
+- **Facing locked.** A move order keeps the facing the unit had when it was ordered (the block still turns to march, then turns back on arrival); only the player's twist changes it. Before, the default was the direction of travel.
+- **Recall.** A soldier more than 2 m from its slot and not in melee contact abandons everything else and runs back at 1.25x speed.
+- **Roomy routes.** The planner tries clearance tiers widest first (friend/enemy margin 10/12 m, then 6/8, 3/5, 1/3) and takes the widest one whose route is not longer than 2.6x the straight distance + 30 m, so blocks keep room from friends and brush them only when nothing roomier exists. Same planner, yield, recall and re-slot rules apply to the enemy AI (verified with a mirrored Red back-to-front run: 0.0 m drag).
+- **Recall beats the bow.** A displaced soldier's recall now overrides the shooting lock (a drawn bow zeroed it, which is why archers stayed put) and cancels the pending shot. Standing friends also give way to a friend running back to its own slot (sidestep across the returner's path to its slot).
+- **Re-slot stragglers.** A soldier more than 3 m from its slot and not moving for 2 s (its slot walled in by its own ranks, gaps narrower than a body) triggers the minimal-displacement re-slot used by reform. In the `drift` test the stuck archer returned within ~20 s.
+- **Path-line stability.** Arrow groups are fixed by the order (same command batch, destinations within 25 m), not by current positions, so arrows no longer split, merge or jump as units drift apart; the group's line keeps the first member's route shape carried to the group centre. Routes are kept while still clear instead of re-planned every second; the visibility graph has 16 outline points per obstacle plus string-pulling, so routes are a few straight legs. Line height 0.4 m, thicker.
+- **Facing preserved in the order UI.** The drag preview (slot dots + arrow) shows each unit's own CURRENT facing until the second finger twists; it no longer turns to the direction of travel, and the issued order keeps that facing.
+- **Targets, smooth routes, victory screen (2026-10-30).** Sticky targets and latched
+  recall: reversals among men with a live target 1.48% -> 0.60% of moving samples (seed
+  12345, 2x). Route smoothing: path kinks over 25 degrees 3 -> 0, max turn 52 -> 22
+  degrees, arrival and drag unchanged. Edge-contact swing-in built but DISABLED: even
+  with a two-sided-contact guard it caused a Surround rout at <1% casualties in the
+  `edge` test; needs another pass before it ships. Victory screen: reason + totals +
+  per-formation table. Test hygiene: the harness now runs with cameras ON (watchable).
+- Not done: hold-and-bait AI plan; AI repath-on-friendly-block uses the same 0.75 s replan.
+
+**Tests:** scenarios `pass` (melee marches through friendly archers) and `lock` live in `ScenarioRunner`. Without route planning `pass` shows archers displaced 20 m max (8 m average); with it the average drops to 0.5 m (max still 23 m for one unit in this stress case).
+
+---
+
 ## 2026-09-21 — Chunks B, C, D: battles end, panic inputs, officer grades
 
 Built the same day as the morale approval below; this entry records what

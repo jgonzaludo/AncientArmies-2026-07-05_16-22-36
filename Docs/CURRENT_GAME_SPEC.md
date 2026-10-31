@@ -269,8 +269,10 @@ pipeline is still undecided). The old capsule placeholders remain behind
 `KayKitVisualConfig.useKayKitVisual`.
 
 - Chunky armed soldiers: melee with a sword and a square shield, archers with
-  a bow. Blue and red are told apart by team-coloured cloth, armour and shield
-  (two team textures; the helmet stays slate). Officers use the same body for
+  a bow. Blue and red are told apart by team-coloured armour plates, tabard and
+  shield in the banner blue / red; the helmet and sword stay steel and skin stays
+  natural, with a team-coloured helmet cap, dark eyebrows and four skin tones (default, olive, tan, brown) spread across each
+  century. Officers use the same body for
   now. Cape and visor are not used.
 - Animation follows state:
 
@@ -289,12 +291,15 @@ pipeline is still undecided). The old capsule placeholders remain behind
   | Battle won | Cheering, winning side |
 
   Every soldier starts at a random offset so a century never moves in lockstep.
-- **Zoom detail**: mesh LOD and animation rate drop as the camera zooms out, a
-  share of men stop being drawn at the far end of the animated range, and the
-  merged-billboard impostor takes over below ~30 soldier pixels.
+- **Zoom detail**: mesh LOD and animation rate drop as the camera zooms out,
+  but every man is still drawn as a soldier until very far out; the
+  merged-billboard impostor blocks take over only below ~18 soldier pixels.
+- **Facing**: the model turns to face its direction of motion (a man recalled,
+  sidestepping or withdrawing never walks backwards); its formation / combat
+  facing is unchanged for gameplay. In melee contact only real travel turns it.
 - The ground is a **flat sand colour** — no texture, no tiling, so nothing
   repeats at max zoom-out.
-- Arrows are small dark spheres.
+- Arrows are the KayKit arrow model, turned along their flight path.
 
 Everything else is unchanged:
 
@@ -315,6 +320,20 @@ Everything else is unchanged:
   formation.
 - **Debug morale overlay** (tuning only, `showDebugMorale`): each formation's
   morale and state near its banner.
+
+- **Victory screen** (gold-bevel frames, from the player's side): VICTORY / DEFEAT / DRAW on a
+  ribbon, why it ended (which line collapsed and how many formations routed or were destroyed,
+  or the time-out comparison), and for each army its soldiers still standing per formation
+  (`62 / 80` and a bar, with the unit's banner icon; wiped-out formations are dimmed). No
+  morale or other stats. REMATCH restarts.
+- **Target stickiness**: a soldier keeps a new target for at least 1.5 s (and
+  out to twice the acquire radius while held); a melee man with a live target
+  never runs back to his slot, and a recall latches until he is within 1 m of
+  it (starts beyond 3 m). Archers always return to their slots.
+- **Route smoothing**: planned routes have their corners rounded into gentle
+  curves, and the unit steers along the same curve that is drawn.
+- **Edge contact swing-in** exists but is **off** (`CombatConfig.swingIn`): in
+  the edge test it pushed the unit into surround shock and a rout.
 
 ## Deliberately not in this build
 

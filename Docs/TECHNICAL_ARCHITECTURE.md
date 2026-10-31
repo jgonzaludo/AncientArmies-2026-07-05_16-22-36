@@ -256,16 +256,33 @@ KayKit visual pipeline:
   ONE mesh on the shared bones; for melee the sword and shield are rigidly
   skinned into it as well, so a soldier is one draw call; the archer mesh is
   body only and carries the bow as a separate prop), Unity mesh LODs
-  (`MeshLodUtility`), two **team textures** (one atlas per team: the dark
-  cloth/armour tiles and the shield tiles take the team hue; skin, leather,
-  gold and bright steel stay), three materials (blue, red, bow; URP Lit, no
+  (`MeshLodUtility`), **team x skin atlases** (2 teams x 4 skin tones = 8 textures and
+  8 materials, picked per soldier by a stable hash of formation name + slot): only
+  the steel plates, dark steel and tabard take the team colour (banner blue /
+  red), the shield face takes the team colour, the gold trim tile uses the banner
+  gold, and only the two face tiles change with the skin tone (default, olive,
+  tan, brown); eyes, leather and trim stay natural. The helmet and the sword keep
+  natural steel, except a team-coloured cap: the helmet triangles above 66% of its height keep the team-coloured
+  armour tile on duplicated vertices (clean edge along a ring of the helmet's own facets,
+  readable from the top-down camera): their UVs are moved onto untinted spare copies of the steel tiles
+  (bottom row of the atlas). Materials are URP Lit plus the bow material; URP Lit, no
   specular or reflections, a faint emission from the same texture because the
   scene's ambient is very dark), two animator controllers (one state per
   clip, no transitions: the visual component cross-fades by state hash), and
   the two prefabs `VIS_KayKit_Melee` / `VIS_KayKit_Archer`.
-- No `MaterialPropertyBlock` anywhere (it would break the SRP Batcher): team
+- No `MaterialPropertyBlock` anywhere (it would break the SRP Batcher). `KayKitSoldierVisual.Init`
+  wipes the one `Soldier.Init` applies before `suppressTint` exists (that leftover tint multiplied
+  the whole model team-coloured, faces and helmets included, until fixed 2026-10-31): team
   colour is purely the two team materials; the old HP tint is therefore off
   (`suppressTint`).
+- The model is rotated (a child transform only; the gameplay root keeps the
+  combat facing) to face the soldier's velocity, so recalls, sidesteps and
+  withdrawals never play a forward walk backwards.
+- Arrows use `VIS_KayKit_Arrow` (the pack's `arrow_bow`, long axis on +Z) via
+  `Projectile`; the debug morale / grade-marker `OnGUI` overlays draw only in
+  the editor and development builds.
+- HUD buttons use the gold-bevel frames (`UI_Frame_Plate` / `UI_Frame_Button`, 9-sliced) when present, and the debug state
+  labels draw on the same plate. Frames live in `Assets/Art/UI/Frames/Resources` (sources in `ArtSource/UI/frames`).
 - `SoldierFactory.TryCreateKayKit` instantiates the prefab as the identity
   child `VisualRoot` (the child the impostor swap already looks for) and adds
   `KayKitSoldierVisual` to the soldier root.
@@ -277,10 +294,14 @@ KayKit visual pipeline:
   offset per soldier. The only thing it writes is the bow release, via a
   timer, because archers run with `deferRangedRelease`; melee runs with
   `deferMeleeImpact` (the existing variant and impact-delay logic).
+- The shield is skinned 0.18 m out along the hand slot's Z: centred on the slot it buried the forearm armour
+  (38% of sampled left-arm vertices across 40 poses were inside its slab; now 0.3%).
 - `KayKitCrowdLod` (zoom tiers from the banner manager's 1080p soldier pixel
   height, hysteresis): >=110 px mesh LOD0, 70-110 LOD1, 45-70 LOD2 and
-  animator every 2nd frame, 30-45 LOD3, animator every 3rd frame and every
-  2nd man not drawn, <=30 px the impostor takes over (raised from 12/15).
+  animator every 2nd frame, 22-45 LOD3 with the animator every 4th frame and
+  rigidbody interpolation off (nobody is hidden), <=18 px (exit 22) the
+  impostor takes over. Note `UnityStats.triangles` counts every mesh LOD's
+  index range, so it overstates the drawn triangles with mesh LOD on.
   Men outside the view (plus margin) stop animating and drawing. Animators
   are `CullCompletely`; renderers do not update when offscreen; skin quality
   is 2 bones.
