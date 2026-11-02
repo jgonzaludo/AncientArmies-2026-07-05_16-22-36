@@ -274,10 +274,9 @@ public class PlayerCommander : MonoBehaviour
     private static bool BattleActive =>
         BattleSetup.Instance != null && BattleSetup.Instance.Phase == BattlePhase.Active;
 
-    // Deployment (Pre) allows full command interaction, select, move, rotate
-    // with physical marching; only ATTACK orders wait for Start Battle.
+    // no commanding until Start Battle is pressed (and none once it has ended)
     private static bool CommandsAllowed =>
-        BattleSetup.Instance != null && BattleSetup.Instance.Phase != BattlePhase.Ended;
+        BattleSetup.Instance != null && BattleSetup.Instance.Phase == BattlePhase.Active;
 
     private static bool Deploying =>
         BattleSetup.Instance != null && BattleSetup.Instance.Phase == BattlePhase.Pre;

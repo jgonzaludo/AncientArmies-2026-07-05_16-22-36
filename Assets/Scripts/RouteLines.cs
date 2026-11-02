@@ -24,8 +24,8 @@ public class RouteLines : MonoBehaviour
 
     private void Awake()
     {
-        quietMove = BattleVisuals.TransparentUnlit(new Color(1f, 1f, 1f, 0.4f));
-        brightMove = BattleVisuals.TransparentUnlit(new Color(1f, 1f, 1f, 0.85f));
+        quietMove = BattleVisuals.TransparentUnlit(new Color(0.96f, 0.8f, 0.43f, 0.5f));
+        brightMove = BattleVisuals.TransparentUnlit(new Color(0.96f, 0.8f, 0.43f, 0.95f));
         quietAttack = BattleVisuals.TransparentUnlit(new Color(1f, 0.3f, 0.25f, 0.42f));
         brightAttack = BattleVisuals.TransparentUnlit(new Color(1f, 0.3f, 0.25f, 0.9f));
         arrowCurve = new AnimationCurve(new Keyframe(0f, 1f), new Keyframe(0.9f, 1f), new Keyframe(0.905f, 3.2f), new Keyframe(1f, 0f));

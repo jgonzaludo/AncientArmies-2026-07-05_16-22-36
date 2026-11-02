@@ -376,70 +376,21 @@ public static class KayKitPrefabSheet
 
 public static class UiFrames
 {
-    // Sprite import for the victory-screen frames. Borders are 9-slice caps in pixels of the 1024-wide source.
+    // Sprite import for the drawn gold-bevel UI (ArtSource/UI/make_frames.py). Borders are 9-slice caps in source pixels.
     public static string Import()
     {
         var sb = new System.Text.StringBuilder();
-        foreach (var (name, border) in new[] { ("UI_Frame_Panel", 0), ("UI_Frame_Ribbon", 100), ("UI_Frame_Plate", 78), ("UI_Frame_Button", 120) })
+        foreach (var (name, l, t, r, b) in new[] { ("UI_Plate", 44, 0, 44, 0), ("UI_PlateBlue", 44, 0, 44, 0), ("UI_PlateRed", 44, 0, 44, 0), ("UI_PlateDanger", 44, 0, 44, 0), ("UI_Pill", 44, 0, 44, 0), ("UI_PlateDisabled", 44, 0, 44, 0), ("UI_Ring", 48, 48, 48, 48), ("UI_Icon_Clock", 0, 0, 0, 0), ("UI_Icon_Restart", 0, 0, 0, 0), ("UI_Icon_Rotate", 0, 0, 0, 0), ("UI_Icon_Chevron", 0, 0, 0, 0), ("UI_Icon_Soldier", 0, 0, 0, 0), ("UI_Row", 32, 0, 32, 0), ("UI_Panel", 64, 64, 64, 64), ("UI_Ribbon", 64, 0, 64, 0) })
         {
             string path = "Assets/Art/UI/Frames/Resources/" + name + ".png";
             AssetDatabase.ImportAsset(path);
             var ti = (TextureImporter)AssetImporter.GetAtPath(path);
             ti.textureType = TextureImporterType.Sprite; ti.spriteImportMode = SpriteImportMode.Single;
             ti.mipmapEnabled = false; ti.alphaIsTransparency = true; ti.filterMode = FilterMode.Bilinear; ti.maxTextureSize = 1024;
-            ti.textureCompression = TextureImporterCompression.Compressed;
-            ti.spriteBorder = new Vector4(border, 0f, border, 0f);
+            ti.textureCompression = TextureImporterCompression.Uncompressed;
+            ti.spriteBorder = new Vector4(l, t, r, b);
             ti.SaveAndReimport();
-            sb.AppendLine(name + " sprite border L/R=" + border);
-        }
-        return sb.ToString();
-    }
-}
-
-public static class KayKitHeadUV
-{
-    // Which parts of the face sample which part of the atlas: tile + 8 vertical buckets, with the mean position (model space) of the vertices.
-    public static string Dump()
-    {
-        var go = AssetDatabase.LoadAssetAtPath<GameObject>("Assets/ThirdParty/KayKit/Characters/Knight.fbx");
-        var head = go.GetComponentsInChildren<SkinnedMeshRenderer>(true).First(r => r.name.Contains("Head"));
-        var m = head.sharedMesh; var uv = m.uv; var v = m.vertices; var M = head.transform.localToWorldMatrix;
-        var raw = new Texture2D(2, 2); raw.LoadImage(System.IO.File.ReadAllBytes("Assets/ThirdParty/KayKit/Characters/knight_texture.png"));
-        var groups = new System.Collections.Generic.Dictionary<string, (int n, Vector3 sum, Vector3 min, Vector3 max, Color col)>();
-        for (int i = 0; i < uv.Length; i++)
-        {
-            int c = Mathf.Clamp((int)(uv[i].x * 8f), 0, 7), r = Mathf.Clamp((int)((1f - uv[i].y) * 4f), 0, 3);
-            float fy = (1f - uv[i].y) * 4f - r; int bucket = Mathf.Clamp((int)(fy * 8f), 0, 7);
-            var p = M.MultiplyPoint3x4(v[i]); string k = "(" + c + "," + r + ") v" + bucket;
-            groups.TryGetValue(k, out var g);
-            Color col = raw.GetPixel(Mathf.Clamp((int)(uv[i].x * raw.width), 0, raw.width - 1), Mathf.Clamp((int)(uv[i].y * raw.height), 0, raw.height - 1));
-            groups[k] = (g.n + 1, g.sum + p, g.n == 0 ? p : Vector3.Min(g.min, p), g.n == 0 ? p : Vector3.Max(g.max, p), col);
-        }
-        var sb = new System.Text.StringBuilder("Head vertices: " + uv.Length + "\\n");
-        foreach (var kv in groups.OrderBy(k => k.Key))
-            sb.AppendLine(kv.Key + ": n=" + kv.Value.n + " colour #" + ColorUtility.ToHtmlStringRGB(kv.Value.col) + " mean=" + (kv.Value.sum / kv.Value.n).ToString("0.000") + " x[" + kv.Value.min.x.ToString("0.00") + "," + kv.Value.max.x.ToString("0.00") + "] y[" + kv.Value.min.y.ToString("0.00") + "," + kv.Value.max.y.ToString("0.00") + "] z[" + kv.Value.min.z.ToString("0.00") + "," + kv.Value.max.z.ToString("0.00") + "]");
-        return sb.ToString();
-    }
-}
-
-public static class KayKitBrows
-{
-    // Triangles on the front of the face between the eyes and the brow line: tile, v-bucket, colour, position.
-    public static string Dump()
-    {
-        var go = AssetDatabase.LoadAssetAtPath<GameObject>("Assets/ThirdParty/KayKit/Characters/Knight.fbx");
-        var head = go.GetComponentsInChildren<SkinnedMeshRenderer>(true).First(r => r.name.Contains("Head"));
-        var m = head.sharedMesh; var uv = m.uv; var v = m.vertices; var tri = m.triangles; var M = head.transform.localToWorldMatrix;
-        var raw = new Texture2D(2, 2); raw.LoadImage(System.IO.File.ReadAllBytes("Assets/ThirdParty/KayKit/Characters/knight_texture.png"));
-        var sb = new System.Text.StringBuilder();
-        for (int t = 0; t < tri.Length; t += 3)
-        {
-            Vector3 c = (M.MultiplyPoint3x4(v[tri[t]]) + M.MultiplyPoint3x4(v[tri[t + 1]]) + M.MultiplyPoint3x4(v[tri[t + 2]])) / 3f;
-            if (c.z < 0.33f || c.y < 1.58f || c.y > 1.85f) continue;
-            Vector2 u = (uv[tri[t]] + uv[tri[t + 1]] + uv[tri[t + 2]]) / 3f;
-            int col = Mathf.Clamp((int)(u.x * 8f), 0, 7), row = Mathf.Clamp((int)((1f - u.y) * 4f), 0, 3);
-            Color pix = raw.GetPixel((int)(u.x * raw.width), (int)(u.y * raw.height));
-            sb.AppendLine("tri " + (t / 3) + " centre (" + c.x.ToString("0.00") + "," + c.y.ToString("0.00") + "," + c.z.ToString("0.00") + ") tile (" + col + "," + row + ") #" + ColorUtility.ToHtmlStringRGB(pix));
+            sb.AppendLine(name + " border " + l + "/" + t + "/" + r + "/" + b);
         }
         return sb.ToString();
     }

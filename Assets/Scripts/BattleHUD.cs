@@ -1,60 +1,52 @@
 using System.Collections.Generic;
+using TMPro;
 using UnityEngine;
-using UnityEngine.SceneManagement;
-using UnityEngine.UI;
 using UnityEngine.EventSystems;
 using UnityEngine.InputSystem.UI;
+using UnityEngine.SceneManagement;
+using UnityEngine.UI;
 
-// Minimal runtime-built HUD: a top-left control hint, floating command buttons
-// bottom-right, and a compact info chip bottom-left showing friendly formation
-// info (single or multi selection) or read-only enemy inspection info. There is
-// no full-width bar, only button background Images are raycast targets, so
-// battlefield taps near the bottom edge always reach the units. Everything is
-// constructed in code at Start() against PlayerCommander/Formation, no
-// prefabs, no scene UI.
+// Runtime-built HUD (uGUI, no prefabs): help and banner toggle top left, score bar and clock top center, restart top
+// right, a unit panel bottom left and charge / rotate bottom right. only button and pill backgrounds are raycast
+// targets, so taps near the edges still reach the battlefield. every size comes from UiTheme (draft px * K).
 public class BattleHUD : MonoBehaviour
 {
-    private const float ButtonWidth = 215f;
-    private const float ButtonHeight = 84f;
-    private const float ButtonGap = 14f;
-    private static readonly Color EnemyTint = new Color(1f, 0.45f, 0.45f);
-    private static readonly Color ReasonColor = new Color(1f, 0.55f, 0.5f);
-    private static readonly Color ButtonColor = new Color(0.21f, 0.23f, 0.31f);
-    private static readonly Color AccentColor = new Color(0.18f, 0.42f, 0.8f);
+    private const bool ShowDevButtons = false;   // speed and scenes stay built but hidden, so they can come back later
 
-    private static Sprite roundedSprite;   // shared 9-sliced rounded rect
+    private static float P(float x) { return UiTheme.P(x); }
+
+    private class Btn { public Button button; public Image bg; public TextMeshProUGUI label, sub; public Image icon; public Sprite plate, disabledPlate; }
 
     private PlayerCommander commander;
-    private Font font;
 
-    private GameObject panelGO;
-    private Text infoText;
-    private Text reasonText;
-    private Text hintText;
+    private Transform canvasT;
+    private GameObject battleRoot;       // everything that belongs to a live battle, hidden on the result screen
+    private GameObject panelGO;          // bottom command row + unit panel
+    private GameObject unitPanel;
+    private Image panelBanner, strengthFill, healthFill;
+    private TextMeshProUGUI panelTitle, panelSub, strengthValue, healthValue;
+    private float barTrackW;
+    private Btn chargeBtn, rotateBtn, restartBtn, bannerBtn, helpBtn;
+    private TextMeshProUGUI bannerBtnValue;
+    private GameObject helpPanel;
+    private float helpHideAt, restartConfirmUntil;
 
-    private Button chargeButton;
-    private Button rotateButton;
-    private Button restartMiniButton;   // persistent: restart before/during a battle
-    private Button bannerModeButton;    // cycles the formation-banner visibility mode
-
-    private GameObject startRoot;
-    private GameObject endRoot;
-    private Text resultText;
-    private Text endReasonText;
-    private readonly Text[] endHeader = new Text[2];
-    private readonly GameObject[] endRow = new GameObject[16];   // 8 per side
-    private readonly Text[] endRowName = new Text[16], endRowCount = new Text[16];
+    private GameObject startRoot, endRoot;
+    private TextMeshProUGUI resultText, endReasonText;
+    private readonly TextMeshProUGUI[] endHeader = new TextMeshProUGUI[2], endTotal = new TextMeshProUGUI[2];
+    private readonly GameObject[] endRow = new GameObject[16];
+    private readonly TextMeshProUGUI[] endRowName = new TextMeshProUGUI[16], endRowCount = new TextMeshProUGUI[16];
     private readonly Image[] endRowIcon = new Image[16], endRowFill = new Image[16], endRowPlate = new Image[16];
     private bool endFilled;
-    private Text timerText;
+
+    private TextMeshProUGUI timerText, tideLeftText, tideRightText;
+    private GameObject timerClock;
     private RectTransform tideRoot, tideBlue;
     private float tideShown = 0.5f;
 
-    // Scene switcher: the full battle plus isolation sandboxes for observing
-    // behavior with a handful of soldiers. Scenes must be in Build Settings.
     private static readonly string[] SceneNames = { "Battle", "TestSkirmish" };
     private static readonly string[] SceneLabels = { "BATTLE", "TEST 1" };
-    private GameObject sceneRowGO;
+    private GameObject sceneRowGO, devSpeedGO, devScenesGO;
 
     // ---------------- lifecycle ----------------
 
@@ -62,9 +54,6 @@ public class BattleHUD : MonoBehaviour
     {
         commander = GetComponent<PlayerCommander>();
         if (commander == null) commander = FindAnyObjectByType<PlayerCommander>();
-
-        font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-
         BuildUI();
     }
 
@@ -72,171 +61,143 @@ public class BattleHUD : MonoBehaviour
     {
         if (commander == null || panelGO == null) return;
 
-        BattlePhase phase = BattleSetup.Instance != null ? BattleSetup.Instance.Phase
-                                                         : BattlePhase.Pre;
+        BattlePhase phase = BattleSetup.Instance != null ? BattleSetup.Instance.Phase : BattlePhase.Pre;
         if (startRoot != null) startRoot.SetActive(phase == BattlePhase.Pre);
-        // the small corner restart hides after battle end, the banner already
-        // carries the primary RESTART button there
-        if (restartMiniButton != null)
-            restartMiniButton.gameObject.SetActive(phase != BattlePhase.Ended);
+        if (battleRoot != null) battleRoot.SetActive(phase != BattlePhase.Ended);
         if (endRoot != null)
         {
             endRoot.SetActive(phase == BattlePhase.Ended);
             if (phase != BattlePhase.Ended) endFilled = false;
-            if (phase == BattlePhase.Ended && resultText != null)
-            {
-                if (!endFilled) { endFilled = true; FillEndSummary(BattleSetup.Instance.ResultText); }
-            }
+            if (phase == BattlePhase.Ended && resultText != null && !endFilled) { endFilled = true; FillEndSummary(BattleSetup.Instance.ResultText); }
         }
-        if (hintText != null) hintText.gameObject.SetActive(phase == BattlePhase.Active);
+        if (phase == BattlePhase.Ended) return;
+
+        UpdateHelp(phase);
+        if (restartBtn != null) restartBtn.label.text = Time.unscaledTime < restartConfirmUntil ? "SURE?" : "RESTART";
         UpdateTimer(phase);
         UpdateTide(phase);
-        // the command panel works during deployment too (move + rotate),
-        // only a finished battle hides it
-        if (phase == BattlePhase.Ended)
-        {
-            panelGO.SetActive(false);
-            return;
-        }
 
         Formation enemy = commander.InspectedEnemy;
         if (enemy != null)
         {
             panelGO.SetActive(true);
-            SetCommandButtonsVisible(false);
-            rotateButton.gameObject.SetActive(false);
-            reasonText.text = "";
-            UpdateEnemyPanel(enemy);
+            chargeBtn.button.gameObject.SetActive(false);
+            rotateBtn.button.gameObject.SetActive(false);
+            ShowUnit(enemy, true);
             return;
         }
 
         IReadOnlyList<Formation> selection = commander.Selection;
         int liveCount = CountLive(selection);
-
-        if (liveCount == 0)
-        {
-            panelGO.SetActive(false);
-            return;
-        }
-
+        if (liveCount == 0) { panelGO.SetActive(false); return; }
         panelGO.SetActive(true);
 
-        // A fully broken selection takes no orders, it regroups on its own
-        // Offering CHARGE or ROTATE there is noise; hide them.
-        // Mixed selections keep the full row so the coherent formations stay
-        // commandable.
+        // a fully broken selection regroups on its own, so offering charge or rotate there is noise
         bool allBroken = AllLiveBroken(selection);
-        SetCommandButtonsVisible(true);
-        if (allBroken) chargeButton.gameObject.SetActive(false);
-        UpdateButtonInteractivity(selection);
+        chargeBtn.button.gameObject.SetActive(!allBroken);
+        UpdateChargeState(selection);
 
         if (liveCount == 1)
         {
-            rotateButton.gameObject.SetActive(!allBroken);
+            rotateBtn.button.gameObject.SetActive(!allBroken);
             if (!allBroken) UpdateRotateButton();
-            UpdateSingleSelectionPanel(GetFirstLive(selection));
+            ShowUnit(GetFirstLive(selection), false);
         }
         else
         {
-            rotateButton.gameObject.SetActive(false);
-            UpdateMultiSelectionPanel(selection, liveCount);
+            rotateBtn.button.gameObject.SetActive(false);
+            ShowGroup(selection, liveCount);
         }
     }
 
-    // ---------------- panel content ----------------
+    // ---------------- unit panel content ----------------
 
-    private void UpdateEnemyPanel(Formation f)
-    {
-        int healthPct = Mathf.RoundToInt(100f * f.TotalHealth / Mathf.Max(1f, f.TotalMaxHealth));
-        string header = Colorize($"{f.displayName}  ({f.stats.unitName})  ENEMY", EnemyTint);
-        infoText.text =
-            $"{header}\n" +
-            $"Health {healthPct}%   ·   Strength {f.soldiers.Count}/{f.TotalSpawned}\n" +
-            $"State: {Formation.StateLabel(f.State)}";
-    }
+    // health is shown clamped, a formation can sit a few percent over its max (reported, not hidden), and 103% reads as a bug
+    private static int HealthPct(float health, float max) { return Mathf.Min(100, Mathf.RoundToInt(100f * health / Mathf.Max(1f, max))); }
 
-    private void UpdateSingleSelectionPanel(Formation f)
+    private static string BannerName(Team team, bool ranged) { return "UI_Banner_" + (team == Team.Blue ? "Blue" : "Red") + "_" + (ranged ? "Ranged" : "Melee"); }
+
+    private void ShowUnit(Formation f, bool enemy)
     {
         if (f == null) return;
-        int healthPct = Mathf.RoundToInt(100f * f.TotalHealth / Mathf.Max(1f, f.TotalMaxHealth));
-        infoText.text =
-            $"{f.displayName}  ({f.stats.unitName})\n" +
-            $"Health {healthPct}%   ·   Strength {f.soldiers.Count}/{f.TotalSpawned}\n" +
-            $"State: {Formation.StateLabel(f.State)}";
+        string state = Formation.StateLabel(f.State);
+        string sub = enemy ? f.stats.unitName + " · <color=#" + ColorUtility.ToHtmlStringRGB(UiTheme.EnemyTint) + ">Enemy</color> · " + state : f.stats.unitName + " · " + state;
+        SetPanel(UiKit.Spr(BannerName(f.team, f.stats.isRanged)), RomanNumerals.Pretty(f.displayName), sub, f.soldiers.Count, f.TotalSpawned, HealthPct(f.TotalHealth, f.TotalMaxHealth));
     }
 
-    private void UpdateMultiSelectionPanel(IReadOnlyList<Formation> selection, int liveCount)
+    private void ShowGroup(IReadOnlyList<Formation> selection, int liveCount)
     {
-        int totalSoldiers = 0;
-        float totalHealth = 0f;
-        float totalMaxHealth = 0f;
-
+        int soldiers = 0, spawned = 0; float hp = 0f, max = 0f;
         for (int i = 0; i < selection.Count; i++)
         {
             Formation f = selection[i];
             if (f == null || f.soldiers.Count == 0) continue;
-            totalSoldiers += f.soldiers.Count;
-            totalHealth += f.TotalHealth;
-            totalMaxHealth += f.TotalMaxHealth;
+            soldiers += f.soldiers.Count; spawned += f.TotalSpawned; hp += f.TotalHealth; max += f.TotalMaxHealth;
         }
-
-        int healthPct = Mathf.RoundToInt(100f * totalHealth / Mathf.Max(1f, totalMaxHealth));
-        infoText.text =
-            $"{liveCount} formations selected\n" +
-            $"{totalSoldiers} soldiers   ·   Health {healthPct}%";
+        Formation first = GetFirstLive(selection);
+        SetPanel(UiKit.Spr(BannerName(first.team, first.stats.isRanged)), liveCount + " formations", "Selected", soldiers, spawned, HealthPct(hp, max));
     }
 
-    private void UpdateButtonInteractivity(IReadOnlyList<Formation> selection)
+    private void SetPanel(Sprite banner, string title, string sub, int soldiers, int spawned, int healthPct)
     {
-        bool chargeInteractable = false;
-        bool anyChargeNoTarget = false;
-        bool anyBroken = false;
-        int considered = 0;
+        panelBanner.sprite = banner; panelBanner.enabled = banner != null;
+        panelTitle.text = title; panelSub.text = sub;
+        strengthValue.text = UiTheme.Tab(soldiers) + "/" + UiTheme.Tab(spawned);
+        healthValue.text = UiTheme.Tab(healthPct) + "%";
+        SetBar(strengthFill, spawned > 0 ? (float)soldiers / spawned : 0f, barTrackW, UiTheme.HealthGreen);
+        float h = healthPct / 100f;
+        SetBar(healthFill, h, barTrackW, h > 0.5f ? UiTheme.HealthGreen : h > 0.25f ? UiTheme.HealthAmber : UiTheme.HealthRed);
+    }
 
+    private static void SetBar(Image fill, float frac, float trackW, Color c)
+    {
+        float h = fill.rectTransform.sizeDelta.y;
+        fill.rectTransform.sizeDelta = new Vector2(Mathf.Max(h, trackW * Mathf.Clamp01(frac)), h);   // never narrower than a round end
+        fill.color = c;
+    }
+
+    private void UpdateChargeState(IReadOnlyList<Formation> selection)
+    {
+        bool chargeOk = false, anyNoTarget = false, anyBroken = false; int considered = 0;
         for (int i = 0; i < selection.Count; i++)
         {
             Formation f = selection[i];
             if (f == null || f.soldiers.Count == 0) continue;
             considered++;
-
             Formation.ChargeBlock block = f.GetChargeBlock();
-            if (block == Formation.ChargeBlock.None) chargeInteractable = true;
-            else if (block == Formation.ChargeBlock.NoTarget) anyChargeNoTarget = true;
-            if (f.State == FormationState.BrokenRanks || f.State == FormationState.Reforming)
-                anyBroken = true;
+            if (block == Formation.ChargeBlock.None) chargeOk = true;
+            else if (block == Formation.ChargeBlock.NoTarget) anyNoTarget = true;
+            if (f.State == FormationState.BrokenRanks || f.State == FormationState.Reforming) anyBroken = true;
         }
-
-        SetButtonEnabled(chargeButton, chargeInteractable);
-        // One reason line: a regrouping century explains itself; otherwise
-        // explain a charge blocked purely by distance.
-        if (considered > 0 && anyBroken)
-            reasonText.text = "Regroups when clear of melee";
-        else if (considered > 0 && !chargeInteractable && anyChargeNoTarget)
-            reasonText.text = "No enemy in charge range";
-        else
-            reasonText.text = "";
+        string reason = "";
+        if (considered > 0 && anyBroken) reason = "Regroups when clear";
+        else if (considered > 0 && !chargeOk && anyNoTarget) reason = "No enemy in range";
+        SetBtnEnabled(chargeBtn, chargeOk);
+        chargeBtn.sub.text = reason; chargeBtn.sub.gameObject.SetActive(reason.Length > 0 && !chargeOk);   // the reason lives inside the button
     }
 
     private void UpdateRotateButton()
     {
-        Text label = rotateButton.GetComponentInChildren<Text>();
-        if (label != null) label.text = commander.RotateMode ? "CANCEL" : "ROTATE";
-        SetButtonEnabled(rotateButton, commander.CanEnterRotateMode || commander.RotateMode);
+        rotateBtn.label.text = commander.RotateMode ? "CANCEL" : "ROTATE";
+        SetBtnEnabled(rotateBtn, commander.CanEnterRotateMode || commander.RotateMode);
     }
 
-    // Disabled buttons must read as disabled: dim the label along with the
-    // background instead of leaving bright text on a faded button.
-    private static void SetButtonEnabled(Button b, bool on)
+    private static void SetBtnEnabled(Btn b, bool on)
     {
-        b.interactable = on;
-        Text label = b.GetComponentInChildren<Text>();
-        if (label != null)
-            label.color = new Color(1f, 1f, 1f, on ? 1f : 0.4f);
+        b.button.interactable = on;
+        b.bg.sprite = on ? b.plate : b.disabledPlate;
+        b.label.color = on ? UiTheme.Ink : UiTheme.InkMuted;
     }
 
-    private void SetCommandButtonsVisible(bool visible)
+    private void UpdateHelp(BattlePhase phase)
     {
-        chargeButton.gameObject.SetActive(visible);
+        if (helpPanel == null) return;
+        if (phase == BattlePhase.Active && PlayerPrefs.GetInt("HelpSeen", 0) == 0)
+        {
+            PlayerPrefs.SetInt("HelpSeen", 1);   // one-time card on the first battle
+            helpPanel.SetActive(true); helpHideAt = Time.unscaledTime + 10f;
+        }
+        if (helpHideAt > 0f && Time.unscaledTime > helpHideAt) { helpPanel.SetActive(false); helpHideAt = 0f; }
     }
 
     // ---------------- selection helpers ----------------
@@ -245,8 +206,7 @@ public class BattleHUD : MonoBehaviour
     {
         if (selection == null) return 0;
         int count = 0;
-        for (int i = 0; i < selection.Count; i++)
-            if (selection[i] != null && selection[i].soldiers.Count > 0) count++;
+        for (int i = 0; i < selection.Count; i++) if (selection[i] != null && selection[i].soldiers.Count > 0) count++;
         return count;
     }
 
@@ -265,47 +225,31 @@ public class BattleHUD : MonoBehaviour
 
     private static Formation GetFirstLive(IReadOnlyList<Formation> selection)
     {
-        for (int i = 0; i < selection.Count; i++)
-            if (selection[i] != null && selection[i].soldiers.Count > 0) return selection[i];
+        for (int i = 0; i < selection.Count; i++) if (selection[i] != null && selection[i].soldiers.Count > 0) return selection[i];
         return null;
     }
-
-    private static string Colorize(string text, Color c)
-    {
-        return $"<color=#{ColorUtility.ToHtmlStringRGB(c)}>{text}</color>";
-    }
-
-    // ---------------- button commands ----------------
 
     private void OnChargeClicked()
     {
         if (commander == null || commander.Selection == null) return;
-        foreach (var f in commander.Selection)
-            if (f != null && f.soldiers.Count > 0) f.IssueCharge();
+        foreach (var f in commander.Selection) if (f != null && f.soldiers.Count > 0) f.IssueCharge();
     }
 
-    private void OnRotateClicked()
-    {
-        if (commander != null) commander.ToggleRotateMode();
-    }
+    private void OnRotateClicked() { if (commander != null) commander.ToggleRotateMode(); }
 
-    // ---------------- UI construction ----------------
+    // ---------------- construction ----------------
 
     private void BuildUI()
     {
-        // ---- Canvas ----
         var canvasGO = new GameObject("HUDCanvas");
         var canvas = canvasGO.AddComponent<Canvas>();
         canvas.renderMode = RenderMode.ScreenSpaceOverlay;
-
         var scaler = canvasGO.AddComponent<CanvasScaler>();
         scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
         scaler.referenceResolution = new Vector2(1920f, 1080f);
         scaler.matchWidthOrHeight = 1f;   // scale by height: stable landscape sizing
-
         canvasGO.AddComponent<GraphicRaycaster>();
 
-        // ---- EventSystem (only if none exists) ----
         if (EventSystem.current == null)
         {
             var esGO = new GameObject("EventSystem");
@@ -313,270 +257,163 @@ public class BattleHUD : MonoBehaviour
             esGO.AddComponent<InputSystemUIInputModule>();
         }
 
-        // ---- Safe area root: all HUD content stays clear of notches ----
-        var safeGO = new GameObject("SafeArea");
+        // soft vignette first, so it sits under everything else
+        var vig = new GameObject("Vignette", typeof(RectTransform), typeof(RawImage)).GetComponent<RawImage>();
+        vig.transform.SetParent(canvasGO.transform, false); vig.raycastTarget = false;
+        var vt = new Texture2D(64, 64, TextureFormat.RGBA32, false) { wrapMode = TextureWrapMode.Clamp };
+        for (int y = 0; y < 64; y++) for (int x = 0; x < 64; x++)
+        {
+            float dx = (x - 31.5f) / 32f, dy = (y - 31.5f) / 32f, d = Mathf.Sqrt(dx * dx + dy * dy);
+            vt.SetPixel(x, y, new Color(0.05f, 0.06f, 0.1f, 0.2f * Mathf.SmoothStep(0.62f, 1.25f, d)));
+        }
+        vt.Apply(); vig.texture = vt; UiKit.Fill(vig.rectTransform);
+
+        // world-anchored unit labels and selection rings live on their own layer, under the controls
+        new GameObject("UnitLabels").AddComponent<UnitLabels>().Init(canvasGO.transform);
+
+        var safeGO = new GameObject("SafeArea", typeof(RectTransform));
         safeGO.transform.SetParent(canvasGO.transform, false);
-        safeGO.AddComponent<RectTransform>();
         safeGO.AddComponent<SafeAreaFitter>();
-        Transform canvasT = safeGO.transform;
+        canvasT = safeGO.transform;
 
-        // ---- Hint text (top-left) ----
-        hintText = MakeText(canvasT, "HintText", 20, TextAnchor.UpperLeft, new Color(1f, 1f, 1f, 0.7f));
-        hintText.text = "Tap: select · double-tap: add to group · Drag from unit: move (2nd finger turns) · Drag ground: pan · Pinch: zoom";
-        RectTransform hintRT = hintText.rectTransform;
-        hintRT.anchorMin = new Vector2(0f, 1f);
-        hintRT.anchorMax = new Vector2(0f, 1f);
-        hintRT.pivot = new Vector2(0f, 1f);
-        hintRT.anchoredPosition = new Vector2(25f, -20f);
-        hintRT.sizeDelta = new Vector2(600f, 66f);
-        hintText.horizontalOverflow = HorizontalWrapMode.Wrap;   // MakeText defaults to Overflow, which ignored the 600 px limit
-        hintText.verticalOverflow = VerticalWrapMode.Overflow;
+        battleRoot = new GameObject("BattleHud", typeof(RectTransform));
+        battleRoot.transform.SetParent(canvasT, false);
+        UiKit.Fill(battleRoot.GetComponent<RectTransform>());
+        Transform bt = battleRoot.transform;
 
-        // ---- Persistent restart (top-right): available before Start and
-        // mid-battle; the end banner has its own primary RESTART ----
-        restartMiniButton = MakeButton(canvasT, "RestartMiniButton", "RESTART", Vector2.zero);
-        var rmRT = restartMiniButton.GetComponent<RectTransform>();
-        rmRT.anchorMin = rmRT.anchorMax = new Vector2(1f, 1f);
-        rmRT.pivot = new Vector2(1f, 1f);
-        rmRT.anchoredPosition = new Vector2(-25f, -20f);
-        rmRT.sizeDelta = new Vector2(170f, 64f);
-        var rmLabel = restartMiniButton.GetComponentInChildren<Text>();
-        if (rmLabel != null) rmLabel.fontSize = 24;
-        restartMiniButton.onClick.AddListener(() =>
+        BuildTopLeft(bt);
+        BuildTop(bt);
+        BuildBottom(bt);
+        BuildDevButtons(canvasT);
+        BuildStartUI(canvasT);
+        BuildEndUI(canvasT);
+    }
+
+    // ----- buttons -----
+
+    private Btn MakeBtn(Transform parent, string name, string label, string plate, float w, float h, string icon = null, bool twoLine = false, float fontSize = 0f, float tracking = 7f)
+    {
+        var b = new Btn { plate = UiKit.Spr(plate), disabledPlate = UiKit.Spr("UI_PlateDisabled") };
+        var bg = UiKit.Img(parent, name, b.plate, Color.white, h);
+        bg.raycastTarget = true;
+        float pad = Mathf.Max(0f, (UiTheme.HitH - h) * 0.5f);
+        bg.raycastPadding = new Vector4(0f, pad, 0f, pad);   // 44pt tall hit area, the art stays smaller
+        UiKit.Place(bg.rectTransform, new Vector2(0f, 1f), new Vector2(0f, 1f), Vector2.zero, new Vector2(w, h));
+        b.bg = bg;
+        var btn = bg.gameObject.AddComponent<Button>();
+        btn.targetGraphic = bg;
+        var cb = btn.colors;
+        cb.normalColor = Color.white; cb.highlightedColor = new Color(1f, 0.97f, 0.88f); cb.pressedColor = new Color(0.78f, 0.8f, 0.88f); cb.disabledColor = Color.white; cb.fadeDuration = 0.08f;
+        btn.colors = cb;
+        b.button = btn;
+
+        var content = new GameObject("Content", typeof(RectTransform));
+        content.transform.SetParent(bg.transform, false);
+        UiKit.Fill(content.GetComponent<RectTransform>(), P(10f), 0f, P(10f), 0f);
+        float fs = fontSize > 0f ? fontSize : P(20f);
+        if (twoLine)
         {
-            if (BattleSetup.Instance != null) BattleSetup.Instance.RestartBattle();
-        });
-
-        // ---- Banner visibility mode cycle (top-left, under the hint) ----
-        bannerModeButton = MakeButton(canvasT, "BannerModeButton", "BANNERS", Vector2.zero);
-        var bmRT = bannerModeButton.GetComponent<RectTransform>();
-        bmRT.anchorMin = bmRT.anchorMax = new Vector2(0f, 1f);
-        bmRT.pivot = new Vector2(0f, 1f);
-        bmRT.anchoredPosition = new Vector2(25f, -74f);
-        bmRT.sizeDelta = new Vector2(300f, 56f);
-        var bmLabel = bannerModeButton.GetComponentInChildren<Text>();
-        if (bmLabel != null) bmLabel.fontSize = 22;
-        bannerModeButton.onClick.AddListener(() =>
+            var v = content.AddComponent<VerticalLayoutGroup>();
+            v.childAlignment = TextAnchor.MiddleCenter; v.childControlWidth = v.childControlHeight = true; v.childForceExpandWidth = v.childForceExpandHeight = false; v.spacing = P(1f);
+            b.label = UiKit.Tmp(content.transform, "Label", label, UiTheme.SemiBold, fs, UiTheme.Ink, TextAlignmentOptions.Center, tracking);
+            b.sub = UiKit.Tmp(content.transform, "Reason", "", UiTheme.Medium, P(15f), UiTheme.InkMuted, TextAlignmentOptions.Center, 0f);
+            b.sub.gameObject.SetActive(false);
+        }
+        else
         {
-            if (FormationBannerManager.Instance != null)
-                FormationBannerManager.Instance.CycleMode();
+            var hl = content.AddComponent<HorizontalLayoutGroup>();
+            hl.childAlignment = TextAnchor.MiddleCenter; hl.childControlWidth = hl.childControlHeight = true; hl.childForceExpandWidth = hl.childForceExpandHeight = false; hl.spacing = P(9f);
+            if (icon != null)
+            {
+                b.icon = UiKit.Img(content.transform, "Icon", UiKit.Spr(icon), UiTheme.Ink);
+                var le = b.icon.gameObject.AddComponent<LayoutElement>(); le.preferredWidth = le.preferredHeight = P(17f);
+            }
+            b.label = UiKit.Tmp(content.transform, "Label", label, UiTheme.SemiBold, fs, UiTheme.Ink, TextAlignmentOptions.Midline, tracking);
+        }
+        return b;
+    }
+
+    // ----- top left: help and banner mode -----
+
+    private void BuildTopLeft(Transform parent)
+    {
+        float h = UiTheme.BtnH, m = UiTheme.Margin;
+        helpBtn = MakeBtn(parent, "HelpButton", "?", "UI_Plate", h, h, null, false, P(24f), 0f);
+        helpBtn.bg.rectTransform.anchoredPosition = new Vector2(m, -m);
+        helpBtn.button.onClick.AddListener(() => { helpPanel.SetActive(!helpPanel.activeSelf); helpHideAt = 0f; });
+
+        bannerBtn = MakeBtn(parent, "BannerModeButton", "BANNERS", "UI_Plate", P(222f), h);
+        bannerBtn.bg.rectTransform.anchoredPosition = new Vector2(m + h + UiTheme.GapIn, -m);
+        bannerBtn.label.color = UiTheme.InkMuted;
+        bannerBtnValue = UiKit.Tmp(bannerBtn.label.transform.parent, "Value", "AUTO", UiTheme.Bold, P(20f), UiTheme.GoldHi, TextAlignmentOptions.Midline, 7f);
+        var chev = UiKit.Img(bannerBtn.label.transform.parent, "Chevron", UiKit.Spr("UI_Icon_Chevron"), UiTheme.InkMuted);
+        var cle = chev.gameObject.AddComponent<LayoutElement>(); cle.preferredWidth = cle.preferredHeight = P(15f);
+        bannerBtn.button.onClick.AddListener(() =>
+        {
+            if (FormationBannerManager.Instance != null) FormationBannerManager.Instance.CycleMode();
             RefreshBannerModeLabel();
         });
         RefreshBannerModeLabel();
 
-        BuildBottomPanel(canvasT);
-        BuildStartAndEndUI(canvasT);
-        BuildSceneSwitcher(canvasT);
+        helpPanel = UiKit.Img(parent, "HelpPanel", UiKit.Spr("UI_Panel"), Color.white, P(40f)).gameObject;   // radius tuned by the multiplier
+        var hp = helpPanel.GetComponent<Image>(); hp.pixelsPerUnitMultiplier = 2.4f;
+        UiKit.Place(hp.rectTransform, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(m, -(m + h + UiTheme.GapIn)), new Vector2(P(330f), P(244f)));
+        var ht = UiKit.Tmp(helpPanel.transform, "HelpText", "Tap: select\nDouble-tap: add to group\nDrag from unit: move\nTwo fingers: rotate\nDrag ground: pan\nPinch: zoom", UiTheme.Medium, P(19f), UiTheme.Ink, TextAlignmentOptions.MidlineLeft);
+        ht.lineSpacing = 18f; UiKit.Fill(ht.rectTransform, P(22f), P(14f), P(14f), P(14f));
+        helpPanel.SetActive(false);
     }
 
     private void RefreshBannerModeLabel()
     {
-        var label = bannerModeButton != null ? bannerModeButton.GetComponentInChildren<Text>() : null;
-        if (label == null || FormationBannerManager.Instance == null) return;
+        if (bannerBtnValue == null || FormationBannerManager.Instance == null) return;
         switch (FormationBannerManager.Instance.Mode)
         {
-            case FormationBannerVisibilityMode.AlwaysVisible: label.text = "BANNERS: ALWAYS"; break;
-            case FormationBannerVisibilityMode.SelectedOnly: label.text = "BANNERS: SELECTED"; break;
-            default: label.text = "BANNERS: ADAPTIVE"; break;
+            case FormationBannerVisibilityMode.AlwaysVisible: bannerBtnValue.text = "ALL"; break;
+            case FormationBannerVisibilityMode.SelectedOnly: bannerBtnValue.text = "PICKED"; break;
+            default: bannerBtnValue.text = "AUTO"; break;
         }
     }
 
-    // Top-right SCENES button expanding a row of scene buttons; the current
-    // scene renders accented and disabled, others load on tap.
-    private void BuildSceneSwitcher(Transform canvasT)
+    // ----- top center: score bar and clock; top right: restart -----
+
+    private void BuildTop(Transform parent)
     {
-        Button scenesBtn = MakeButton(canvasT, "ScenesButton", "SCENES", Vector2.zero);
-        var sRT = scenesBtn.GetComponent<RectTransform>();
-        sRT.anchorMin = sRT.anchorMax = new Vector2(1f, 1f);
-        sRT.pivot = new Vector2(1f, 1f);
-        sRT.anchoredPosition = new Vector2(-25f, -94f);   // top-right corner, under RESTART
-        sRT.sizeDelta = new Vector2(170f, 64f);
-        var sLabel = scenesBtn.GetComponentInChildren<Text>();
-        if (sLabel != null) sLabel.fontSize = 24;
+        float m = UiTheme.Margin, barW = P(520f), barH = UiTheme.BtnH, inset = P(5f);
+        var tide = new GameObject("TideBar", typeof(RectTransform));
+        tide.transform.SetParent(parent, false);
+        tideRoot = tide.GetComponent<RectTransform>();
+        UiKit.Place(tideRoot, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -m), new Vector2(barW, barH));
+        var frame = UiKit.Img(tide.transform, "Frame", UiKit.Spr("UI_Row"), Color.white, barH); UiKit.Fill(frame.rectTransform);
+        var track = UiKit.Img(tide.transform, "Track", UiKit.Spr("UI_Pill"), Color.white, barH - inset * 2f); UiKit.Fill(track.rectTransform, inset, inset, inset, inset);
+        track.gameObject.AddComponent<Mask>().showMaskGraphic = false;   // clips both fills to the pill shape
+        var red = UiKit.Img(track.transform, "Red", null, UiTheme.BannerRed); UiKit.Fill(red.rectTransform);
+        var blue = UiKit.Img(track.transform, "Blue", null, UiTheme.BannerBlue);
+        tideBlue = blue.rectTransform; tideBlue.anchorMin = Vector2.zero; tideBlue.anchorMax = new Vector2(0.5f, 1f); tideBlue.offsetMin = tideBlue.offsetMax = Vector2.zero;
+        var divider = UiKit.Img(track.transform, "Divider", null, new Color(0.07f, 0.09f, 0.16f, 0.95f));
+        UiKit.Place(divider.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(P(4f), barH));
+        tideLeftText = UiKit.Tmp(track.transform, "YouCount", "", UiTheme.Bold, P(26f), UiTheme.Ink, TextAlignmentOptions.MidlineLeft);
+        UiKit.Place(tideLeftText.rectTransform, new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), new Vector2(P(22f), 0f), new Vector2(P(220f), barH));
+        tideRightText = UiKit.Tmp(track.transform, "EnemyCount", "", UiTheme.Bold, P(26f), UiTheme.Ink, TextAlignmentOptions.MidlineRight);
+        UiKit.Place(tideRightText.rectTransform, new Vector2(1f, 0.5f), new Vector2(1f, 0.5f), new Vector2(-P(22f), 0f), new Vector2(P(220f), barH));
+        tide.SetActive(false);
 
-        sceneRowGO = new GameObject("SceneRow");
-        sceneRowGO.transform.SetParent(canvasT, false);
-        var rowRT = sceneRowGO.AddComponent<RectTransform>();
-        rowRT.anchorMin = rowRT.anchorMax = new Vector2(1f, 1f);
-        rowRT.pivot = new Vector2(1f, 1f);
-        rowRT.anchoredPosition = new Vector2(-25f, -168f);
-        rowRT.sizeDelta = new Vector2(SceneNames.Length * 184f, 64f);
+        // clock on its own pill under the bar, tabular digits
+        var clock = UiKit.Img(parent, "ClockPill", UiKit.Spr("UI_Plate"), Color.white, P(44f));
+        timerClock = clock.gameObject;
+        UiKit.Place(clock.rectTransform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -(m + barH + P(8f))), new Vector2(P(138f), P(44f)));
+        var cc = new GameObject("Content", typeof(RectTransform), typeof(HorizontalLayoutGroup)); cc.transform.SetParent(clock.transform, false); UiKit.Fill(cc.GetComponent<RectTransform>());
+        var hl = cc.GetComponent<HorizontalLayoutGroup>(); hl.childAlignment = TextAnchor.MiddleCenter; hl.childControlWidth = hl.childControlHeight = true; hl.childForceExpandWidth = hl.childForceExpandHeight = false; hl.spacing = P(8f);
+        var ci = UiKit.Img(cc.transform, "Icon", UiKit.Spr("UI_Icon_Clock"), UiTheme.Ink); var cle = ci.gameObject.AddComponent<LayoutElement>(); cle.preferredWidth = cle.preferredHeight = P(18f);
+        timerText = UiKit.Tmp(cc.transform, "TimerText", "", UiTheme.Bold, P(28f), UiTheme.Ink, TextAlignmentOptions.Midline);
 
-        string current = gameObject.scene.name;
-        for (int i = 0; i < SceneNames.Length; i++)
+        // restart, danger styled, needs a second tap
+        restartBtn = MakeBtn(parent, "RestartMiniButton", "RESTART", "UI_PlateDanger", P(166f), UiTheme.BtnH, "UI_Icon_Restart");
+        UiKit.Place(restartBtn.bg.rectTransform, new Vector2(1f, 1f), new Vector2(1f, 1f), new Vector2(-m, -m), new Vector2(P(166f), UiTheme.BtnH));
+        restartBtn.button.onClick.AddListener(() =>
         {
-            string sceneName = SceneNames[i];
-            bool isCurrent = sceneName == current;
-            Button b = MakeButton(sceneRowGO.transform, "Scene_" + sceneName, SceneLabels[i],
-                                  Vector2.zero, accent: isCurrent);
-            var bRT = b.GetComponent<RectTransform>();
-            bRT.anchorMin = bRT.anchorMax = new Vector2(0.5f, 1f);
-            bRT.pivot = new Vector2(0.5f, 1f);
-            bRT.anchoredPosition = new Vector2((i - (SceneNames.Length - 1) * 0.5f) * 184f, 0f);
-            bRT.sizeDelta = new Vector2(170f, 64f);
-            var lbl = b.GetComponentInChildren<Text>();
-            if (lbl != null) lbl.fontSize = 24;
-            if (isCurrent) SetButtonEnabled(b, false);
-            else b.onClick.AddListener(() => SceneManager.LoadScene(sceneName));
-        }
-        sceneRowGO.SetActive(false);
-        scenesBtn.onClick.AddListener(() => sceneRowGO.SetActive(!sceneRowGO.activeSelf));
-    }
-
-    // Lightweight battle entry/exit UI: a START button before the battle and a
-    // result banner + RESTART button after it. No menus, no modals.
-    private void BuildStartAndEndUI(Transform canvasT)
-    {
-        startRoot = new GameObject("StartUI");
-        startRoot.transform.SetParent(canvasT, false);
-        var startRT = startRoot.AddComponent<RectTransform>();
-        startRT.anchorMin = startRT.anchorMax = new Vector2(0.5f, 0f);
-        startRT.pivot = new Vector2(0.5f, 0f);
-        startRT.anchoredPosition = new Vector2(0f, 70f);
-        startRT.sizeDelta = new Vector2(360f, 120f);
-
-        Button startBtn = MakeButton(startRoot.transform, "StartButton", "START", Vector2.zero, accent: true);
-        var sbRT = startBtn.GetComponent<RectTransform>();
-        sbRT.anchorMin = Vector2.zero;
-        sbRT.anchorMax = Vector2.one;
-        sbRT.pivot = new Vector2(0.5f, 0.5f);
-        sbRT.offsetMin = Vector2.zero;
-        sbRT.offsetMax = Vector2.zero;
-        var startLabel = startBtn.GetComponentInChildren<Text>();
-        if (startLabel != null) startLabel.fontSize = 44;
-        startBtn.onClick.AddListener(() =>
-        {
-            if (BattleSetup.Instance != null) BattleSetup.Instance.StartBattle();
+            if (Time.unscaledTime < restartConfirmUntil) { if (BattleSetup.Instance != null) BattleSetup.Instance.RestartBattle(); }
+            else restartConfirmUntil = Time.unscaledTime + 3f;
         });
-
-        endRoot = new GameObject("EndUI");
-        endRoot.transform.SetParent(canvasT, false);
-        var endRT = endRoot.AddComponent<RectTransform>();
-        endRT.anchorMin = endRT.anchorMax = new Vector2(0.5f, 0.5f);
-        endRT.pivot = new Vector2(0.5f, 0.5f);
-        endRT.anchoredPosition = Vector2.zero;
-        endRT.sizeDelta = new Vector2(1260f, 800f);
-
-        // ---- Victory screen: gold-bevel frames (UI_Frame_*), VICTORY / DEFEAT from the player's (Blue) side, the reason, and for
-        // each army the soldiers still standing per formation ----
-        Sprite spPanel = Resources.Load<Sprite>("UI_Frame_Panel"), spRibbon = Resources.Load<Sprite>("UI_Frame_Ribbon"),
-               spPlate = Resources.Load<Sprite>("UI_Frame_Plate"), spButton = Resources.Load<Sprite>("UI_Frame_Button");
-        Image EndImage(string nm, Sprite sp, Vector2 pos, Vector2 size, Image.Type type, Color col)
-        {
-            var g = new GameObject(nm); g.transform.SetParent(endRoot.transform, false);
-            var im = g.AddComponent<Image>(); im.sprite = sp; im.type = type; im.color = col; im.raycastTarget = false;
-            var rt = im.rectTransform; rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0.5f, 0.5f); rt.anchoredPosition = pos; rt.sizeDelta = size;
-            return im;
-        }
-        Text EndText(string nm, int size, TextAnchor al, Color col, Vector2 pos, Vector2 sz, bool shadow)
-        {
-            var t = MakeText(endRoot.transform, nm, size, al, col, shadow);
-            var rt = t.rectTransform; rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0.5f, 0.5f); rt.anchoredPosition = pos; rt.sizeDelta = sz;
-            return t;
-        }
-        var blocker = EndImage("EndBlocker", null, Vector2.zero, new Vector2(4000f, 3000f), Image.Type.Simple, new Color(0f, 0f, 0f, 0.5f));
-        blocker.sprite = null; blocker.color = new Color(0f, 0f, 0f, 0.5f); blocker.raycastTarget = true;   // dims the field and swallows taps
-        var panelIm = EndImage("EndPanel", spPanel, Vector2.zero, new Vector2(1500f, 790f), Image.Type.Simple, Color.white);
-        if (spPanel == null) panelIm.color = new Color(0.1f, 0.14f, 0.25f, 0.96f);
-        EndImage("EndRibbon", spRibbon, new Vector2(0f, 392f), new Vector2(820f, 185f), Image.Type.Sliced, Color.white);
-        resultText = EndText("ResultText", 88, TextAnchor.MiddleCenter, Color.white, new Vector2(0f, 395f), new Vector2(620f, 120f), false);
-        endReasonText = EndText("EndReasonText", 30, TextAnchor.MiddleCenter, new Color(1f, 1f, 1f, 0.82f), new Vector2(0f, 262f), new Vector2(1100f, 46f), true);
-        for (int side = 0; side < 2; side++)
-        {
-            float cx = side == 0 ? -300f : 300f;
-            endHeader[side] = EndText("EndHeader" + side, 32, TextAnchor.MiddleCenter, side == 0 ? new Color(0.62f, 0.82f, 1f) : new Color(1f, 0.64f, 0.58f), new Vector2(cx, 200f), new Vector2(560f, 50f), true);
-            for (int r = 0; r < 8; r++)
-            {
-                int k = side * 8 + r; float y = 135f - r * 56f;
-                endRowPlate[k] = EndImage("EndRow" + k, spPlate, new Vector2(cx, y), new Vector2(540f, 54f), Image.Type.Sliced, Color.white);
-                endRow[k] = endRowPlate[k].gameObject;
-                endRowIcon[k] = EndImage("EndIcon" + k, null, new Vector2(cx - 222f, y + 1f), new Vector2(26f, 44f), Image.Type.Simple, Color.white);
-                endRowIcon[k].transform.SetParent(endRow[k].transform, true);
-                endRowName[k] = EndText("EndName" + k, 24, TextAnchor.MiddleLeft, Color.white, new Vector2(cx - 96f, y + 8f), new Vector2(200f, 30f), false);
-                endRowName[k].transform.SetParent(endRow[k].transform, true);
-                endRowCount[k] = EndText("EndCount" + k, 26, TextAnchor.MiddleRight, new Color(1f, 0.93f, 0.7f), new Vector2(cx + 158f, y + 8f), new Vector2(130f, 30f), false);
-                endRowCount[k].transform.SetParent(endRow[k].transform, true);
-                var barBg = EndImage("EndBarBg" + k, null, new Vector2(cx - 5f, y - 14f), new Vector2(380f, 7f), Image.Type.Simple, new Color(0f, 0f, 0f, 0.55f));
-                barBg.sprite = null; barBg.transform.SetParent(endRow[k].transform, true);
-                endRowFill[k] = EndImage("EndBarFill" + k, null, new Vector2(cx - 5f, y - 14f), new Vector2(380f, 7f), Image.Type.Simple, side == 0 ? new Color(0.35f, 0.62f, 1f) : new Color(1f, 0.42f, 0.36f));
-                endRowFill[k].sprite = null; endRowFill[k].transform.SetParent(endRow[k].transform, true);
-                endRowFill[k].rectTransform.pivot = new Vector2(0f, 0.5f);
-                endRowFill[k].rectTransform.anchoredPosition = new Vector2(-195f, -14f);   // relative to the row plate's centre
-                barBg.rectTransform.anchoredPosition = new Vector2(-5f, -14f);
-            }
-        }
-        var rbGo = new GameObject("RestartButton"); rbGo.transform.SetParent(endRoot.transform, false);
-        var rbImg = rbGo.AddComponent<Image>(); rbImg.sprite = spButton; rbImg.type = Image.Type.Sliced; rbImg.color = spButton != null ? Color.white : new Color(0.13f, 0.35f, 0.75f);
-        var rbRT = rbImg.rectTransform; rbRT.anchorMin = rbRT.anchorMax = rbRT.pivot = new Vector2(0.5f, 0.5f);
-        rbRT.anchoredPosition = new Vector2(0f, -345f); rbRT.sizeDelta = new Vector2(420f, 98f);
-        var restartBtn = rbGo.AddComponent<Button>(); restartBtn.targetGraphic = rbImg;
-        var rbLabel = MakeText(rbGo.transform, "Label", 48, TextAnchor.MiddleCenter, Color.white, true);
-        rbLabel.text = "REMATCH"; var rlRT = rbLabel.rectTransform; rlRT.anchorMin = Vector2.zero; rlRT.anchorMax = Vector2.one; rlRT.offsetMin = rlRT.offsetMax = Vector2.zero;
-        restartBtn.onClick.AddListener(() =>
-        {
-            if (BattleSetup.Instance != null) BattleSetup.Instance.RestartBattle();
-        });
-
-        // ---- Countdown: a stall backstop, so it stays small and
-        // low-contrast until the final timerWarningSeconds ----
-        timerText = MakeText(canvasT, "TimerText", 34, TextAnchor.UpperCenter, new Color(1f, 1f, 1f, 0.9f));
-        var tRT = timerText.rectTransform;
-        tRT.anchorMin = tRT.anchorMax = new Vector2(0.5f, 1f);
-        tRT.pivot = new Vector2(0.5f, 1f);
-        tRT.anchoredPosition = new Vector2(0f, -40f);
-        tRT.sizeDelta = new Vector2(300f, 60f);
-        timerText.gameObject.SetActive(false);
-
-        // ---- Tide bar: blue's share of the battle power, top center. Blue
-        // fills from the left, red is the background, a tick marks even ----
-        var tideGO = new GameObject("TideBar", typeof(RectTransform));
-        tideGO.transform.SetParent(canvasT, false);
-        tideRoot = tideGO.GetComponent<RectTransform>();
-        tideRoot.anchorMin = tideRoot.anchorMax = new Vector2(0.5f, 1f);
-        tideRoot.pivot = new Vector2(0.5f, 1f);
-        tideRoot.anchoredPosition = new Vector2(0f, -10f);
-        tideRoot.sizeDelta = new Vector2(620f, 24f);
-        Image NewBar(string n, Color c)
-        {
-            var g = new GameObject(n, typeof(RectTransform), typeof(Image));
-            g.transform.SetParent(tideGO.transform, false);
-            var im = g.GetComponent<Image>(); im.color = c; im.raycastTarget = false;   // never a tap target
-            return im;
-        }
-        var frame = NewBar("Frame", new Color(0f, 0f, 0f, 0.6f));
-        frame.rectTransform.anchorMin = Vector2.zero; frame.rectTransform.anchorMax = Vector2.one;
-        frame.rectTransform.offsetMin = new Vector2(-4f, -4f); frame.rectTransform.offsetMax = new Vector2(4f, 4f);
-        var red = NewBar("Red", new Color(0.86f, 0.30f, 0.27f, 0.92f));
-        red.rectTransform.anchorMin = Vector2.zero; red.rectTransform.anchorMax = Vector2.one;
-        red.rectTransform.offsetMin = red.rectTransform.offsetMax = Vector2.zero;
-        var blue = NewBar("Blue", new Color(0.33f, 0.55f, 0.95f, 0.95f));
-        tideBlue = blue.rectTransform;
-        tideBlue.anchorMin = Vector2.zero; tideBlue.anchorMax = new Vector2(0.5f, 1f);
-        tideBlue.offsetMin = tideBlue.offsetMax = Vector2.zero;
-        var tick = NewBar("Even", new Color(1f, 1f, 1f, 0.8f));
-        tick.rectTransform.anchorMin = new Vector2(0.5f, 0f); tick.rectTransform.anchorMax = new Vector2(0.5f, 1f);
-        tick.rectTransform.sizeDelta = new Vector2(3f, 6f);
-        tideGO.SetActive(false);
-
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
-        // dev-only fast-forward: 1x / 2x only (higher speeds change outcomes, the sim is frame-stepped)
-        Button speedBtn = MakeButton(canvasT, "DevSpeedButton", "1x", Vector2.zero);
-        var spRT = speedBtn.GetComponent<RectTransform>();
-        spRT.anchorMin = spRT.anchorMax = new Vector2(1f, 1f);
-        spRT.pivot = new Vector2(1f, 1f);
-        spRT.anchoredPosition = new Vector2(-205f, -20f);   // left of RESTART (170 wide at -25)
-        spRT.sizeDelta = new Vector2(96f, 64f);
-        speedBtn.onClick.AddListener(() =>
-        {
-            float next = SimSpeed.Multiplier >= 2f ? 1f : 2f;
-            if (next == 1f) SimSpeed.Reset(); else SimSpeed.Set(next, false);
-            var l = speedBtn.GetComponentInChildren<Text>();
-            if (l != null) l.text = next + "x";
-        });
-#endif
-
-        startRoot.SetActive(true);
-        endRoot.SetActive(false);
     }
 
     private void UpdateTide(BattlePhase phase)
@@ -590,96 +427,181 @@ public class BattleHUD : MonoBehaviour
         float target = blue + red > 0f ? blue / (blue + red) : 0.5f;
         tideShown = Mathf.MoveTowards(tideShown, target, Time.unscaledDeltaTime * 0.35f);   // eased, never jumpy
         tideBlue.anchorMax = new Vector2(tideShown, 1f);
+        int bn = 0, rn = 0;
+        foreach (var f in bs.formations) { if (f == null) continue; if (f.team == Team.Blue) bn += f.soldiers.Count; else rn += f.soldiers.Count; }
+        tideLeftText.text = "<size=70%><color=#" + ColorUtility.ToHtmlStringRGB(UiTheme.InkMuted) + ">YOU</color></size> " + UiTheme.Tab(bn);
+        tideRightText.text = "<size=70%><color=#" + ColorUtility.ToHtmlStringRGB(UiTheme.InkMuted) + ">ENEMY</color></size> " + UiTheme.Tab(rn);
     }
 
     private void UpdateTimer(BattlePhase phase)
     {
         if (timerText == null) return;
         var bs = BattleSetup.Instance;
-        bool show = phase != BattlePhase.Ended && bs != null && bs.moraleConfig != null;   // Pre shows the full clock
-        if (timerText.gameObject.activeSelf != show) timerText.gameObject.SetActive(show);
+        bool show = phase != BattlePhase.Ended && bs != null && bs.moraleConfig != null;
+        if (timerClock.activeSelf != show) timerClock.SetActive(show);
         if (!show) return;
         float remaining = bs.TimeRemaining;
         bool warning = remaining <= bs.moraleConfig.timerWarningSeconds;
         int total = Mathf.CeilToInt(remaining);
-        timerText.text = $"{total / 60}:{total % 60:00}";
-        timerText.fontSize = warning ? 52 : 34;
-        timerText.color = warning ? new Color(1f, 0.85f, 0.3f, 1f) : new Color(1f, 1f, 1f, 0.9f);
+        timerText.text = UiTheme.Tab(total / 60) + ":" + UiTheme.Tab((total % 60).ToString("00"));
+        timerText.color = warning ? UiTheme.GoldHi : UiTheme.Ink;
     }
 
-    private void BuildBottomPanel(Transform canvasT)
+    // ----- bottom: unit panel and the command row -----
+
+    private void BuildBottom(Transform parent)
     {
-        // Show/hide container only, no Image, no raycast footprint. The chip
-        // and buttons float inside it; taps between them must fall through to
-        // the battlefield.
-        panelGO = new GameObject("BottomPanel");
-        panelGO.transform.SetParent(canvasT, false);
+        float m = UiTheme.Margin;
+        panelGO = new GameObject("BottomPanel", typeof(RectTransform));
+        panelGO.transform.SetParent(parent, false);
+        UiKit.Fill(panelGO.GetComponent<RectTransform>());   // a container only, it has no graphic so it never eats taps
+        Transform pt = panelGO.transform;
 
-        var panelRT = panelGO.AddComponent<RectTransform>();
-        panelRT.anchorMin = new Vector2(0f, 0f);
-        panelRT.anchorMax = new Vector2(1f, 0f);
-        panelRT.pivot = new Vector2(0.5f, 0f);
-        panelRT.anchoredPosition = Vector2.zero;
-        panelRT.sizeDelta = new Vector2(0f, 170f);
+        // unit panel, bottom left
+        float pw = P(360f), ph = P(188f), pad = P(18f);
+        var panel = UiKit.Img(pt, "UnitPanel", UiKit.Spr("UI_Panel"), Color.white); panel.pixelsPerUnitMultiplier = 2.3f;
+        unitPanel = panel.gameObject;
+        UiKit.Place(panel.rectTransform, new Vector2(0f, 0f), new Vector2(0f, 0f), new Vector2(m, m), new Vector2(pw, ph));
+        panelBanner = UiKit.Img(unitPanel.transform, "Banner", null, Color.white);
+        panelBanner.preserveAspect = true;
+        UiKit.Place(panelBanner.rectTransform, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(pad, -P(15f)), new Vector2(P(34f), P(58f)));
+        panelTitle = UiKit.Tmp(unitPanel.transform, "Title", "", UiTheme.Cinzel, P(26f), UiTheme.Ink, TextAlignmentOptions.TopLeft, 2f);
+        UiKit.Place(panelTitle.rectTransform, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(pad + P(34f) + P(12f), -P(15f)), new Vector2(pw - pad * 2f - P(46f), P(32f)));
+        panelSub = UiKit.Tmp(unitPanel.transform, "Sub", "", UiTheme.Medium, P(17f), UiTheme.InkMuted, TextAlignmentOptions.TopLeft);
+        UiKit.Place(panelSub.rectTransform, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(pad + P(34f) + P(12f), -P(15f) - P(34f)), new Vector2(pw - pad * 2f - P(46f), P(24f)));
+        var div = UiKit.Img(unitPanel.transform, "Divider", null, new Color(1f, 1f, 1f, 0.13f));
+        UiKit.Place(div.rectTransform, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(pad, -P(82f)), new Vector2(pw - pad * 2f, 1f));
+        barTrackW = (pw - pad * 2f - P(18f)) * 0.5f;
+        for (int i = 0; i < 2; i++)
+        {
+            float x = pad + i * (barTrackW + P(18f));
+            var lab = UiKit.Tmp(unitPanel.transform, i == 0 ? "StrengthLabel" : "HealthLabel", i == 0 ? "STRENGTH" : "HEALTH", UiTheme.SemiBold, P(13f), UiTheme.InkMuted, TextAlignmentOptions.TopLeft, 8f);
+            UiKit.Place(lab.rectTransform, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(x, -P(92f)), new Vector2(barTrackW, P(18f)));
+            var val = UiKit.Tmp(unitPanel.transform, i == 0 ? "StrengthValue" : "HealthValue", "", UiTheme.Bold, P(24f), UiTheme.Ink, TextAlignmentOptions.TopLeft);
+            UiKit.Place(val.rectTransform, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(x, -P(108f)), new Vector2(barTrackW, P(32f)));
+            var tr = UiKit.Img(unitPanel.transform, "Track", UiKit.Spr("UI_Pill"), UiTheme.TrackDark, P(7f));
+            UiKit.Place(tr.rectTransform, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(x, -P(146f)), new Vector2(barTrackW, P(7f)));
+            var fl = UiKit.Img(unitPanel.transform, "Fill", UiKit.Spr("UI_Pill"), UiTheme.HealthGreen, P(7f));
+            UiKit.Place(fl.rectTransform, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(x, -P(146f)), new Vector2(barTrackW, P(7f)));
+            if (i == 0) { strengthValue = val; strengthFill = fl; } else { healthValue = val; healthFill = fl; }
+        }
 
-        Transform panelT = panelGO.transform;
-
-        // ---- Info chip (bottom-left): compact rounded backdrop sized for the
-        // three-line info block. Purely visual, it sits over the battlefield,
-        // so neither the chip nor its text may intercept taps.
-        var chipGO = new GameObject("InfoChip");
-        chipGO.transform.SetParent(panelT, false);
-        var chipRT = chipGO.AddComponent<RectTransform>();
-        chipRT.anchorMin = new Vector2(0f, 0f);
-        chipRT.anchorMax = new Vector2(0f, 0f);
-        chipRT.pivot = new Vector2(0f, 0f);
-        chipRT.anchoredPosition = new Vector2(25f, 25f);
-        chipRT.sizeDelta = new Vector2(560f, 150f);
-        var chipImage = chipGO.AddComponent<Image>();
-        chipImage.sprite = RoundedSprite();
-        chipImage.type = Image.Type.Sliced;
-        chipImage.color = new Color(0.09f, 0.1f, 0.14f, 0.72f);
-        chipImage.raycastTarget = false;
-
-        infoText = MakeText(chipGO.transform, "InfoText", 32, TextAnchor.MiddleLeft, Color.white);
-        infoText.lineSpacing = 1.15f;   // breathing room between the three info lines
-        RectTransform infoRT = infoText.rectTransform;
-        infoRT.anchorMin = Vector2.zero;
-        infoRT.anchorMax = Vector2.one;
-        infoRT.offsetMin = new Vector2(25f, 12f);
-        infoRT.offsetMax = new Vector2(-25f, -12f);
-
-        // ---- Command buttons: a right-aligned floating row with uniform
-        // spacing. Their background Images are the only raycast targets in the
-        // bottom layout, both button taps and PointerOverUI depend on that.
-        const float margin = 25f;
-        float buttonY = (170f - ButtonHeight) * 0.5f;
-        float step = ButtonWidth + ButtonGap;
-
-        chargeButton = MakeButton(panelT, "ChargeButton", "CHARGE",
-                                  new Vector2(-margin - step, buttonY));
-        chargeButton.onClick.AddListener(OnChargeClicked);
-
-        rotateButton = MakeButton(panelT, "RotateButton", "ROTATE",
-                                  new Vector2(-margin, buttonY));
-        rotateButton.onClick.AddListener(OnRotateClicked);
-
-        // ---- Reason text (just above Charge) ----
-        reasonText = MakeText(panelT, "ReasonText", 22, TextAnchor.MiddleCenter, ReasonColor, false);
-        reasonText.text = "";
-        RectTransform reasonRT = reasonText.rectTransform;
-        reasonRT.anchorMin = new Vector2(1f, 0f);
-        reasonRT.anchorMax = new Vector2(1f, 0f);
-        reasonRT.pivot = new Vector2(1f, 0f);
-        reasonRT.anchoredPosition = new Vector2(-margin - step, buttonY + ButtonHeight + 3f);
-        reasonRT.sizeDelta = new Vector2(ButtonWidth, 28f);
-
+        // command row, bottom right, sharing the panel's bottom edge
+        float bh = UiTheme.BtnHBig, gap = UiTheme.GapIn;
+        rotateBtn = MakeBtn(pt, "RotateButton", "ROTATE", "UI_Plate", P(170f), bh, "UI_Icon_Rotate");
+        UiKit.Place(rotateBtn.bg.rectTransform, new Vector2(1f, 0f), new Vector2(1f, 0f), new Vector2(-m, m), new Vector2(P(170f), bh));
+        rotateBtn.button.onClick.AddListener(OnRotateClicked);
+        chargeBtn = MakeBtn(pt, "ChargeButton", "CHARGE", "UI_PlateBlue", P(230f), bh, null, true);
+        UiKit.Place(chargeBtn.bg.rectTransform, new Vector2(1f, 0f), new Vector2(1f, 0f), new Vector2(-m - P(170f) - gap, m), new Vector2(P(230f), bh));
+        chargeBtn.button.onClick.AddListener(OnChargeClicked);
         panelGO.SetActive(false);
     }
 
-    // ---------------- helpers ----------------
+    // ----- dev buttons: built, then hidden -----
 
-    // Victory screen content, from the player's side (Blue): VICTORY / DEFEAT / DRAW, why it ended, and the soldiers still standing per formation.
+    private void BuildDevButtons(Transform parent)
+    {
+        float m = UiTheme.Margin;
+        var scenes = MakeBtn(parent, "ScenesButton", "SCENES", "UI_Plate", P(130f), UiTheme.BtnH);
+        UiKit.Place(scenes.bg.rectTransform, new Vector2(1f, 1f), new Vector2(1f, 1f), new Vector2(-m, -(m + UiTheme.BtnH + UiTheme.GapIn)), new Vector2(P(130f), UiTheme.BtnH));
+        devScenesGO = scenes.bg.gameObject;
+        sceneRowGO = new GameObject("SceneRow", typeof(RectTransform));
+        sceneRowGO.transform.SetParent(parent, false);
+        UiKit.Place(sceneRowGO.GetComponent<RectTransform>(), new Vector2(1f, 1f), new Vector2(1f, 1f), new Vector2(-m, -(m + (UiTheme.BtnH + UiTheme.GapIn) * 2f)), new Vector2(SceneNames.Length * P(140f), UiTheme.BtnH));
+        string current = gameObject.scene.name;
+        for (int i = 0; i < SceneNames.Length; i++)
+        {
+            string sn = SceneNames[i];
+            var b = MakeBtn(sceneRowGO.transform, "Scene_" + sn, SceneLabels[i], sn == current ? "UI_PlateBlue" : "UI_Plate", P(130f), UiTheme.BtnH);
+            b.bg.rectTransform.anchoredPosition = new Vector2(i * P(140f), 0f);
+            if (sn == current) SetBtnEnabled(b, false); else b.button.onClick.AddListener(() => SceneManager.LoadScene(sn));
+        }
+        sceneRowGO.SetActive(false);
+        scenes.button.onClick.AddListener(() => sceneRowGO.SetActive(!sceneRowGO.activeSelf));
+        devScenesGO.SetActive(ShowDevButtons);
+
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        var speed = MakeBtn(parent, "DevSpeedButton", "SPEED 1x", "UI_Plate", P(150f), UiTheme.BtnH);
+        UiKit.Place(speed.bg.rectTransform, new Vector2(1f, 1f), new Vector2(1f, 1f), new Vector2(-(m + P(166f) + UiTheme.GapIn), -m), new Vector2(P(150f), UiTheme.BtnH));
+        speed.button.onClick.AddListener(() =>
+        {
+            float next = SimSpeed.Multiplier >= 2f ? 1f : 2f;
+            if (next == 1f) SimSpeed.Reset(); else SimSpeed.Set(next, false);
+            speed.label.text = "SPEED " + next + "x";
+        });
+        devSpeedGO = speed.bg.gameObject;
+        devSpeedGO.SetActive(ShowDevButtons);
+#endif
+    }
+
+    private void BuildStartUI(Transform parent)
+    {
+        startRoot = new GameObject("StartUI", typeof(RectTransform));
+        startRoot.transform.SetParent(parent, false);
+        UiKit.Place(startRoot.GetComponent<RectTransform>(), new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0f, UiTheme.Margin), new Vector2(P(260f), P(76f)));
+        var start = MakeBtn(startRoot.transform, "StartButton", "START", "UI_PlateBlue", P(260f), P(76f), null, false, P(26f), 9f);
+        start.bg.rectTransform.anchoredPosition = Vector2.zero;
+        start.button.onClick.AddListener(() => { if (BattleSetup.Instance != null) BattleSetup.Instance.StartBattle(); });
+    }
+
+    // ----- result screen -----
+
+    private void BuildEndUI(Transform parent)
+    {
+        endRoot = new GameObject("EndUI", typeof(RectTransform));
+        endRoot.transform.SetParent(parent, false);
+        UiKit.Fill(endRoot.GetComponent<RectTransform>());
+        Transform et = endRoot.transform;
+        var blocker = UiKit.Img(et, "EndBlocker", null, new Color(0.04f, 0.05f, 0.08f, 0.72f));
+        blocker.raycastTarget = true; blocker.rectTransform.anchorMin = Vector2.zero; blocker.rectTransform.anchorMax = Vector2.one; blocker.rectTransform.offsetMin = blocker.rectTransform.offsetMax = Vector2.zero;   // dims the field and swallows taps
+
+        Vector2 top = new Vector2(0.5f, 1f);
+        float panelW = P(1100f), panelH = P(704f);
+        var panel = UiKit.Img(et, "EndPanel", UiKit.Spr("UI_Panel"), Color.white); panel.pixelsPerUnitMultiplier = 1.8f;
+        UiKit.Place(panel.rectTransform, top, top, new Vector2(0f, -P(116f)), new Vector2(panelW, panelH));
+        var ribbon = UiKit.Img(et, "EndRibbon", UiKit.Spr("UI_Ribbon"), Color.white);
+        UiKit.Place(ribbon.rectTransform, top, top, new Vector2(0f, -P(52f)), new Vector2(P(620f), P(112f)));
+        resultText = UiKit.Tmp(et, "ResultText", "VICTORY", UiTheme.Cinzel, P(54f), UiTheme.PanelNavy, TextAlignmentOptions.Midline, 14f);
+        UiKit.Place(resultText.rectTransform, top, top, new Vector2(0f, -P(52f) - P(2f)), new Vector2(P(560f), P(104f)));
+        endReasonText = UiKit.Tmp(et, "EndReasonText", "", UiTheme.Medium, P(19f), UiTheme.InkMuted, TextAlignmentOptions.Midline);
+        UiKit.Place(endReasonText.rectTransform, top, top, new Vector2(0f, -P(210f) + P(14f)), new Vector2(P(900f), P(30f)));
+
+        float colW = P(500f), rowH = P(44f), rowGap = P(8f);
+        for (int side = 0; side < 2; side++)
+        {
+            float cx = (side == 0 ? -1f : 1f) * P(265f);
+            endHeader[side] = UiKit.Tmp(et, "EndHeader" + side, side == 0 ? "YOUR ARMY" : "ENEMY", UiTheme.SemiBold, P(17f), side == 0 ? new Color(0.62f, 0.8f, 1f) : UiTheme.EnemyTint, TextAlignmentOptions.MidlineRight, 14f);
+            UiKit.Place(endHeader[side].rectTransform, top, new Vector2(1f, 0.5f), new Vector2(cx - P(4f), -P(264f)), new Vector2(P(240f), P(34f)));
+            endTotal[side] = UiKit.Tmp(et, "EndTotal" + side, "", UiTheme.Bold, P(26f), UiTheme.Ink, TextAlignmentOptions.MidlineLeft);
+            UiKit.Place(endTotal[side].rectTransform, top, new Vector2(0f, 0.5f), new Vector2(cx + P(4f), -P(264f)), new Vector2(P(240f), P(36f)));
+            for (int r = 0; r < 8; r++)
+            {
+                int k = side * 8 + r; float cy = -(P(293f) + r * (rowH + rowGap) + rowH * 0.5f);
+                var plate = UiKit.Img(et, "EndRow" + k, UiKit.Spr("UI_Row"), Color.white, rowH);
+                UiKit.Place(plate.rectTransform, top, new Vector2(0.5f, 0.5f), new Vector2(cx, cy), new Vector2(colW, rowH));
+                endRowPlate[k] = plate; endRow[k] = plate.gameObject;
+                endRowIcon[k] = UiKit.Img(plate.transform, "Icon", null, Color.white); endRowIcon[k].preserveAspect = true;
+                UiKit.Place(endRowIcon[k].rectTransform, new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), new Vector2(P(14f), 0f), new Vector2(P(21f), P(36f)));
+                endRowName[k] = UiKit.Tmp(plate.transform, "Name", "", UiTheme.SemiBold, P(20f), UiTheme.Ink, TextAlignmentOptions.MidlineLeft);
+                UiKit.Place(endRowName[k].rectTransform, new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), new Vector2(P(46f), 0f), new Vector2(P(170f), rowH));
+                var tr = UiKit.Img(plate.transform, "BarTrack", UiKit.Spr("UI_Pill"), UiTheme.TrackDark, P(8f));
+                UiKit.Place(tr.rectTransform, new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), new Vector2(P(233f), 0f), new Vector2(P(150f), P(8f)));
+                endRowFill[k] = UiKit.Img(plate.transform, "BarFill", UiKit.Spr("UI_Pill"), side == 0 ? UiTheme.BannerBlueHi : UiTheme.BannerRedHi, P(8f));
+                UiKit.Place(endRowFill[k].rectTransform, new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), new Vector2(P(233f), 0f), new Vector2(P(150f), P(8f)));
+                endRowCount[k] = UiKit.Tmp(plate.transform, "Count", "", UiTheme.SemiBold, P(20f), UiTheme.Ink, TextAlignmentOptions.MidlineRight);
+                UiKit.Place(endRowCount[k].rectTransform, new Vector2(1f, 0.5f), new Vector2(1f, 0.5f), new Vector2(-P(18f), 0f), new Vector2(P(84f), rowH));
+            }
+        }
+        var rematch = MakeBtn(et, "RestartButton", "REMATCH", "UI_PlateBlue", P(230f), P(60f), "UI_Icon_Restart", false, P(21f), 8f);
+        UiKit.Place(rematch.bg.rectTransform, top, top, new Vector2(0f, -(P(116f) + panelH - P(26f) - P(60f))), new Vector2(P(230f), P(60f)));
+        rematch.button.onClick.AddListener(() => { if (BattleSetup.Instance != null) BattleSetup.Instance.RestartBattle(); });
+        // the rect pivot is top-left for buttons, so centre it
+        rematch.bg.rectTransform.pivot = new Vector2(0.5f, 1f);
+        startRoot.SetActive(true);
+        endRoot.SetActive(false);
+    }
+
+    // result screen content, from the player's side (Blue): VICTORY / DEFEAT / DRAW, why it ended, and the soldiers still standing per formation
     private void FillEndSummary(string result)
     {
         var bs = BattleSetup.Instance;
@@ -688,12 +610,12 @@ public class BattleHUD : MonoBehaviour
         int Broken(Team t) { int n = 0; foreach (var f in bs.formations) if (f.team == t && (f.soldiers.Count == 0 || f.State == FormationState.Routing)) n++; return n; }
         bool won = result.StartsWith("BLUE WINS"), lost = result.StartsWith("RED WINS");
         resultText.text = won ? "VICTORY" : lost ? "DEFEAT" : "DRAW";
-        resultText.color = won ? new Color(0.13f, 0.38f, 0.75f) : lost ? new Color(0.72f, 0.16f, 0.13f) : new Color(0.32f, 0.34f, 0.4f);
         string reason;
         if (result.Contains("COLLAPSED"))
         {
             Team loser = won ? Team.Red : Team.Blue;
-            reason = (loser == Team.Red ? "The enemy line collapsed" : "Your line collapsed") + ": " + Broken(loser) + " of " + Total(loser) + " formations routed or destroyed";
+            reason = (!won && !lost ? "Both lines collapsed: " + Broken(Team.Blue) + " and " + Broken(Team.Red) + " formations routed or destroyed"
+                   : (loser == Team.Red ? "The enemy line collapsed" : "Your line collapsed") + ": " + Broken(loser) + " of " + Total(loser) + " formations routed or destroyed");
         }
         else if (result.Contains("TIME"))
         {
@@ -715,135 +637,25 @@ public class BattleHUD : MonoBehaviour
                 if (row >= 8) continue;
                 int k = side * 8 + row++;
                 endRow[k].SetActive(true);
-                endRowName[k].text = f.displayName.Replace("Blue ", "").Replace("Red ", "");
-                endRowCount[k].text = f.soldiers.Count + " / " + f.TotalSpawned;
+                endRowName[k].text = RomanNumerals.Pretty(f.displayName.Replace("Blue ", "").Replace("Red ", ""));
+                endRowCount[k].text = UiTheme.Tab(f.soldiers.Count) + " / " + UiTheme.Tab(f.TotalSpawned);
                 float frac = f.TotalSpawned > 0 ? Mathf.Clamp01((float)f.soldiers.Count / f.TotalSpawned) : 0f;
-                endRowFill[k].rectTransform.sizeDelta = new Vector2(380f * frac, 7f);
-                var icon = Resources.Load<Sprite>("UI_Banner_" + (side == 0 ? "Blue" : "Red") + "_" + (f.stats.isRanged ? "Ranged" : "Melee"));
+                float bar = P(150f);
+                endRowFill[k].rectTransform.sizeDelta = new Vector2(Mathf.Max(P(8f), bar * frac), P(8f));
+                endRowFill[k].enabled = f.soldiers.Count > 0;
+                var icon = UiKit.Spr(BannerName(team, f.stats.isRanged));
                 endRowIcon[k].sprite = icon; endRowIcon[k].enabled = icon != null;
-                float a = f.soldiers.Count == 0 ? 0.45f : 1f;   // a wiped-out formation is dimmed
-                endRowPlate[k].color = new Color(1f, 1f, 1f, a); endRowName[k].color = new Color(1f, 1f, 1f, a); endRowCount[k].color = new Color(1f, 0.93f, 0.7f, a);
+                float a = f.soldiers.Count == 0 ? 0.5f : 1f;   // a wiped-out formation is dimmed
+                endRowPlate[k].color = new Color(1f, 1f, 1f, a); endRowName[k].color = new Color(1f, 1f, 1f, a); endRowCount[k].color = new Color(1f, 1f, 1f, a);
             }
             for (; row < 8; row++) endRow[side * 8 + row].SetActive(false);
-            endHeader[side].text = (side == 0 ? "YOUR ARMY" : "ENEMY") + "   " + alive + " / " + spawned;
+            endTotal[side].text = UiTheme.Tab(alive) + " / " + UiTheme.Tab(spawned);
         }
-    }
-
-    private Text MakeText(Transform parent, string name, int fontSize, TextAnchor anchor, Color color, bool shadow = true)
-    {
-        var go = new GameObject(name);
-        go.transform.SetParent(parent, false);
-
-        var text = go.AddComponent<Text>();
-        text.font = font;
-        text.fontSize = fontSize;
-        text.alignment = anchor;
-        text.color = color;
-        text.horizontalOverflow = HorizontalWrapMode.Overflow;
-        text.verticalOverflow = VerticalWrapMode.Overflow;
-        // No Text in this HUD is ever a tap target, buttons hit-test on their
-        // background Image, and free-floating text must not block the field.
-        text.raycastTarget = false;
-
-        if (shadow)
-        {
-            var sh = go.AddComponent<Shadow>();
-            sh.effectDistance = new Vector2(1.5f, -1.5f);
-        }
-
-        return text;
-    }
-
-    private Button MakeButton(Transform parent, string name, string label, Vector2 anchoredPos,
-                              bool accent = false)
-    {
-        var go = new GameObject(name);
-        go.transform.SetParent(parent, false);
-
-        var rt = go.AddComponent<RectTransform>();
-        rt.anchorMin = new Vector2(1f, 0f);
-        rt.anchorMax = new Vector2(1f, 0f);
-        rt.pivot = new Vector2(1f, 0f);
-        rt.anchoredPosition = anchoredPos;
-        rt.sizeDelta = new Vector2(ButtonWidth, ButtonHeight);
-
-        var image = go.AddComponent<Image>();
-        // gold-bevel frames when the art is present (accent = the blue button, everything else the navy plate); the old rounded boxes otherwise
-        Sprite framed = accent ? FrameSprite("UI_Frame_Button") : FrameSprite("UI_Frame_Plate");
-        image.sprite = framed != null ? framed : RoundedSprite();
-        image.type = Image.Type.Sliced;
-        Color baseColor = framed != null ? Color.white : (accent ? AccentColor : ButtonColor);
-        image.color = baseColor;
-
-        var button = go.AddComponent<Button>();
-        button.targetGraphic = image;
-
-        ColorBlock colors = button.colors;
-        colors.normalColor = baseColor;
-        colors.highlightedColor = baseColor == Color.white ? new Color(1f, 1f, 1f, 1f) * 1.0f : Color.Lerp(baseColor, Color.white, 0.15f);
-        colors.pressedColor = Color.Lerp(baseColor, Color.black, 0.3f);
-        if (baseColor == Color.white) colors.highlightedColor = new Color(1f, 0.97f, 0.85f);
-        colors.disabledColor = new Color(baseColor.r, baseColor.g, baseColor.b, 0.35f);
-        button.colors = colors;
-
-        Text labelText = MakeText(go.transform, "Label", 28, TextAnchor.MiddleCenter, Color.white, false);
-        labelText.text = label;
-        RectTransform labelRT = labelText.rectTransform;
-        labelRT.anchorMin = Vector2.zero;
-        labelRT.anchorMax = Vector2.one;
-        labelRT.offsetMin = new Vector2(10f, 6f);
-        labelRT.offsetMax = new Vector2(-10f, -6f);
-
-        return button;
-    }
-
-    // Shared 9-sliced rounded-rectangle sprite so every button reads as one
-    // intentional family instead of raw quads. Generated once, tinted per use.
-    // The corner radius stays small (square-ish, not pill) and a subtle darker
-    // rim is baked just inside the edge, it survives per-use tinting because
-    // the sprite is still near-white.
-    // The sprite's pixelsPerUnit must match the canvas's referencePixelsPerUnit
-    // (100) and the 9-slice border must be exactly the corner radius, any
-    // mismatch rescales the corner slices per-axis and the buttons distort
-    // into ovals instead of keeping a fixed corner radius at every size.
-    private static readonly System.Collections.Generic.Dictionary<string, Sprite> frameCache = new System.Collections.Generic.Dictionary<string, Sprite>();
-    private static Sprite FrameSprite(string name)
-    {
-        if (!frameCache.TryGetValue(name, out var sp)) { sp = Resources.Load<Sprite>(name); frameCache[name] = sp; }
-        return sp;
-    }
-
-    private static Sprite RoundedSprite()
-    {
-        if (roundedSprite != null) return roundedSprite;
-        const int size = 64;
-        const int radius = 16;
-        var tex = new Texture2D(size, size, TextureFormat.RGBA32, false);
-        for (int y = 0; y < size; y++)
-        {
-            for (int x = 0; x < size; x++)
-            {
-                float dx = Mathf.Max(0f, Mathf.Max(radius - x, x - (size - 1 - radius)));
-                float dy = Mathf.Max(0f, Mathf.Max(radius - y, y - (size - 1 - radius)));
-                float d = Mathf.Sqrt(dx * dx + dy * dy);
-                float a = Mathf.Clamp01(radius - d + 0.5f);   // 1 inside, soft 1px edge
-                float rgb = (a > 0.05f && radius - d < 2f) ? 0.85f : 1f;   // darker rim
-                tex.SetPixel(x, y, new Color(rgb, rgb, rgb, a));
-            }
-        }
-        tex.wrapMode = TextureWrapMode.Clamp;
-        tex.Apply();
-        roundedSprite = Sprite.Create(tex, new Rect(0f, 0f, size, size),
-                                      new Vector2(0.5f, 0.5f), 100f, 0,
-                                      SpriteMeshType.FullRect,
-                                      new Vector4(radius, radius, radius, radius));
-        return roundedSprite;
     }
 }
 
-// Keeps a full-canvas RectTransform inside Screen.safeArea (phone notches,
-// rounded corners). Applied once on creation and re-applied if the safe area
-// changes (orientation, foldables).
+// Keeps a full-canvas RectTransform inside Screen.safeArea (phone notches, rounded corners). Applied once on creation
+// and re-applied if the safe area changes (orientation, foldables).
 public class SafeAreaFitter : MonoBehaviour
 {
     private Rect applied = new Rect(-1f, -1f, -1f, -1f);
@@ -861,13 +673,8 @@ public class SafeAreaFitter : MonoBehaviour
         var rt = (RectTransform)transform;
         Vector2 min = applied.position;
         Vector2 max = applied.position + applied.size;
-        min.x /= Screen.width;
-        min.y /= Screen.height;
-        max.x /= Screen.width;
-        max.y /= Screen.height;
-        rt.anchorMin = min;
-        rt.anchorMax = max;
-        rt.offsetMin = Vector2.zero;
-        rt.offsetMax = Vector2.zero;
+        min.x /= Screen.width; min.y /= Screen.height; max.x /= Screen.width; max.y /= Screen.height;
+        rt.anchorMin = min; rt.anchorMax = max;
+        rt.offsetMin = Vector2.zero; rt.offsetMax = Vector2.zero;
     }
 }

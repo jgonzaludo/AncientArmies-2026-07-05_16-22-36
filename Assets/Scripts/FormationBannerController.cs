@@ -35,7 +35,7 @@ public class FormationBannerController : MonoBehaviour
     // v1.8.1 selection language: no outline, while anything is selected,
     // every OTHER banner dims to this alpha and the selected ones stay full.
     [Tooltip("Alpha applied to unselected banners while a selection exists")]
-    [SerializeField] private float unselectedDimFactor = 0.4f;
+    [SerializeField] private float unselectedDimFactor = 0.75f;
 
     [Header("Order feedback")]
     [Tooltip("A hidden close-zoom banner appears this long after an order")]
@@ -43,7 +43,7 @@ public class FormationBannerController : MonoBehaviour
 
     [Header("Info elements")]
     [SerializeField] private float barWidth = 3.1f;
-    [SerializeField] private float barHeight = 0.45f;
+    [SerializeField] private float barHeight = 0.5f;
 
     private static readonly Color HealthHigh = new Color(0.38f, 0.86f, 0.38f);
     private static readonly Color HealthLow = new Color(0.95f, 0.7f, 0.15f);
@@ -227,7 +227,7 @@ public class FormationBannerController : MonoBehaviour
         float hp = Mathf.Clamp01(f.TotalHealth / Mathf.Max(1f, f.TotalMaxHealth));
         SetSpriteAlpha(healthFillSR, Color.Lerp(HealthLow, HealthHigh, hp), bars ? alpha : 0f);
         healthFillSR.transform.localScale = new Vector3(barWidth * hp, barHeight, 1f);
-        healthFillSR.transform.localPosition = new Vector3(-barWidth * 0.5f * (1f - hp), -1.95f, -0.02f);
+        healthFillSR.transform.localPosition = new Vector3(-barWidth * 0.5f * (1f - hp), 2.35f, -0.02f);
 
         bool icon = bars && stateIconSR.sprite != null;
         SetSpriteAlpha(stateIconSR, Color.white, icon ? alpha : 0f);
@@ -342,11 +342,11 @@ public class FormationBannerController : MonoBehaviour
         ringSR = MakeSprite("WaveringHaloRing", ringSprite, new Vector3(0f, 0f, 0.01f), Vector3.one * HaloRingScale);
         if (haloMaterial != null) { haloSR.sharedMaterial = haloMaterial; ringSR.sharedMaterial = haloMaterial; }
         baseSR = MakeSprite("BaseBannerImage", badge, Vector3.zero, Vector3.one);
-        healthBgSR = MakeSprite("HealthBarBg", whiteSprite, new Vector3(0f, -1.95f, -0.01f),
-                                new Vector3(barWidth + 0.1f, barHeight + 0.1f, 1f));
-        healthFillSR = MakeSprite("HealthBarFill", whiteSprite, new Vector3(0f, -1.95f, -0.02f),
+        healthBgSR = MakeSprite("HealthBarBg", whiteSprite, new Vector3(0f, 2.35f, -0.01f),
+                                new Vector3(barWidth + 0.24f, barHeight + 0.2f, 1f));
+        healthFillSR = MakeSprite("HealthBarFill", whiteSprite, new Vector3(0f, 2.35f, -0.02f),
                                   new Vector3(barWidth, barHeight, 1f));
-        stateIconSR = MakeSprite("StateIcon", null, new Vector3(0f, 2.6f, -0.02f),
+        stateIconSR = MakeSprite("StateIcon", null, new Vector3(0f, 3.2f, -0.02f),
                                  Vector3.one * 0.9f);
 
         root.gameObject.SetActive(false);

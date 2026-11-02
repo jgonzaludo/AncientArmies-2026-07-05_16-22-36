@@ -46,8 +46,7 @@ public class OfficerGradeMarkers : MonoBehaviour
             foreach (var f in bs.formations) DrawFormation(cam, bs.officerRanks, f);
             return;
         }
-        foreach (var f in commander.Selection) DrawFormation(cam, bs.officerRanks, f);
-        if (commander.InspectedEnemy != null) DrawFormation(cam, bs.officerRanks, commander.InspectedEnemy);
+        // the per-soldier rank numbers are a debug aid, so they only show when forceGradeMarkers is on; they used to sit on top of the banners
     }
 
     private void DrawFormation(Camera cam, OfficerRanks ranks, Formation f)
@@ -63,6 +62,7 @@ public class OfficerGradeMarkers : MonoBehaviour
             Vector2 size = style.CalcSize(new GUIContent(text));
             float w = Mathf.Max(size.x, size.y);   // square pill, never narrower than tall
             var r = new Rect(sp.x - w * 0.5f, Screen.height - sp.y - size.y * 0.5f, w, size.y);
+            UiTheme.DrawPill(new Rect(r.x - 2f, r.y, r.width + 4f, r.height), new Color(1f, 1f, 1f, 0.9f));
             GUI.Label(r, text, style);
         }
     }
@@ -86,7 +86,6 @@ public class OfficerGradeMarkers : MonoBehaviour
             fontStyle = FontStyle.Bold,
             padding = new RectOffset(pad, pad, pad / 2, pad / 2)
         };
-        style.normal.background = pillTex;
         style.normal.textColor = Color.white;
     }
 }

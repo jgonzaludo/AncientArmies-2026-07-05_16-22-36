@@ -103,6 +103,7 @@ public class ScenarioRunner : MonoBehaviour
             else if (scenario == "animsheet") yield return AnimSheetScenario(bs, false);
             else if (scenario == "shieldfit") yield return ShieldFitScenario(bs);
             else if (scenario == "turntable") yield return TurntableScenario(bs);
+            else if (scenario == "hudshot") yield return HudShotScenario(bs);
             else if (scenario == "animsheetarcher") yield return AnimSheetScenario(bs, true);
             else if (scenario == "shotsclose") yield return ShotsScenario(bs, new[] { 5.5f });
             else if (scenario == "b2fred") yield return BackToFrontScenario(bs, true);
@@ -391,6 +392,22 @@ public class ScenarioRunner : MonoBehaviour
             " batches=" + (statN > 0 ? (drawSum / statN).ToString("0") : "n/a") + " setPass=" + (statN > 0 ? (passSum / statN).ToString("0") : "n/a") + " tris=" + (statN > 0 ? (triSum / statN).ToString("0") : "n/a"));
         BattleRecorder.Note("kk clips: " + sbc);
         BattleRecorder.NoteEnd(bs, "SCENARIO END, kk");
+    }
+
+    // The live HUD: a selected century with a move order in flight (command panel, info chip, path line, tide bar, clock) mid-battle, plus the deployment screen.
+    private IEnumerator HudShotScenario(BattleSetup bs)
+    {
+        string dir = System.IO.Path.Combine(Application.dataPath, "..", "Temp");
+        var pc = bs.GetComponent<PlayerCommander>();
+        var c1 = Find(bs, "Blue Century 1"); var c3 = Find(bs, "Blue Century 3");
+        for (int i = 0; i < 60; i++) yield return null;
+        pc.SelectOnly(c1);
+        c1.IssueMove(new Vector3(c1.AnchorPos.x + 30f, 0f, c1.AnchorPos.z + 60f));
+        c3.IssueMove(new Vector3(c3.AnchorPos.x - 10f, 0f, c3.AnchorPos.z + 40f));
+        for (int i = 0; i < 240; i++) yield return null;
+        ScreenCapture.CaptureScreenshot(System.IO.Path.Combine(dir, "hud_active.png"));
+        for (int i = 0; i < 10; i++) yield return null;
+        BattleRecorder.NoteEnd(bs, "SCENARIO END — hudshot");
     }
 
     // One blue and one red soldier (melee, plus an archer) from the front, side, back and the game camera's angle, in play mode with the real lighting.
