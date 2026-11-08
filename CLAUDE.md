@@ -148,6 +148,15 @@ for docs-only changes.
 `.graphifyignore` is an allowlist (`Assets/**/*.cs`, `Docs/*.md`, `CLAUDE.md`), art
 and Unity YAML never reach the graph. `graphify-out/` is committed except `cost.json`.
 
+## Graph-first lookups (mandatory)
+
+The owner uses graphify to save lookup tokens. Before reading or grepping source for ANY question about how the
+code fits together, run `graphify query "<question>"`, `graphify explain "<Symbol>"` or `graphify path "<A>" "<B>"`
+first, and say so. Only then open raw files, and only the exact lines you are about to edit. Exact class and method
+names (BattleHUD, BuildEndUI) query better than prose. Do not start with `Read`, `grep` or `sed` over whole files.
+Run `graphify update .` after code changes, and revert `graphify-out/` noise before commits. Skipping the graph to
+"just read the file" is a recurring mistake the owner has flagged more than once.
+
 ## graphify
 
 This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
