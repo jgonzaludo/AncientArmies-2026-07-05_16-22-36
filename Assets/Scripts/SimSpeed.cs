@@ -64,4 +64,13 @@ public static class SimSpeed
         }
     }
 }
+#else
+// release builds: no fast-forward. the same api, always real time, so shared code compiles unchanged
+public static class SimSpeed
+{
+    public static float Multiplier => 1f;
+    public static bool RenderOff => false;
+    public static void Set(float multiplier, bool renderOff) { }
+    public static void Reset() { }
+}
 #endif
