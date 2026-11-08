@@ -1,7 +1,7 @@
 using UnityEditor;
 using UnityEngine;
 
-// Deterministic Patch 4 validation: exercises the real Formation slot math
+// Deterministic rotate maneuver validation: exercises the real Formation slot math
 // and the real WheelStep code path on temporary edit-mode objects, plus the
 // about-face nearest-slot rank reinterpretation with stand-in soldiers.
 // Menu-driven; never runs per frame; leaves no objects behind.

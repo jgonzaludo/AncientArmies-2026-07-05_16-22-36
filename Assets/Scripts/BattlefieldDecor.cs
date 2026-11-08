@@ -2,7 +2,7 @@ using UnityEngine;
 
 // Battlefield ground dressing: a single flat sand colour on the
 // runtime-created ground plane. No texture, no tiling, no repeating-pattern
-// artefacts at max zoom-out — the field reads as clean neutral ground so
+// artefacts at max zoom-out, the field reads as clean neutral ground so
 // formations and orders are the only things competing for attention.
 public static class BattlefieldDecor
 {
@@ -13,6 +13,10 @@ public static class BattlefieldDecor
     {
         var r = ground.GetComponent<Renderer>();
         if (r == null) return;
+
+        // a painted terrain map replaces the flat sand
+        var map = TerrainMap.Active;
+        if (map != null) { TerrainView.Build(map, ground); return; }
 
         var mat = new Material(Shader.Find("Universal Render Pipeline/Lit"));
         mat.name = "MAT_Battlefield_Sand";

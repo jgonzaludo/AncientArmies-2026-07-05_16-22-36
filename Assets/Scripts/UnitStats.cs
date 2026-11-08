@@ -2,10 +2,10 @@ using UnityEngine;
 
 public enum Team { Blue, Red }
 
-// Century role slots (Phase 1). Roles are data first: every role currently
+// Century role slots. Roles are data first: every role currently
 // spawns the generic legionary/archer visual, but the composition system
 // reserves the positions so specialist prefabs can be swapped in later
-// without touching spawn logic. A century is 80 TOTAL soldiers — specialists
+// without touching spawn logic. A century is 80 TOTAL soldiers, specialists
 // occupy slots, they are not added on top.
 public enum SoldierRole
 {
@@ -39,8 +39,8 @@ public class UnitStats
     // center (the signum anchors the front), cornicen behind the signifer,
     // optio rear-center (his historical post), tesserarius indistinguishable
     // in the ranks. Returns one role per slot index (front row = low indices,
-    // higher column = further right). The centurion REPLACES a legionary —
-    // melee centuries only, never archers — and is written last so exactly
+    // higher column = further right). The centurion REPLACES a legionary,
+    // melee centuries only, never archers, and is written last so exactly
     // one exists even when a narrow frontage collides with another staff slot.
     public SoldierRole[] BuildCenturyRoles(int count, int columns)
     {

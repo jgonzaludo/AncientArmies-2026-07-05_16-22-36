@@ -1,14 +1,15 @@
 using System.Collections.Generic;
 using UnityEngine;
 
-public enum FormationState { Ordered, Attacking, Engaged, BrokenRanks, Withdrawing, Reforming, Charging }
+// Routing is appended last so existing values keep their numbers.
+public enum FormationState { Ordered, Attacking, Engaged, BrokenRanks, Withdrawing, Reforming, Charging, Routing }
 
-// Current strategic order (Phase 2). Stored, never inferred: a move order
+// Current strategic order. Stored, never inferred: a move order
 // keeps its DestinationPosition and DestinationFacing from issue to arrival,
 // so current facing, travel direction, and final facing are three values.
 public enum OrderType { None, Move, Attack, Reform, BreakRanks, Withdraw, Charge }
 
-// Rotate-command maneuvers (Patch 4): a formation turns like a rectangular
+// Rotate-command maneuvers: a formation turns like a rectangular
 // body, not a liquid. SmallTurn/AboutFace snap facing and redress in place;
 // Wheel rotates the whole slot grid rigidly around an inner front corner.
 public enum FormationManeuverState { None, SmallTurn, Wheel, AboutFace, Redressing }
@@ -29,28 +30,28 @@ public class Formation : MonoBehaviour
     [Header("Movement")]
     public float moveSpeed = 2.6f;
     public float rotateSpeedDeg = 70f;
-    [Tooltip("How fast an engaged formation wheels its canonical facing toward the melee contact (deg/s). Directional flank/rear bonuses persist while it turns, then fade — an ill-timed Rotate can no longer leave a unit permanently rear-facing its attackers")]
+    [Tooltip("How fast an engaged formation wheels its canonical facing toward the melee contact (deg/s). Directional flank/rear bonuses persist while it turns, then fade, an ill-timed Rotate can no longer leave a unit permanently rear-facing its attackers")]
     public float engagedReorientSpeedDeg = 25f;
 
-    [Header("Defensive pivot (Phase 2)")]
+    [Header("Defensive pivot")]
     [Tooltip("Unit-type permission: rigid future types (pikes) can turn this off")]
     public bool allowDefensivePivot = true;
     [Tooltip("A flank/rear threat must persist this long before the formation starts pivoting")]
     public float defensivePivotDelay = 1.2f;
-    [Tooltip("At or above this engaged fraction the formation is pinned — no automatic pivot, the tactical flank stays exposed")]
+    [Tooltip("At or above this engaged fraction the formation is pinned, no automatic pivot, the tactical flank stays exposed")]
     public float heavyEngagePivotBlockFraction = 0.35f;
     [Tooltip("Pivot speed multiplier while lightly engaged")]
     public float lightEngagePivotFactor = 0.5f;
 
-    [Header("Reform (Phase 3)")]
+    [Header("Reform")]
     [Tooltip("Reform completes when this fraction of survivors stands in the new slots")]
     public float reformCompleteFraction = 0.75f;
     [Tooltip("Reform aborts back to Broken when this fraction of reforming survivors is melee-engaged (projectile fire alone never aborts)")]
-    public float reformAbortEngagedFraction = 0.12f;
+    public float reformAbortEngagedFraction = 0.3f;   // must exceed MoraleConfig.reformStartEngagedFraction (0.15) or every reform aborts at once
     [Tooltip("Fallback: reform completes after this many seconds regardless of stragglers")]
     public float reformTimeoutSeconds = 25f;
 
-    [Header("Rotate maneuvers (Patch 4)")]
+    [Header("Rotate maneuvers")]
     [Tooltip("Yaw deltas at or below this pivot in place (facing snaps, slots keep their owners)")]
     public float smallTurnMaxDeg = 20f;
     [Tooltip("Yaw deltas at or above this are an about-face: soldiers turn in place and ranks are reinterpreted via nearest-slot remap")]
@@ -70,7 +71,6 @@ public class Formation : MonoBehaviour
     public float acquireRadiusOrdered = 2.2f;  // fight-back reach while holding formation
     public float acquireRadiusEngaged = 4.5f;
     public float acquireRadiusBroken = 28f;
-    public float disengageRadius = 9f;         // no enemy within this of any soldier => can reform
     public float brokenLeash = 26f;
     public float meleeChaseStopDist = 3.5f;    // anchor-to-anchor stop distance when charging
 
@@ -85,7 +85,7 @@ public class Formation : MonoBehaviour
     public float chargeImpactBonus = 1.5f;
     [Tooltip("Max anchor distance at which a charge can pick or accept a target")]
     public float chargeRange = 45f;
-    [Tooltip("A pursuing pack flows to the next enemy formation this close — never across the map")]
+    [Tooltip("A pursuing pack flows to the next enemy formation this close, never across the map")]
     public float pursuitRetargetRadius = 35f;
     [Tooltip("Tighter soldier leash while pursuing: the pack stays a pack")]
     public float pursuitLeash = 18f;
@@ -111,16 +111,17 @@ public class Formation : MonoBehaviour
     public float clusterSwitchFactor = 1.3f;
 
     public FormationState State { get; private set; } = FormationState.Ordered;
+    public float OrderTime { get; private set; } = -1f;   // when the current move/attack order was issued (visual grouping key)
     public bool HasMoveDestination => hasDestination;      // read-only, for visuals
 
-    // ---- order model (Phase 2) ----
+    // ---- order model ----
     public OrderType CurrentOrderType { get; private set; } = OrderType.None;
     public Vector3 DestinationPosition => destination;
     public Vector3 DestinationFacing { get; private set; } = Vector3.forward;
     public int SlotCount => slotOffsets.Length;
 
     // Slot position at the DESTINATION pose (planned position + planned
-    // facing) — what the destination previews render.
+    // facing), what the destination previews render.
     public Vector3 GetPlannedSlotWorldPos(int slot)
     {
         return GetSlotWorldPosAt(destination, DestinationFacing, slot);
@@ -136,13 +137,13 @@ public class Formation : MonoBehaviour
         return dest + Quaternion.LookRotation(fwd, Vector3.up) * slotOffsets[slot];
     }
 
-    // ---- break/reform rally (Phase 3) ----
+    // ---- break/reform rally ----
     // Frozen at the formation center the moment ranks break; the banner sits
     // here and Reform rebuilds here. Never recomputed from scattering soldiers.
     public Vector3 RallyAnchor { get; private set; }
     private Quaternion rallyFacing = Quaternion.identity;
 
-    // ---- archer combat state (Phase 3): firing is engagement for slot
+    // ---- archer combat state: firing is engagement for slot
     // compaction purposes, but not melee entrapment ----
     private float lastRangedShotTime = -999f;
     public void NotifyRangedShot() { lastRangedShotTime = Time.time; }
@@ -152,13 +153,13 @@ public class Formation : MonoBehaviour
     // ---- volley fire (v1.9) ----
     // Ranged formations loose as a FORMATION: a volley window opens every
     // volleyInterval and each archer fires once inside it at its own
-    // deterministic offset — Total War-style readable volleys with lulls,
+    // deterministic offset, Total War-style readable volleys with lulls,
     // instead of 80 independent timers drizzling arrows. Clocks are staggered
     // per formation so centuries don't sync with each other.
     [Header("Volley fire (v1.9, ranged formations only)")]
     [Tooltip("Seconds between volleys; governs archer output (keep archer attackCooldown below this)")]
     public float volleyInterval = 8f;
-    [Tooltip("Seconds the loose window stays open — arrows spread across it")]
+    [Tooltip("Seconds the loose window stays open, arrows spread across it")]
     public float volleyWindow = 1.5f;
 
     private float volleyClock;
@@ -175,11 +176,10 @@ public class Formation : MonoBehaviour
     }
     public event System.Action OnFacingSnapped;            // Rotate command executed (visual hook)
     public event System.Action OnOrderIssued;               // any successful player/AI order (visual hook)
-    public bool CanReform { get; private set; }
     public bool IsSelected { get; private set; }
     public Formation attackTarget;
 
-    // Facing authority: AnchorRot is the single authoritative facing —
+    // Facing authority: AnchorRot is the single authoritative facing,
     // directional damage, slots, soldier idle facing, and the ground arrow all
     // read it. IsAutoFacing marks the states where combat, not the player,
     // steers it (chase rotation while Attacking or Charging, contact wheeling
@@ -196,7 +196,7 @@ public class Formation : MonoBehaviour
     public RotateBlock GetRotateBlock()
     {
         if (soldiers.Count == 0) return RotateBlock.Destroyed;
-        if (State == FormationState.BrokenRanks) return RotateBlock.Broken;
+        if (State == FormationState.BrokenRanks || IsRouting) return RotateBlock.Broken;
         if (IsAutoFacing) return RotateBlock.AutoFacing;
         if (State != FormationState.Ordered) return RotateBlock.Busy;
         return RotateBlock.None;
@@ -205,12 +205,13 @@ public class Formation : MonoBehaviour
     public enum ChargeBlock { None, NoTarget, Broken, Busy, Destroyed }
 
     // Why the Charge command is currently unavailable (None = available).
-    // Ordered, Attacking, and Engaged may all charge — an engaged century can
+    // Ordered, Attacking, and Engaged may all charge, an engaged century can
     // still throw itself forward.
     public ChargeBlock GetChargeBlock()
     {
         if (soldiers.Count == 0) return ChargeBlock.Destroyed;
-        if (State == FormationState.BrokenRanks || State == FormationState.Reforming)
+        if (State == FormationState.BrokenRanks || State == FormationState.Reforming ||
+            IsRouting)
             return ChargeBlock.Broken;
         if (State == FormationState.Withdrawing || State == FormationState.Charging ||
             Maneuver == FormationManeuverState.Wheel)
@@ -227,8 +228,37 @@ public class Formation : MonoBehaviour
     public float SpeedMultiplier =>
         State == FormationState.Charging ? chargeSpeedFactor : 1f;
 
+    // how the ground under the anchor changes marching speed (mud slow, road fast). eased, read-only elsewhere
+    public float TerrainSpeed { get; private set; } = 1f;
+
+    // how many steps into water or rock were refused (a test counter; the planner should keep this near zero)
+    public static int TerrainRefusals;
+    private static readonly float[] SlideAngles = { 35f, -35f, 70f, -70f, 110f, -110f };
+    // the anchor never steps into water or rock (one already stranded on it may still walk out)
+    private void StepTo(Vector3 next)
+    {
+        var m = TerrainMap.Active;
+        if (m != null && m.Blocked(next) && !m.Blocked(AnchorPos))
+        {
+            // slide along the bank instead of pressing into it: try the same step turned aside
+            Vector3 step = next - AnchorPos;
+            foreach (float ang in SlideAngles)
+            {
+                Vector3 alt = AnchorPos + Quaternion.Euler(0f, ang, 0f) * step;
+                if (!m.Blocked(alt)) { AnchorPos = alt; return; }
+            }
+            TerrainRefusals++; return;
+        }
+        AnchorPos = next;
+    }
+    private void UpdateTerrainSpeed()
+    {
+        var m = TerrainMap.Active;
+        TerrainSpeed = TerrainRules.Smooth(TerrainSpeed, m != null ? m.SpeedAt(AnchorPos) : 1f, Time.deltaTime);
+    }
+
     // Impact bonus lives only inside the rush's contact window. Archers may
-    // charge as a last resort but get no bonus — their sidearm's damage
+    // charge as a last resort but get no bonus, their sidearm's damage
     // discount already prices that desperation.
     public float ChargeDamageMultiplier =>
         State == FormationState.Charging && !stats.isRanged &&
@@ -252,8 +282,8 @@ public class Formation : MonoBehaviour
         get { float h = 0f; foreach (var s in soldiers) h += s.Health; return h; }
     }
 
-    // Aggregate formation health (Phase 5): denominator is EVERY ORIGINAL
-    // member, so dead soldiers count as zero — 40 healthy survivors of 80
+    // Aggregate formation health: denominator is EVERY ORIGINAL
+    // member, so dead soldiers count as zero, 40 healthy survivors of 80
     // reads 50%, not 100%.
     public float TotalMaxHealth => TotalSpawned * stats.maxHealth;
 
@@ -279,6 +309,26 @@ public class Formation : MonoBehaviour
     private static int[] clusterSize = new int[64];
 
     private float flankThreatTime;   // defensive-pivot reaction timer
+
+    // morale: the math lives in FormationMorale; this class owns the
+    // state changes it triggers (rout, rally). Null until the config exists.
+    private FormationMorale morale;
+    public FormationMorale Morale => morale;
+    private MoraleConfig MoraleCfg => BattleSetup.Instance != null ? BattleSetup.Instance.moraleConfig : null;
+    public bool IsRouting => State == FormationState.Routing;
+    private float lastReformAbortTime = -999f;
+    private Vector3 fleeThreatPos;          // the enemy formation a rout runs from
+    private bool hasFleeThreat;
+    private float fleeThreatTimer;
+    private const float FleeThreatInterval = 0.5f;
+    private const float FleeEdgeInset = 1f;  // routers stop this far inside the field edge
+    private static readonly List<bool> dominantMembers = new List<bool>(64);
+    private static readonly HashSet<Formation> engagedEnemyFormations = new HashSet<Formation>();
+    private int engagedEnemyFormationCount;   // distinct enemy formations in contact (outnumber input)
+    private int engagedZoneCount;             // zones with enough soldier contacts (surround input)
+    private static readonly Dictionary<Formation, int> contactsByEnemy = new Dictionary<Formation, int>();   // our engaged soldiers per enemy formation
+    public int EscapedCount { get; private set; }   // routers that left the map (not casualties)
+    private OfficerRanks Ranks => BattleSetup.Instance != null ? BattleSetup.Instance.officerRanks : null;
 
     // charge timing: when the rush began and when it first found contact
     private float chargeStartTime;
@@ -315,7 +365,7 @@ public class Formation : MonoBehaviour
     }
 
     // Closed form of the front-row half-width that BuildSlots bakes into
-    // FootprintHalfExtents.x — lets BattleSetup space a line of formations by
+    // FootprintHalfExtents.x, lets BattleSetup space a line of formations by
     // real footprints before any of them exist. ValidateLineGaps cross-checks
     // the spawned footprints against this, so the two can't silently drift.
     public static float LineHalfWidth(int count, int columns, float spacing)
@@ -387,11 +437,18 @@ public class Formation : MonoBehaviour
 
     public void IssueMove(Vector3 dest)
     {
-        // Broken centuries take no movement orders — Reform is their only
-        // command (Phase 3); Reforming centuries are mid-recovery.
-        if (State == FormationState.BrokenRanks || State == FormationState.Reforming) return;
+        // Broken centuries take no movement orders, Reform is their only
+        // command; Reforming centuries are mid-recovery; Routing
+        // centuries take no orders at all.
+        if (State == FormationState.BrokenRanks || State == FormationState.Reforming ||
+            State == FormationState.Routing) return;
         Maneuver = FormationManeuverState.None;   // a new order supersedes a turn
         dest.y = 0f;
+        var dcc = BattleSetup.Instance != null ? BattleSetup.Instance.combatConfig : null;
+        if ((dcc == null || dcc.destinationFix) && State != FormationState.Engaged && State != FormationState.Withdrawing) dest = NearestFreeSpot(dest);
+        // never ordered onto water or rock, or onto an island nothing can walk to: snap to the nearest reachable dry spot
+        // snap onto reachable dry ground; a nudge away from friends above may have landed in water, so this runs after it
+        if (TerrainMap.Active != null) dest = TerrainGridPlanner.NearestReachable(AnchorPos, dest);
         Vector3 travel = dest - AnchorPos;
         travel.y = 0f;
         if (State == FormationState.Engaged)
@@ -413,25 +470,63 @@ public class Formation : MonoBehaviour
         }
         destination = dest;
         hasDestination = true;
+        OrderTime = Time.time;
         // default final facing = direction of travel; the free-arrow rotate
         // mode can override it later without changing the destination
-        DestinationFacing = travel.sqrMagnitude > 0.04f ? travel.normalized : AnchorForward;
+        // facing is locked to the facing the unit has when ordered; only a twist
+        // (SetDestinationFacing) changes it
+        DestinationFacing = AnchorForward;
         OnOrderIssued?.Invoke();
+    }
+
+    public Vector3 DestinationDebug => destination;
+    public int ContactsWith(Formation e) { return contactsByEnemy.TryGetValue(e, out int n) ? n : 0; }
+
+    // Destination fix: a move order never ends inside a friendly formation's
+    // footprint (where it stands, or where it is itself headed). The spot slides
+    // out along the line from that friend, a few passes so two neighbours settle.
+    private Vector3 NearestFreeSpot(Vector3 dest)
+    {
+        var bs = BattleSetup.Instance;
+        if (bs == null) return dest;
+        float myR = Mathf.Max(FootprintHalfExtents.x, FootprintHalfExtents.y) * 0.8f;
+        for (int pass = 0; pass < 3; pass++)
+        {
+            bool moved = false;
+            foreach (var g in bs.formations)
+            {
+                if (g == this || g.team != team || g.soldiers.Count == 0 || g.IsRouting) continue;
+                Vector3 gp = g.hasDestination && g.CurrentOrderType == OrderType.Move ? g.destination : g.AnchorPos;
+                float need = myR + Mathf.Max(g.FootprintHalfExtents.x, g.FootprintHalfExtents.y) * 0.8f;
+                Vector3 d = dest - gp; d.y = 0f;
+                float dist = d.magnitude;
+                if (dist >= need) continue;
+                Vector3 dir = dist > 0.01f ? d / dist : -AnchorForward;
+                dest = gp + dir * need;
+                moved = true;
+            }
+            if (!moved) break;
+        }
+        dest.y = 0f;
+        return dest;
     }
 
     // Rotate-edit of an order in flight: move the planned destination and/or
     // planned final facing without re-deriving either from current motion.
     public void RedirectMove(Vector3 dest, Vector3 facing)
     {
+        if (IsRouting) return;
         if (!hasDestination ||
             (CurrentOrderType != OrderType.Move && CurrentOrderType != OrderType.Withdraw)) return;
         dest.y = 0f;
+        if (TerrainMap.Active != null) dest = TerrainGridPlanner.NearestReachable(AnchorPos, dest);   // dragging the facing arrow onto water must not pin the unit at the bank
         destination = dest;
         SetDestinationFacing(facing);
     }
 
     public void SetDestinationFacing(Vector3 dir)
     {
+        if (IsRouting) return;
         dir.y = 0f;
         if (dir.sqrMagnitude < 0.01f) return;
         DestinationFacing = dir.normalized;
@@ -439,19 +534,21 @@ public class Formation : MonoBehaviour
 
     public void IssueAttack(Formation target)
     {
-        if (target == null || target.team == team || target.soldiers.Count == 0) return;
-        if (State == FormationState.BrokenRanks || State == FormationState.Reforming) return;
+        if (target == null || target.team == team || target.soldiers.Count == 0 || target.IsRouting) return;
+        if (State == FormationState.BrokenRanks || State == FormationState.Reforming ||
+            State == FormationState.Routing) return;
         attackTarget = target;
         State = FormationState.Attacking;
         hasDestination = true;
+        OrderTime = Time.time;
         CurrentOrderType = OrderType.Attack;
         OnOrderIssued?.Invoke();
     }
 
     // Charge: a committed sprint at a nearby enemy that trades formation
     // discipline for a burst of impact, then dissolves into pursuit on the
-    // broken-ranks machinery. Blocked charges are refused outright — never
-    // queued — so the button state and the outcome can't disagree.
+    // broken-ranks machinery. Blocked charges are refused outright, never
+    // queued, so the button state and the outcome can't disagree.
     public void IssueCharge(Formation target = null)
     {
         if (GetChargeBlock() != ChargeBlock.None) return;
@@ -471,10 +568,10 @@ public class Formation : MonoBehaviour
     }
 
     // A charge only ever picks or accepts a living enemy within chargeRange
-    // of the anchor — no cross-map death runs.
+    // of the anchor, no cross-map death runs.
     private bool IsChargeable(Formation t)
     {
-        if (t == null || t.team == team || t.soldiers.Count == 0) return false;
+        if (t == null || t.team == team || t.soldiers.Count == 0 || t.IsRouting) return false;
         Vector3 d = t.AnchorPos - AnchorPos;
         d.y = 0f;
         return d.sqrMagnitude <= chargeRange * chargeRange;
@@ -482,7 +579,9 @@ public class Formation : MonoBehaviour
 
     // Nearest living enemy formation within maxDist of a point. Bounded by the
     // caller's radius so charge targeting and pursuit flow stay local.
-    private Formation NearestEnemyFormation(Vector3 point, float maxDist)
+    // Routing formations are not targets for orders and charges;
+    // only a pursuit or pack retarget hunts them (includeRouting).
+    private Formation NearestEnemyFormation(Vector3 point, float maxDist, bool includeRouting = false)
     {
         if (BattleSetup.Instance == null) return null;
         Formation best = null;
@@ -490,6 +589,7 @@ public class Formation : MonoBehaviour
         foreach (var o in BattleSetup.Instance.formations)
         {
             if (o.team == team || o.soldiers.Count == 0) continue;
+            if (o.IsRouting && !includeRouting) continue;
             Vector3 d = o.AnchorPos - point;
             d.y = 0f;
             float d2 = d.sqrMagnitude;
@@ -498,7 +598,7 @@ public class Formation : MonoBehaviour
         return best;
     }
 
-    // Rotate command, classified by the shortest signed yaw delta (Patch 4):
+    // Rotate command, classified by the shortest signed yaw delta:
     //   <= smallTurnMaxDeg  -> small turn: facing snaps, slot owners keep their
     //                          slots, soldiers pivot in place and redress.
     //   >= aboutFaceMinDeg  -> about-face: facing snaps and the nearest-slot
@@ -516,7 +616,7 @@ public class Formation : MonoBehaviour
 
     // In-place tactical rotation core, shared by the player Rotate command and
     // move-arrival facing (which must not fire the order-feedback event).
-    private bool ApplyFace(Vector3 direction)
+    private bool ApplyFace(Vector3 direction, bool centered = false)
     {
         direction.y = 0f;
         if (direction.sqrMagnitude < 0.01f) return false;
@@ -539,7 +639,7 @@ public class Formation : MonoBehaviour
         }
         else
         {
-            BeginWheel(want, signed);
+            BeginWheel(want, signed, centered);
             // no pivot animation: soldiers physically walk the wheel arcs
         }
         return true;
@@ -551,7 +651,7 @@ public class Formation : MonoBehaviour
         redressTimer = redressTimeoutSeconds;
     }
 
-    private void BeginWheel(Quaternion want, float signedDeg)
+    private void BeginWheel(Quaternion want, float signedDeg, bool centered = false)
     {
         Maneuver = FormationManeuverState.Wheel;
         maneuverTargetRot = want;
@@ -559,8 +659,10 @@ public class Formation : MonoBehaviour
         // Inner front corner: right turns (positive yaw delta) wheel around the
         // front-right corner, left turns around the front-left corner.
         float side = signedDeg > 0f ? 1f : -1f;
-        Vector3 pivotLocal = new Vector3(side * FootprintHalfExtents.x, 0f,
-                                         FootprintHalfExtents.y);
+        // An arrival turn pivots on the block's centre so the placed spot stays the
+        // spot; the tactical Rotate command keeps its front-corner wheel.
+        Vector3 pivotLocal = centered ? Vector3.zero
+            : new Vector3(side * FootprintHalfExtents.x, 0f, FootprintHalfExtents.y);
         wheelPivot = AnchorPos + AnchorRot * pivotLocal;
         // Angular speed from the outer arc: farthest slot from the pivot walks
         // at wheelOuterSpeed; duration clamped to a sane window.
@@ -575,7 +677,7 @@ public class Formation : MonoBehaviour
 
     // One rigid-body wheel step: rotate the anchor frame around the pivot.
     // Slots are derived from AnchorPos/AnchorRot, so every slot follows its
-    // arc exactly — no per-slot math, no straight paths through the block.
+    // arc exactly, no per-slot math, no straight paths through the block.
     // Static so validation can exercise the same code path.
     public static void WheelStep(ref Vector3 anchorPos, ref Quaternion anchorRot,
                                  Vector3 pivot, float stepDeg)
@@ -646,11 +748,15 @@ public class Formation : MonoBehaviour
     // 40/10 split clearly resolves. Static and list-driven so editor
     // validation can exercise the exact shipped code path (like WheelStep).
     // Cost: <= n^2/2 sqr-distance checks per recompute, n <= ~50 per
-    // formation, on a several-per-second interval — no allocations beyond the
+    // formation, on a several-per-second interval, no allocations beyond the
     // grow-only scratch arrays.
+    // Optional `members`: filled parallel to `positions` with true
+    // for each point in the winning cluster, the rally needs to know which
+    // officers are actually in the main pack. Omitted, it costs nothing.
     public static Vector3 ComputeDominantGroup(List<Vector3> positions, float linkDist,
                                                Vector3 prevCenter, bool hasPrev,
-                                               float switchFactor, out int count)
+                                               float switchFactor, out int count,
+                                               List<bool> members = null)
     {
         int n = positions.Count;
         count = 0;
@@ -698,9 +804,14 @@ public class Formation : MonoBehaviour
             clusterSize[largestRoot] < clusterSize[incumbentRoot] * switchFactor)
             winner = incumbentRoot;
 
+        members?.Clear();
         Vector3 c = Vector3.zero;
         for (int i = 0; i < n; i++)
-            if (Find(i) == winner) { c += positions[i]; count++; }
+        {
+            bool inWinner = Find(i) == winner;
+            members?.Add(inWinner);
+            if (inWinner) { c += positions[i]; count++; }
+        }
         c /= Mathf.Max(1, count);
         c.y = 0f;
         return c;
@@ -721,7 +832,7 @@ public class Formation : MonoBehaviour
         }
     }
 
-    private void UpdateDominantGroup(bool force = false)
+    private void UpdateDominantGroup(bool force = false, List<bool> members = null)
     {
         clusterTimer -= Time.deltaTime;
         if (!force && clusterTimer > 0f) return;
@@ -731,17 +842,17 @@ public class Formation : MonoBehaviour
         foreach (var s in soldiers) clusterScratch.Add(s.transform.position);
         DominantGroupCenter = ComputeDominantGroup(
             clusterScratch, spacing * clusterLinkFactor,
-            DominantGroupCenter, hasDominantCenter, clusterSwitchFactor, out int c);
+            DominantGroupCenter, hasDominantCenter, clusterSwitchFactor, out int c, members);
         DominantGroupCount = c;
         hasDominantCenter = c > 0;
     }
 
     public void IssueBreakRanks()
     {
-        if (soldiers.Count == 0 || State == FormationState.BrokenRanks) return;
+        if (soldiers.Count == 0 || State == FormationState.BrokenRanks || IsRouting) return;
         // Freeze the rally point and tactical facing at the moment ranks
         // break: the banner stays here and Reform rebuilds here, regardless
-        // of where the soldiers scatter (Phase 3 locked behavior).
+        // of where the soldiers scatter.
         RallyAnchor = AnchorPos;
         rallyFacing = AnchorRot;
         IsPursuing = false;   // a deliberate break is anchored, not a pursuit
@@ -753,27 +864,12 @@ public class Formation : MonoBehaviour
         OnOrderIssued?.Invoke();
     }
 
-    // Manual recovery from Broken (Phase 3): survivor-only slots are built at
-    // the FIXED rally anchor with the tactical facing stored when ranks broke.
-    // Soldiers stop acquiring targets (GetAcquireRadius returns 0 while
-    // Reforming) and physically walk back; meaningful melee contact aborts
-    // (see UpdateStateMachine), projectile fire alone never does.
-    public void IssueReform()
+    // The reform itself (automatic now, there is no Reform
+    // command): survivor-only slots at RallyAnchor facing rallyFacing, then
+    // the ordinary Reforming state, completion at reformCompleteFraction,
+    // abort to Broken at reformAbortEngagedFraction.
+    private void BeginReform()
     {
-        if (State != FormationState.BrokenRanks || soldiers.Count == 0) return;
-
-        // Planting the standard: a pursuit has no pre-frozen rally point — the
-        // standard moved with the men, and Reform strikes it into the ground
-        // wherever the pack stands NOW. From here the ordinary fixed-rally
-        // reform flow applies, and an abort back to Broken leaves the standard
-        // planted rather than resuming the pursuit.
-        if (IsPursuing)
-        {
-            RallyAnchor = DominantGroupCount > 0 ? DominantGroupCenter : AnchorPos;
-            rallyFacing = AnchorRot;
-            IsPursuing = false;
-        }
-
         AnchorPos = RallyAnchor;
         AnchorRot = rallyFacing;
 
@@ -787,7 +883,6 @@ public class Formation : MonoBehaviour
         reformTimer = 0f;
         CurrentOrderType = OrderType.Reform;
         State = FormationState.Reforming;
-        OnOrderIssued?.Invoke();
     }
 
     private void AssignNearestSlots()
@@ -812,7 +907,7 @@ public class Formation : MonoBehaviour
     // The centurion owns the front-right corner slot (columns - 1). The
     // nearest-slot pass assigns by pure distance, so after every remap
     // (about-face, auto-close, reform) he swaps back with whoever landed
-    // there. No living centurion => no-op — he is never promoted or respawned.
+    // there. No living centurion => no-op, he is never promoted or respawned.
     // Engaged rank replacement may still pull him off the corner mid-melee;
     // that is combat disorder and is left alone.
     private void PinCenturionSlot()
@@ -832,10 +927,26 @@ public class Formation : MonoBehaviour
         centurion.slotIndex = want;
     }
 
-    public void NotifyDeath(Soldier s)
+    // zone = the arc of the killing blow (arrows are always Front). Feeds the
+    // casualty's morale shock; an officer's death adds his deathShock on top.
+    public void NotifyDeath(Soldier s, DamageZone zone, bool ranged = false)
     {
         soldiers.Remove(s);
         lostSinceSlotRebuild++;
+        BattleRecorder.NoteDeath(this, s);
+        if (morale == null) return;
+        var cfg = MoraleCfg;
+        morale.RecordCasualty(zone, ranged);
+        var ranks = Ranks;
+        if (cfg != null && cfg.enableOfficerShock && ranks != null)
+            morale.AddShock(ranks.DeathShock(s.role), ShockSource.Officer, scaled: false, capped: false);
+    }
+
+    // A router ran off the map: gone from the battle, but not a casualty.
+    public void NotifyEscaped(Soldier s)
+    {
+        soldiers.Remove(s);
+        EscapedCount++;
     }
 
     public void SetSelected(bool sel)
@@ -859,9 +970,10 @@ public class Formation : MonoBehaviour
             case FormationState.Ordered: return 1f;
             case FormationState.Attacking: return 0.95f;
             case FormationState.Engaged:
-                if (s.IsEngaged) return 0.12f;
+                if (s.IsEngaged) return BattleSetup.Instance != null ? BattleSetup.Instance.combatConfig.engagedSlotWeight : 0.3f;
                 return NearCombat(s) ? 0.35f : 0.75f;
-            case FormationState.BrokenRanks: return 0f;   // Phase 3: zero slot steering while broken
+            case FormationState.BrokenRanks: return 0f;   // zero slot steering while broken
+            case FormationState.Routing: return 0f;       // fleeing men hold no slots
             case FormationState.Withdrawing: return 1f;
             case FormationState.Reforming: return 1f;
             case FormationState.Charging: return 0.4f;    // a loose pack, not a parade
@@ -884,7 +996,7 @@ public class Formation : MonoBehaviour
             case FormationState.Charging:      // rushing soldiers hunt like broken ones
                 r = acquireRadiusBroken; break;
             default:
-                return 0f;   // Withdrawing / Reforming: stop seeking engagements
+                return 0f;   // Withdrawing / Reforming / Routing: stop seeking engagements
         }
         if (stats.isRanged) r = Mathf.Max(r, stats.rangedRange);
         return r;
@@ -899,7 +1011,7 @@ public class Formation : MonoBehaviour
 
     private void Update()
     {
-        // Deployment (Pre) runs the full formation movement stack — centuries
+        // Deployment (Pre) runs the full formation movement stack, centuries
         // physically march to their deployment positions; combat cannot start
         // because soldiers only fight while the battle is Active.
         if (BattleSetup.Instance == null || BattleSetup.Instance.Phase == BattlePhase.Ended)
@@ -917,12 +1029,15 @@ public class Formation : MonoBehaviour
         UpdateManeuver();
         UpdateAnchorMovement();
         UpdateEngagement();
+        UpdateMorale();
+        UpdateFleeThreat();
         UpdateVolley();
         UpdateDominantGroup();
-        UpdateEngagedFacing();
+        if (!UpdateSwingIn()) UpdateEngagedFacing();
         UpdateStateMachine();
         UpdateRankReplacement();
         UpdateAutoClose();
+        UpdateStragglers();
         transform.position = AnchorPos;
         transform.rotation = AnchorRot;
     }
@@ -932,16 +1047,39 @@ public class Formation : MonoBehaviour
     // rebuild the slot grid for the surviving headcount (same anchor, same
     // facing, same frontage) and let everyone walk to their nearest new slot.
     // Rear soldiers flow forward and lateral holes squeeze shut over a few
-    // seconds — no Reform needed for ordinary attrition. Engaged fighters keep
+    // seconds, no Reform needed for ordinary attrition. Engaged fighters keep
     // fighting (their slot pull is tiny), so combat still deforms the unit;
     // this only stops the grid from preserving empty historical positions.
+    // Stuck men: a soldier far from its slot that cannot get there (the slot is
+    // walled in by its own ranks, gaps are narrower than a body) is re-slotted
+    // with the same minimal-displacement pass reform uses, so the hole ends up
+    // where the straggler can actually reach it.
+    private float stragglerTimer, stuckFor;
+    private void UpdateStragglers()
+    {
+        if (State != FormationState.Ordered && State != FormationState.Attacking) { stuckFor = 0f; return; }
+        if (Maneuver != FormationManeuverState.None || engagedCount > 0 || soldiers.Count < 4) { stuckFor = 0f; return; }
+        stragglerTimer -= Time.deltaTime;
+        if (stragglerTimer > 0f) return;
+        stragglerTimer = 0.5f;
+        bool stuck = false;
+        foreach (var sd in soldiers)
+        {
+            if (sd.slotIndex < 0 || sd.slotIndex >= slotOffsets.Length) continue;
+            Vector3 d = GetSlotWorldPos(sd.slotIndex) - sd.transform.position; d.y = 0f;
+            if (d.sqrMagnitude > 3f * 3f && sd.Velocity.sqrMagnitude < 0.3f * 0.3f) { stuck = true; break; }
+        }
+        stuckFor = stuck ? stuckFor + 0.5f : 0f;
+        if (stuckFor >= 2f) { stuckFor = 0f; AssignNearestSlots(); }
+    }
+
     private void UpdateAutoClose()
     {
-        // Patch 4 priority: auto-close never runs mid-melee (the column-local
+        // engaged priority: auto-close never runs mid-melee (the column-local
         // rank promotion handles vacancies there without a global remap) and
-        // never during an explicit Rotate maneuver. Phase 3 extends this to
+        // never during an explicit Rotate maneuver. archer combat extends this to
         // FIRING formations: an archer century mid-volley keeps its casualty
-        // gaps — full compaction happens only through an explicit Reform.
+        // gaps, full compaction happens only through an explicit Reform.
         if (State != FormationState.Ordered && State != FormationState.Attacking) return;
         if (Maneuver != FormationManeuverState.None) return;
         if (IsFiring) return;
@@ -1012,7 +1150,16 @@ public class Formation : MonoBehaviour
                                      1f - Mathf.Exp(-2f * Time.deltaTime));
             return;
         }
-        // Phase 3: broken centuries have NO centralized movement — the anchor
+        // Routing: the anchor, and so the banner and the eventual
+        // rally point, goes with the fleeing men instead of staying where
+        // the line broke.
+        if (IsRouting && DominantGroupCount > 0)
+        {
+            AnchorPos = Vector3.Lerp(AnchorPos, DominantGroupCenter,
+                                     1f - Mathf.Exp(-2f * Time.deltaTime));
+            return;
+        }
+        // broken centuries have NO centralized movement, the anchor
         // stays at the rally point and soldiers act as individuals.
         bool charging = State == FormationState.Charging;
         bool chasing = State == FormationState.Attacking && attackTarget != null;
@@ -1026,8 +1173,8 @@ public class Formation : MonoBehaviour
             {
                 // Rush target destroyed: flow to the next enemy already within
                 // pursuit reach; with nothing close, the state machine tips
-                // the charge into pursuit — a charge never map-chases.
-                attackTarget = NearestEnemyFormation(AnchorPos, pursuitRetargetRadius);
+                // the charge into pursuit, a charge never map-chases.
+                attackTarget = NearestEnemyFormation(AnchorPos, pursuitRetargetRadius, includeRouting: true);
                 if (attackTarget == null) return;
             }
             // Follow the target's real mass, not a stale anchor: a scattered
@@ -1041,10 +1188,10 @@ public class Formation : MonoBehaviour
         }
         else if (chasing)
         {
-            if (attackTarget.soldiers.Count == 0)
+            if (attackTarget.soldiers.Count == 0 || attackTarget.IsRouting)
             {
-                // Target destroyed (Phase 2H): clear the explicit target, hold
-                // position and CURRENT tactical facing. Local threats are
+                // Target destroyed or routing: clear the
+                // explicit target, hold position and CURRENT tactical facing. Local threats are
                 // handled by soldier-level acquisition; the formation never
                 // spins toward a distant map-wide "nearest enemy".
                 attackTarget = null;
@@ -1080,24 +1227,27 @@ public class Formation : MonoBehaviour
             }
             if (!chasing && !charging)
             {
-                // Arrival (Phase 2): settle onto the STORED destination facing
-                // — never whatever direction the final approach happened to be.
+                // Arrival: settle onto the STORED destination facing
+                // never whatever direction the final approach happened to be.
                 hasDestination = false;
                 if (CurrentOrderType == OrderType.Move)
                 {
                     CurrentOrderType = OrderType.None;
                     if (Vector3.Angle(AnchorForward, DestinationFacing) > 2f)
-                        ApplyFace(DestinationFacing);
+                        ApplyFace(DestinationFacing, true);
                 }
             }
             return;
         }
         Vector3 dir = to / dist;
+        UpdateTerrainSpeed();
+        if (State != FormationState.Withdrawing && !charging)
+            dir = SteerAlongRoute(dir, dist);
 
         if (State == FormationState.Withdrawing)
         {
             // back away without wheeling the whole grid through the melee
-            AnchorPos += dir * Mathf.Min(moveSpeed * 0.85f * Time.deltaTime, dist);
+            StepTo(AnchorPos + dir * Mathf.Min(moveSpeed * 0.85f * TerrainSpeed * Time.deltaTime, dist));   // a retreat through mud or a ford is slow too
             return;
         }
 
@@ -1105,8 +1255,69 @@ public class Formation : MonoBehaviour
         AnchorRot = Quaternion.RotateTowards(AnchorRot, want, rotateSpeedDeg * Time.deltaTime);
         float align = Vector3.Dot(AnchorForward, dir);
         if (align > 0.3f)
-            AnchorPos += AnchorForward *
-                         Mathf.Min(moveSpeed * SpeedMultiplier * align * Time.deltaTime, dist);
+            StepTo(AnchorPos + AnchorForward *
+                   Mathf.Min(moveSpeed * SpeedMultiplier * TerrainSpeed * align * Time.deltaTime, dist));
+    }
+
+    // ---- route following (RoutePlanner) ----
+    // The anchor steers at the next waypoint of a planned route instead of
+    // straight at the destination. Re-planned at most every RouteReplan s, or
+    // when the goal moved; a player move order plans once and keeps the route
+    // unless a friend steps into it (caught by the periodic replan).
+    private readonly List<Vector3> route = new List<Vector3>(4);
+    private int routeIdx;
+    private float nextReplan;
+    private Vector3 routeGoal = new Vector3(float.MaxValue, 0f, 0f);
+    private const float RouteReplan = 1.0f;
+    private const float WaypointReach = 3f;
+    private float Lookahead { get { var c = BattleSetup.Instance != null ? BattleSetup.Instance.combatConfig : null; return c != null && c.smoothRoutes ? c.routeLookahead : WaypointReach; } }
+
+    // On the march and clear of contact: a move order, or closing on a far target.
+    public bool IsMarching => engagedCount == 0 && hasDestination &&
+        ((State == FormationState.Ordered && CurrentOrderType == OrderType.Move) || (State == FormationState.Attacking && attackTarget != null));
+    public bool HasRoute => route.Count > 0 && routeIdx < route.Count;
+    // Remaining polyline for drawing: next waypoints then the destination.
+    public void GetRemainingRoute(List<Vector3> into)
+    {
+        into.Clear();
+        for (int i = routeIdx; i < route.Count; i++) into.Add(route[i]);
+        if (into.Count == 0 && hasDestination) into.Add(destination);
+    }
+    public Vector3 CurrentDestination => destination;
+    public void ClearRoute() { route.Clear(); routeIdx = 0; routeGoal = new Vector3(float.MaxValue, 0f, 0f); nextReplan = 0f; }
+
+    private Vector3 SteerAlongRoute(Vector3 straightDir, float distToGoal)
+    {
+        var cc = BattleSetup.Instance != null ? BattleSetup.Instance.combatConfig : null;
+        if (cc != null && !cc.routePlanning) return straightDir;
+        bool attacking = State == FormationState.Attacking && attackTarget != null;
+        float goalMoved = (destination - routeGoal).sqrMagnitude;
+        if (Time.time >= nextReplan || goalMoved > (attacking ? 100f : 1f))
+        {
+            nextReplan = Time.time + RouteReplan;
+            // keep a route that is still clear: a stable path, not one re-drawn every second
+            if (goalMoved <= (attacking ? 100f : 1f) && route.Count > 0 && routeIdx < route.Count)
+            {
+                var rest = route.GetRange(routeIdx, route.Count - routeIdx);
+                if (RoutePlanner.RouteIsClear(this, AnchorPos, rest, attacking ? attackTarget : null, true))
+                {
+                    while (routeIdx < route.Count - 1 && (route[routeIdx] - AnchorPos).sqrMagnitude < Lookahead * Lookahead) routeIdx++;
+                    Vector3 keep = route[routeIdx] - AnchorPos; keep.y = 0f;
+                    return keep.sqrMagnitude < 0.01f ? straightDir : keep.normalized;
+                }
+            }
+            routeGoal = destination;
+            route.Clear(); routeIdx = 0;
+            // enemies are kept away from on a plain move; an attack goes straight at its
+            // target but still bends around bystanders
+            route.AddRange(RoutePlanner.Plan(this, AnchorPos, destination, attacking ? attackTarget : null, true));
+            // the final waypoint is the destination itself; it is handled by the caller's dist logic
+            if (route.Count == 1) route.Clear();
+        }
+        while (routeIdx < route.Count - 1 && (route[routeIdx] - AnchorPos).sqrMagnitude < Lookahead * Lookahead) routeIdx++;
+        if (routeIdx >= route.Count) return straightDir;
+        Vector3 d = route[routeIdx] - AnchorPos; d.y = 0f;
+        return d.sqrMagnitude < 0.01f ? straightDir : d.normalized;
     }
 
     private void UpdateEngagement()
@@ -1117,11 +1328,13 @@ public class Formation : MonoBehaviour
 
         if (BattleSetup.Instance == null) return;
 
-        // Phase 6F: per-soldier nearest-enemy via the spatial grid. The scan
+        // per-soldier nearest-enemy via the spatial grid. The scan
         // radius covers every consumer of NearestEnemyDist (edge engagement 6,
         // visual guard 12); beyond it the distance is treated as infinite.
         const float scanRadius = 14f;
         engagedCount = 0;
+        engagedEnemyFormations.Clear();
+        contactsByEnemy.Clear();
         Vector3 engagedSum = Vector3.zero;
         foreach (var s in soldiers)
         {
@@ -1130,14 +1343,23 @@ public class Formation : MonoBehaviour
             bool engaged = e != null && d < personalEngageRadius;
             s.IsEngaged = engaged;
             s.NearestEnemyDist = e != null ? d : float.MaxValue;
-            if (engaged) { engagedCount++; engagedSum += p; }
+            if (engaged) { engagedCount++; engagedSum += p; engagedEnemyFormations.Add(e.formation); contactsByEnemy[e.formation] = contactsByEnemy.TryGetValue(e.formation, out int n) ? n + 1 : 1; }
         }
         engagedCentroid = engagedCount > 0 ? engagedSum / engagedCount : AnchorPos;
-
-        // Phase 3: Reform is available from Broken, period — contested reforms
-        // are attempted and abort on meaningful melee contact instead of being
-        // pre-blocked by a disengage radius.
-        CanReform = State == FormationState.BrokenRanks && soldiers.Count > 0;
+        engagedEnemyFormationCount = engagedEnemyFormations.Count;
+        // surround input (formation level, by FACING): an enemy formation
+        // counts only if its soldiers engaged against us are at least
+        // surroundMinEngagedFraction of our living men, a neighbour brushing
+        // the line's edge is not a second side. Its zone is the dot product of
+        // the two facings (BattleSetup.ZoneIndexOf), never soldier positions.
+        var mcfg = MoraleCfg;
+        int needed = Mathf.Max(1, Mathf.CeilToInt((mcfg != null ? mcfg.surroundMinEngagedFraction : 0.1f) * soldiers.Count));
+        int zoneMask = 0;
+        foreach (var kv in contactsByEnemy)
+            if (kv.Value >= needed) zoneMask |= 1 << BattleSetup.Instance.ZoneIndexOf(kv.Key, this);
+        engagedZoneCount = ((zoneMask & 1) != 0 ? 1 : 0) + ((zoneMask & 2) != 0 ? 1 : 0) +
+                           ((zoneMask & 4) != 0 ? 1 : 0) + ((zoneMask & 8) != 0 ? 1 : 0);
+        foreach (var o in engagedEnemyFormations) BattleRecorder.NoteContact(this, o);
 
         // Pursuit retarget: informational for the banner and AI (soldiers hunt
         // on their own acquire reach). The pack only flows to enemies already
@@ -1147,17 +1369,63 @@ public class Formation : MonoBehaviour
             (attackTarget == null || attackTarget.soldiers.Count == 0))
             attackTarget = NearestEnemyFormation(
                 DominantGroupCount > 0 ? DominantGroupCenter : AnchorPos,
-                pursuitRetargetRadius);
+                pursuitRetargetRadius, includeRouting: true);
     }
 
     // An engaged formation gradually wheels its canonical facing toward the
     // fight (own engaged soldiers mark the contact surface). AnchorForward is
     // what directional damage reads, so flank/rear charges keep their bonus
     // while the defender turns (~3.5 s for a flank, ~7 s for a full rear turn
-    // at the default rate) and then fade — the melting-forever failure case
+    // at the default rate) and then fade, the melting-forever failure case
     // (Rotate south, get hit from the north) resolves itself. Slots wheel
     // with the anchor, which engaged fighters barely feel (tiny slot weight)
     // and rear ranks follow as a controlled reorientation.
+    // Edge contact swing-in: when only an edge touches the enemy, the rest of the line wheels in around the
+    // contact point to bring its front to bear. It runs only when the touched enemy is the ordered target,
+    // or the formation has no attack target, or most of the men are already caught (the target-lock release
+    // rule), so a brush with a bystander never pulls a unit off the enemy it was sent at. Soldiers who are
+    // not yet in contact get the wide engaged acquire radius while it runs (SwingActive).
+    public bool SwingActive { get; private set; }
+    private float swingContactTime, swingNoContactTime, swingAccum;
+    private bool UpdateSwingIn()
+    {
+        SwingActive = false;
+        var cc = BattleSetup.Instance != null ? BattleSetup.Instance.combatConfig : null;
+        if (cc == null || !cc.swingIn || IsRouting || soldiers.Count == 0) return false;
+        if (engagedCount == 0)
+        {
+            swingContactTime = 0f; swingNoContactTime += Time.deltaTime;
+            if (swingNoContactTime > 2f) swingAccum = 0f;
+            return false;
+        }
+        swingNoContactTime = 0f;
+        if (Maneuver != FormationManeuverState.None) return false;
+        if (State != FormationState.Ordered && State != FormationState.Attacking && State != FormationState.Engaged) return false;
+        float frac = (float)engagedCount / soldiers.Count;
+        if (frac >= cc.swingInStopFraction) return false;
+        if (engagedZoneCount >= 2) return false;   // already in contact on two sides: turning could only worsen the surround count
+        Formation E = null; int most = 0;
+        foreach (var kv in contactsByEnemy) if (kv.Value > most) { most = kv.Value; E = kv.Key; }
+        if (E == null || E.soldiers.Count == 0 || E.IsRouting) return false;
+        bool qualifies = attackTarget == null || attackTarget == E || frac >= cc.targetLockBlockedFraction;
+        if (!qualifies) return false;
+        swingContactTime += Time.deltaTime;
+        if (swingContactTime < cc.swingInDelay) return false;
+        Vector3 mass = E.DominantGroupCount > 0 ? E.DominantGroupCenter : E.AnchorPos;
+        Vector3 to = mass - AnchorPos; to.y = 0f;
+        if (to.sqrMagnitude < 1f) return false;
+        float ang = Vector3.SignedAngle(AnchorForward, to, Vector3.up);
+        if (Mathf.Abs(ang) < cc.swingInMinAngle) return false;
+        float step = Mathf.Min(Mathf.Abs(ang), cc.swingInDegPerSec * Time.deltaTime, cc.swingInMaxDeg - swingAccum);
+        if (step <= 0.01f) return false;
+        Vector3 p = AnchorPos; Quaternion r = AnchorRot;
+        WheelStep(ref p, ref r, engagedCentroid, step * Mathf.Sign(ang));   // pivot on the men already in contact
+        AnchorPos = p; AnchorRot = r;
+        swingAccum += step;
+        SwingActive = true;
+        return true;
+    }
+
     private void UpdateEngagedFacing()
     {
         if (Maneuver == FormationManeuverState.Wheel) return;   // the wheel owns AnchorRot
@@ -1172,8 +1440,8 @@ public class Formation : MonoBehaviour
         float angle = Vector3.Angle(AnchorForward, to);
         if (angle < 30f) { flankThreatTime = 0f; return; }   // frontal: already facing it
 
-        // Conditional defensive pivot (Phase 2I): heavily engaged formations
-        // are pinned — soldiers defend visually, but the tactical flank stays
+        // Conditional defensive pivot: heavily engaged formations
+        // are pinned, soldiers defend visually, but the tactical flank stays
         // exposed until the FORMATION has genuinely turned. Lighter contact
         // pivots slowly after a reaction delay. The flank/rear damage bonus
         // reads AnchorForward, so it persists exactly as long as this does.
@@ -1189,13 +1457,40 @@ public class Formation : MonoBehaviour
         AnchorRot = Quaternion.RotateTowards(AnchorRot, want, speed * Time.deltaTime);
     }
 
+    // Target lock: an ordered attack is not dropped because a corner snagged a
+    // bystander. Holds (returns true) while we are Attacking a live target, no
+    // soldier is in contact with THAT target, we are not surrounded, and the
+    // contacts with other enemies stay under the blocked fraction / time.
+    private float lockBlockedTime;
+    private bool TargetLockHolds()
+    {
+        var cc = BattleSetup.Instance != null ? BattleSetup.Instance.combatConfig : null;
+        if (cc == null || !cc.targetLock || State != FormationState.Attacking ||
+            attackTarget == null || attackTarget.soldiers.Count == 0 || attackTarget.IsRouting)
+        { lockBlockedTime = 0f; return false; }
+        if (contactsByEnemy.ContainsKey(attackTarget)) { lockBlockedTime = 0f; return false; }
+        bool blocked = engagedZoneCount >= 2 ||
+                       engagedCount >= cc.targetLockBlockedFraction * soldiers.Count;
+        lockBlockedTime = blocked ? lockBlockedTime + Time.deltaTime : 0f;
+        return lockBlockedTime < cc.targetLockBlockedSeconds;
+    }
+
     private void UpdateStateMachine()
     {
+        // Morale break pre-empts every state: whatever the century
+        // was doing, it now runs.
+        var cfg = MoraleCfg;
+        if (morale != null && cfg != null && !IsRouting && morale.Value < cfg.routeThreshold)
+        {
+            EnterRouting();
+            return;
+        }
+
         switch (State)
         {
             case FormationState.Ordered:
             case FormationState.Attacking:
-                if (engagedCount > 0)
+                if (engagedCount > 0 && !TargetLockHolds())
                 {
                     State = FormationState.Engaged;
                     hasDestination = false;
@@ -1209,7 +1504,7 @@ public class Formation : MonoBehaviour
                     noContactTime += Time.deltaTime;
                     if (noContactTime > 1.5f)
                     {
-                        if (attackTarget != null && attackTarget.soldiers.Count > 0)
+                        if (attackTarget != null && attackTarget.soldiers.Count > 0 && !attackTarget.IsRouting)
                         {
                             State = FormationState.Attacking;   // re-close with the target
                         }
@@ -1246,13 +1541,39 @@ public class Formation : MonoBehaviour
                 bool rushExpired = firstContactTime < 0f &&
                                    Time.time - chargeStartTime >= chargeMaxSeconds;
                 bool nothingLeft = (attackTarget == null || attackTarget.soldiers.Count == 0) &&
-                                   NearestEnemyFormation(AnchorPos, pursuitRetargetRadius) == null;
+                                   NearestEnemyFormation(AnchorPos, pursuitRetargetRadius, includeRouting: true) == null;
                 if (impactSpent || rushExpired || nothingLeft) EnterPursuit();
+                break;
+
+            case FormationState.BrokenRanks:
+                // A loose century regroups after pursuitMaxSeconds. A charge's
+                // pursuit ends then (the pack stops hunting). If contact has
+                // dropped, the ordinary reform below walks the men back to the
+                // standard; if the century is still locked in melee it re-forms
+                // IN PLACE, slots rebuilt around the pack where it stands,
+                // facing the enemy, state Engaged, because a unit in a fight
+                // cannot walk away (historically that was a rout).
+                if (cfg != null && Time.time - brokenStartTime >= cfg.pursuitMaxSeconds)
+                {
+                    IsPursuing = false;
+                    attackTarget = null;
+                    if (!CanStartReform()) { ReformInPlace(); break; }
+                }
+                // Automatic reform, both teams, one rule: only
+                // active melee blocks it. The standard is planted on the
+                // Signifer / senior officer still with the main pack.
+                if (!IsPursuing && CanStartReform())   // a charge's pursuit runs its full time first
+                {
+                    RallyAnchor = ReformAnchorPoint();
+                    rallyFacing = AnchorRot;
+                    IsPursuing = false;
+                    BeginReform();
+                }
                 break;
 
             case FormationState.Reforming:
                 reformTimer += Time.deltaTime;
-                // Abort on MEANINGFUL melee contact only (Phase 3E): a
+                // Abort on MEANINGFUL melee contact only: a
                 // configurable fraction of survivors melee-engaged. Projectile
                 // hits never set IsEngaged, so arrow fire cannot cancel a
                 // reform; one isolated straggler fighting stays under the
@@ -1263,6 +1584,8 @@ public class Formation : MonoBehaviour
                 {
                     State = FormationState.BrokenRanks;   // same rally anchor
                     CurrentOrderType = OrderType.BreakRanks;
+                    lastReformAbortTime = Time.time;      // CanStartReform cooldown
+                    brokenStartTime = Time.time;          // the in-place regroup timer restarts
                     break;
                 }
                 if (FractionNearSlots(1.0f) >= reformCompleteFraction ||
@@ -1272,22 +1595,260 @@ public class Formation : MonoBehaviour
                     CurrentOrderType = OrderType.None;
                 }
                 break;
+
+            case FormationState.Routing:
+                // Rally: morale recovered past rallyThreshold and the
+                // shared start rule passes -> the ordinary reform path, around
+                // the senior officer still with the main pack.
+                if (cfg != null && cfg.routedCanRally && morale != null &&
+                    morale.Value > cfg.rallyThreshold && CanStartReform())
+                {
+                    morale.RecordRally();
+                    RallyAnchor = ReformAnchorPoint();
+                    Formation threat = NearestEnemyFormation(RallyAnchor, float.MaxValue);
+                    Vector3 face = threat != null ? threat.AnchorPos - RallyAnchor : AnchorForward;
+                    face.y = 0f;
+                    rallyFacing = face.sqrMagnitude > 0.01f
+                        ? Quaternion.LookRotation(face.normalized, Vector3.up) : AnchorRot;
+                    BeginReform();
+                }
+                break;
         }
-        // Phase 3: no automatic reform anywhere — the player presses Reform;
-        // the enemy commander issues the same command deliberately.
+        // No Reform command exists: BrokenRanks reforms itself
+        // through CanStartReform for both teams. Routing is permanent unless
+        // routedCanRally is on.
     }
 
     // The charge dissolves into an individual free-for-all on the broken-ranks
     // machinery. Unlike a deliberate break, the standard is NOT planted: the
     // rally seed starts at the pack and the anchor keeps following it until
     // Reform strikes it into the ground.
+    private float brokenStartTime;   // when the century last went loose (pursuit or aborted reform)
+
     private void EnterPursuit()
     {
+        brokenStartTime = Time.time;
         State = FormationState.BrokenRanks;
         CurrentOrderType = OrderType.BreakRanks;
         IsPursuing = true;
         hasDestination = false;
         RallyAnchor = DominantGroupCount > 0 ? DominantGroupCenter : AnchorPos;
         rallyFacing = AnchorRot;
+    }
+
+    // ---------------- morale ----------------
+
+    // Created on the first frame the config exists (TotalSpawned is final by
+    // then) and ticked only while the battle is Active, so the deployment
+    // march never moves morale. With no config BattleSetup has already logged
+    // the loud error and morale simply stays off, no default fallback.
+    private void UpdateMorale()
+    {
+        if (morale == null)
+        {
+            var cfg = MoraleCfg;
+            if (cfg == null) return;
+            morale = new FormationMorale(cfg, TotalSpawned);
+        }
+        if (BattleSetup.Instance.Phase != BattlePhase.Active) return;
+        morale.Tick(Time.deltaTime, soldiers.Count, engagedCount, engagedEnemyFormationCount, engagedZoneCount);
+    }
+
+    // The century breaks and runs. Deliberately NOT EnterPursuit: that enters
+    // BrokenRanks (soldiers hunt out to acquireRadiusBroken) with IsPursuing
+    // (the tight pursuit leash, retargeting onto new victims), a charge's
+    // aftermath, not a flight. Routing men acquire nothing (GetAcquireRadius
+    // returns 0), ignore the leash and flee (GetFleeVelocity); the anchor
+    // follows the pack (UpdateAnchorMovement). Enemies keep targeting them
+    // normally, that is the pursuit.
+    private void EnterRouting()
+    {
+        State = FormationState.Routing;
+        CurrentOrderType = OrderType.None;
+        IsPursuing = false;
+        attackTarget = null;
+        hasDestination = false;
+        Maneuver = FormationManeuverState.None;
+        hasFleeThreat = false;
+        fleeThreatTimer = 0f;
+        foreach (var s in soldiers) s.DropTarget();
+
+        // Contagion: a line breaking near you is its own pressure.
+        var cfg = MoraleCfg;
+        if (cfg != null && cfg.enableContagion && BattleSetup.Instance != null)
+        {
+            float r2 = cfg.contagionRadius * cfg.contagionRadius;
+            foreach (var o in BattleSetup.Instance.formations)
+            {
+                if (o == this || o.team != team || o.IsRouting || o.soldiers.Count == 0 || o.morale == null) continue;
+                Vector3 d = o.AnchorPos - AnchorPos; d.y = 0f;
+                if (d.sqrMagnitude <= r2) o.morale.AddShock(cfg.contagionShock, ShockSource.Contagion);
+            }
+        }
+    }
+
+    // Re-form where the century stands, mid-melee: the standard is planted on
+    // the Signifer / senior officer in the main pack, the slot grid is rebuilt
+    // around it facing the nearest enemy formation, and the century becomes
+    // Engaged again (formed combat, orders available, a move order is then a
+    // disengagement attempt like any other engaged century's).
+    private void ReformInPlace()
+    {
+        Vector3 at = ReformAnchorPoint();
+        Formation foe = NearestEnemyFormation(at, float.MaxValue);
+        Vector3 face = foe != null ? foe.AnchorPos - at : AnchorForward;
+        face.y = 0f;
+        rallyFacing = face.sqrMagnitude > 0.01f ? Quaternion.LookRotation(face.normalized, Vector3.up) : AnchorRot;
+        RallyAnchor = at;
+        AnchorPos = at;
+        AnchorRot = rallyFacing;
+        IsPursuing = false;
+        attackTarget = null;
+        hasDestination = false;
+        Maneuver = FormationManeuverState.None;
+        int n = soldiers.Count;
+        columns = Mathf.Clamp(columns, 1, n);
+        BuildSlots(n);
+        AssignNearestSlots();
+        CurrentOrderType = OrderType.None;
+        noContactTime = 0f;
+        State = FormationState.Engaged;
+    }
+
+    // THE shared automatic-reform start rule (DECISIONS 2026-09-21): only
+    // active melee blocks a reform. Enemies beyond personalEngageRadius and
+    // arrow fire never do. After an aborted reform it waits
+    // reformRetryCooldown so a contested reform cannot flicker between abort
+    // and restart. The 12% abort while Reforming is unchanged. Drives the
+    // BrokenRanks auto-reform for both teams and the (optional) rally.
+    public bool CanStartReform()
+    {
+        var cfg = MoraleCfg;
+        if (cfg == null || soldiers.Count == 0) return false;
+        if (Time.time - lastReformAbortTime < cfg.reformRetryCooldown) return false;
+        return (float)engagedCount / soldiers.Count <= cfg.reformStartEngagedFraction;
+    }
+
+    // The highest-grade living officer; succession is implicit (Centurion
+    // dies, the Optio commands, and so on). Null when no officer survives.
+    public Soldier CommandingOfficer
+    {
+        get
+        {
+            var ranks = Ranks;
+            if (ranks == null) return null;
+            Soldier best = null; int bestGrade = 0;
+            foreach (var s in soldiers)
+            {
+                int g = ranks.Grade(s.role);
+                if (g > bestGrade) { bestGrade = g; best = s; }
+            }
+            return best;
+        }
+    }
+
+    // Where a reforming century plants its standard: on the Signifer
+    // if reformOnStandardFirst and he is alive IN the main pack (Romans formed
+    // on the standard), else the highest-grade officer alive in the main
+    // pack, else the pack's center. "Main pack" is the dominant cluster,
+    // freshly recomputed, so scattered stragglers cannot drag the point into
+    // empty ground. Records who it anchored on for the debug readout.
+    public Soldier LastReformAnchorOfficer { get; private set; }
+    private Vector3 ReformAnchorPoint()
+    {
+        UpdateDominantGroup(force: true, members: dominantMembers);
+        var ranks = Ranks;
+        Soldier best = null;
+        int bestGrade = 0;
+        if (ranks != null)
+        {
+            for (int i = 0; i < soldiers.Count && i < dominantMembers.Count; i++)
+            {
+                if (!dominantMembers[i]) continue;
+                var s = soldiers[i];
+                if (ranks.reformOnStandardFirst && s.role == SoldierRole.Signifer) { best = s; break; }
+                int g = ranks.Grade(s.role);
+                if (g > bestGrade) { bestGrade = g; best = s; }
+            }
+        }
+        LastReformAnchorOfficer = best;
+        Vector3 at = best != null ? best.transform.position
+                   : DominantGroupCount > 0 ? DominantGroupCenter : AnchorPos;
+        at.y = 0f;
+        return at;
+    }
+
+    // Which enemy formation a rout runs from: the nearest living one to the
+    // main pack, refreshed a couple of times a second (not per soldier).
+    private void UpdateFleeThreat()
+    {
+        if (!IsRouting) return;
+        fleeThreatTimer -= Time.deltaTime;
+        if (fleeThreatTimer > 0f) return;
+        fleeThreatTimer = FleeThreatInterval;
+        Vector3 from = DominantGroupCount > 0 ? DominantGroupCenter : AnchorPos;
+        Formation threat = NearestEnemyFormation(from, float.MaxValue, includeRouting: true);
+        hasFleeThreat = threat != null;
+        if (hasFleeThreat)
+            fleeThreatPos = threat.DominantGroupCount > 0 ? threat.DominantGroupCenter
+                                                          : threat.AnchorPos;
+    }
+
+    // A routing soldier's desired velocity: away from the threat formation,
+    // bent toward this army's own back edge by fleeBackBias, at moveSpeed *
+    // fleeSpeedMultiplier. At the field edge the outward component is dropped:
+    // routers stop there (or slide along it) and never leave the map.
+    public Vector3 GetFleeVelocity(Vector3 pos, float moveSpeed)
+    {
+        var cfg = MoraleCfg;
+        var bs = BattleSetup.Instance;
+        if (cfg == null || bs == null) return Vector3.zero;
+
+        Vector3 back = team == Team.Blue ? Vector3.back : Vector3.forward;   // Blue deploys south
+        Vector3 away = hasFleeThreat ? pos - fleeThreatPos : back;
+        away.y = 0f;
+        Vector3 dir = (away.sqrMagnitude > 0.01f ? away.normalized : back) + back * cfg.fleeBackBias;
+        dir.y = 0f;
+        if (dir.sqrMagnitude < 0.0001f) dir = back;
+        Vector3 v = dir.normalized * moveSpeed * cfg.fleeSpeedMultiplier;
+
+        if (!cfg.routedCanRally) return v;   // permanent rout: run straight off the map
+        float hx = bs.fieldHalfX - FleeEdgeInset;
+        float hz = bs.fieldHalfZ - FleeEdgeInset;
+        if ((pos.x >= hx && v.x > 0f) || (pos.x <= -hx && v.x < 0f)) v.x = 0f;
+        if ((pos.z >= hz && v.z > 0f) || (pos.z <= -hz && v.z < 0f)) v.z = 0f;
+        return v;
+    }
+
+    // Permanent rout (routedCanRally off): routers leave the map for good.
+    public bool RoutersLeaveField => MoraleCfg != null && !MoraleCfg.routedCanRally;
+    public static bool IsOutsideField(Vector3 pos, float beyond)
+    {
+        var bs = BattleSetup.Instance;
+        if (bs == null) return false;
+        return Mathf.Abs(pos.x) > bs.fieldHalfX + beyond || Mathf.Abs(pos.z) > bs.fieldHalfZ + beyond;
+    }
+
+    // The hard stop behind GetFleeVelocity's soft one. Separation pushes and
+    // collider contacts act after the flee velocity is chosen, so a packed
+    // crowd at the edge can still shove a router outward; this runs last in
+    // the soldier's physics step, puts anyone past the line back on it and
+    // cancels the outward velocity.
+    public void KeepRouterInField(Rigidbody rb)
+    {
+        var bs = BattleSetup.Instance;
+        if (bs == null) return;
+        float hx = bs.fieldHalfX - FleeEdgeInset;
+        float hz = bs.fieldHalfZ - FleeEdgeInset;
+        Vector3 p = rb.position;
+        Vector3 v = rb.linearVelocity;
+        bool moved = false;
+        if (p.x > hx)  { p.x = hx;  if (v.x > 0f) v.x = 0f; moved = true; }
+        if (p.x < -hx) { p.x = -hx; if (v.x < 0f) v.x = 0f; moved = true; }
+        if (p.z > hz)  { p.z = hz;  if (v.z > 0f) v.z = 0f; moved = true; }
+        if (p.z < -hz) { p.z = -hz; if (v.z < 0f) v.z = 0f; moved = true; }
+        if (!moved) return;
+        rb.position = p;
+        rb.linearVelocity = v;
     }
 }

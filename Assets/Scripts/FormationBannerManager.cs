@@ -11,7 +11,7 @@ public enum FormationBannerVisibilityMode { Adaptive, AlwaysVisible, SelectedOnl
 // Battlefield-level owner of everything shared between formation banners:
 // the adaptive detail level (soldier screen-pixel height with hysteresis),
 // the persisted visibility mode, and the temporary information-layer hold.
-// Banners anchor rigidly to their own formation — no screen-space overlap
+// Banners anchor rigidly to their own formation, no screen-space overlap
 // solver; overlapping banners at far zoom are accepted over banners that
 // drift off their century. The manager never owns simulation state.
 public class FormationBannerManager : MonoBehaviour
@@ -77,7 +77,7 @@ public class FormationBannerManager : MonoBehaviour
 
         // Soldier screen height at the camera's center-screen ground focus.
         // WorldToScreenPoint returns raw device pixels, so divide by PixelScale
-        // to express the value in 1080p-reference pixels — the thresholds above
+        // to express the value in 1080p-reference pixels, the thresholds above
         // then hold on any screen height.
         Vector3 focus = FocusPoint();
         Vector3 a = cam.WorldToScreenPoint(focus);

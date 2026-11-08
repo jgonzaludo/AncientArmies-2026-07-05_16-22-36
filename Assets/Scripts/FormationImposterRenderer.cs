@@ -4,7 +4,7 @@ using UnityEngine;
 // Far-zoom impostor LOD for one formation. Below a soldier-screen-height
 // threshold the century's fully animated soldiers (skinned mesh, animator,
 // shadow caster) go dormant and the whole formation renders as ONE dynamic
-// mesh of team-colored billboard quads — sixteen draw calls for the entire
+// mesh of team-colored billboard quads, sixteen draw calls for the entire
 // battle instead of ~1,280 animated characters. Purely presentational:
 // positions are always simulated, so the markers still march, scatter, and
 // pack. A nearer tier drops soldier shadow casting alone (soldier shadows
@@ -14,14 +14,14 @@ using UnityEngine;
 // sixteen centuries never exchange 1,280 soldiers' visuals in one frame.
 // The swap itself CROSS-FADES: the quads alpha-blend in over the still-
 // visible soldiers before the animated stack sleeps, and blend out after it
-// wakes — never a single-frame pop.
+// wakes, never a single-frame pop.
 public class FormationImposterRenderer : MonoBehaviour
 {
     [Header("Tier thresholds (soldier height in 1080p-reference pixels)")]
     [Tooltip("Enter impostor mode at or below this soldier pixel height")]
-    [SerializeField] private float impostorEnterPixels = 12f;
+    [SerializeField] private float impostorEnterPixels = 18f;
     [Tooltip("Leave impostor mode above this (hysteresis)")]
-    [SerializeField] private float impostorExitPixels = 15f;
+    [SerializeField] private float impostorExitPixels = 22f;
     [Tooltip("Soldier shadow casting turns off below this")]
     [SerializeField] private float shadowsOffPixels = 50f;
     [Tooltip("Soldier shadow casting returns at or above this (hysteresis)")]
@@ -176,7 +176,7 @@ public class FormationImposterRenderer : MonoBehaviour
         // Per-soldier staggered sleep/wake spread across the middle of the
         // fade window: 80 models toggling on one frame reads as a blink even
         // under the quad layer, so each soldier crosses at its own
-        // deterministic threshold — waking soldiers appear under near-opaque
+        // deterministic threshold, waking soldiers appear under near-opaque
         // quads first, the last few as the quads are almost gone.
         if (fade01 != appliedFade01)
         {
@@ -233,7 +233,7 @@ public class FormationImposterRenderer : MonoBehaviour
     // The handler-table check guards a death surfacing for a soldier already
     // processed (a swap can race the death event mid-frame) so the dying
     // quad appends exactly once; the handler then retires itself. A soldier
-    // whose model is still awake plays its own death — adding a ghost quad
+    // whose model is still awake plays its own death, adding a ghost quad
     // on top would double the corpse.
     private void HandleDeath(Soldier s)
     {
@@ -274,7 +274,7 @@ public class FormationImposterRenderer : MonoBehaviour
         trisFlash = new List<int>(quadCap * 6);
 
         // Scene-root object: the quads are built in world space every frame,
-        // and the formation transform moves — it must never drag the mesh.
+        // and the formation transform moves, it must never drag the mesh.
         meshGO = new GameObject($"Impostor_{formation.displayName.Replace(' ', '_')}");
         mesh = new Mesh { name = "FormationImpostorQuads" };
         mesh.MarkDynamic();
@@ -321,7 +321,7 @@ public class FormationImposterRenderer : MonoBehaviour
                     flashing ? trisFlash : trisBase);
         }
 
-        // Dying quads: fall flat over the first window, then shrink away —
+        // Dying quads: fall flat over the first window, then shrink away,
         // the shrink covers the fade read without needing transparency.
         for (int i = dying.Count - 1; i >= 0; i--)
         {

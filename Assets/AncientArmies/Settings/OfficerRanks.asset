@@ -1,0 +1,44 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 8dcc2be8feae540978bcb725c78dd955, type: 3}
+  m_Name: OfficerRanks
+  m_EditorClassIdentifier: Assembly-CSharp::OfficerRanks
+  reformOnStandardFirst: 1
+  entries:
+  - role: 0
+    grade: 0
+    deathShock: 0
+    healthMultiplier: 1
+  - role: 1
+    grade: 0
+    deathShock: 0
+    healthMultiplier: 1
+  - role: 5
+    grade: 1
+    deathShock: 4
+    healthMultiplier: 1
+  - role: 6
+    grade: 1
+    deathShock: 4
+    healthMultiplier: 1
+  - role: 4
+    grade: 2
+    deathShock: 28
+    healthMultiplier: 2
+  - role: 3
+    grade: 3
+    deathShock: 12
+    healthMultiplier: 1.5
+  - role: 2
+    grade: 4
+    deathShock: 24
+    healthMultiplier: 2

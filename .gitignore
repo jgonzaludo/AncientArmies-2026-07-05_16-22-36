@@ -118,7 +118,7 @@ InitTestScene*.unity*
 *.slnx
 
 # Generated codebase knowledge graph (local RAG - see CLAUDE.md)
-graphify-out/
+graphify-out/cost.json
 .env
 
 # Blender working/backup files (the .blend master itself IS versioned)
@@ -139,3 +139,6 @@ graphify-out/
 !ProjectSettings/
 !ThirdPartyPackages/TripoUnityBridge/
 !ArtSource/
+graphify-out/cache/
+graphify-out/20*/
+graphify-out/obsidian/

@@ -1,0 +1,32 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 294d31c0517ca446082ed6fddadff513, type: 3}
+  m_Name: KayKitVisualConfig
+  m_EditorClassIdentifier: Assembly-CSharp::KayKitVisualConfig
+  useKayKitVisual: 1
+  blueMaterials:
+  - {fileID: 2100000, guid: a8e526baee7e04ff1bf136a7453b28bb, type: 2}
+  - {fileID: 2100000, guid: 66edb808bbae841d88bcebfb5a7e471a, type: 2}
+  - {fileID: 2100000, guid: 8c238f475f56f4405939601fbe3fbc78, type: 2}
+  - {fileID: 2100000, guid: 817f2dd9e46d3493a92f3fc657f2795d, type: 2}
+  redMaterials:
+  - {fileID: 2100000, guid: 55d9ce1498e5a40f78fb395062053436, type: 2}
+  - {fileID: 2100000, guid: bc3a567897f904959be253a4ce896938, type: 2}
+  - {fileID: 2100000, guid: a701f37767efe4aaf8cfa696962bf68b, type: 2}
+  - {fileID: 2100000, guid: 750e9df1befa842b2ae5f2726ee283a5, type: 2}
+  bowMaterial: {fileID: 2100000, guid: 9df4776a00bb54e3f8d149f48faa31e4, type: 2}
+  crossFade: 0.15
+  walkReferenceSpeed: 1.6
+  runReferenceSpeed: 4.2
+  bowDrawSeconds: 0.55
+  staggerDistance: 70
+  staggerFrames: 3

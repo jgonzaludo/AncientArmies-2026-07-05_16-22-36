@@ -2,7 +2,7 @@ using UnityEngine;
 
 // Individual arrow: flies a ballistic arc that tracks its target, so a shot
 // validated at fire time always lands for its full damage regardless of range
-// or target movement — no hidden dice. Only the target dying mid-flight
+// or target movement, no hidden dice. Only the target dying mid-flight
 // cancels the hit (the arrow falls where they fell).
 public class Projectile : MonoBehaviour
 {
@@ -15,6 +15,8 @@ public class Projectile : MonoBehaviour
     private float t;
 
     private static Material arrowMat;
+    private static GameObject arrowPrefab;
+    private static bool arrowLoaded;
 
     public static void Spawn(Vector3 from, Soldier target, float damage, float speed)
     {
@@ -23,13 +25,27 @@ public class Projectile : MonoBehaviour
         // Bare root carries flight + rotation; the primitive sits on a child so
         // the per-frame tangent LookRotation has a clean transform to drive.
         GameObject go = new GameObject("Arrow");
-        var visual = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-        Object.Destroy(visual.GetComponent<Collider>());
-        visual.transform.SetParent(go.transform, false);
-        visual.transform.localScale = Vector3.one * 0.18f;
-        if (arrowMat == null)
-            arrowMat = SoldierFactory.Unlit(new Color(0.16f, 0.11f, 0.05f));
-        visual.GetComponent<Renderer>().sharedMaterial = arrowMat;
+        if (!arrowLoaded)
+        {
+            arrowLoaded = true;
+            var kk = Resources.Load<KayKitVisualConfig>("KayKitVisualConfig");
+            if (kk != null && kk.useKayKitVisual && !SoldierFactory.ForceCapsules) arrowPrefab = Resources.Load<GameObject>("VIS_KayKit_Arrow");
+        }
+        GameObject visual;
+        if (arrowPrefab != null)
+        {
+            visual = Object.Instantiate(arrowPrefab, go.transform);   // KayKit arrow, long axis already on +Z
+        }
+        else
+        {
+            visual = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            Object.Destroy(visual.GetComponent<Collider>());
+            visual.transform.SetParent(go.transform, false);
+            visual.transform.localScale = Vector3.one * 0.18f;
+            if (arrowMat == null)
+                arrowMat = SoldierFactory.Unlit(new Color(0.16f, 0.11f, 0.05f));
+            visual.GetComponent<Renderer>().sharedMaterial = arrowMat;
+        }
         visual.name = "ArrowVisual";
         visual.transform.localPosition = Vector3.zero;
         visual.transform.localRotation = Quaternion.identity;
@@ -74,7 +90,7 @@ public class Projectile : MonoBehaviour
             bool battleActive = BattleSetup.Instance != null &&
                                 BattleSetup.Instance.Phase == BattlePhase.Active;
             if (battleActive && alive)
-                target.TakeDamage(damage);
+                target.TakeDamage(damage, DamageZone.Front, ranged: true);
             Destroy(gameObject);
             return;
         }

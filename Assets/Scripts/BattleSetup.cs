@@ -4,6 +4,10 @@ using UnityEngine.SceneManagement;
 
 public enum BattlePhase { Pre, Active, Ended }
 
+// Which arc of the defending formation a blow came from. Drives the damage
+// multiplier and, since the panic inputs were added, the casualty's morale shock weight.
+public enum DamageZone { Front, Flank, Rear }
+
 // Spawns the battlefield at runtime (5v5 by default, random unit mix per
 // battle), owns the battle lifecycle (Start -> Active -> Ended -> Restart),
 // and keeps the per-team soldier registries used for brute-force local
@@ -14,6 +18,9 @@ public class BattleSetup : MonoBehaviour
 
     public BattlePhase Phase { get; private set; } = BattlePhase.Pre;
     public string ResultText { get; private set; } = "";
+    public float BattleTime { get; private set; }           // seconds of Active play
+    public float TimeRemaining => moraleConfig != null
+        ? Mathf.Max(0f, moraleConfig.battleTimeLimit - BattleTime) : 0f;
 
     private float endCheckTimer;
 
@@ -25,9 +32,9 @@ public class BattleSetup : MonoBehaviour
         moveSpeed = 3.2f,
         attackDamage = 12f,
         // v1.9 pacing: kills stay lethal (3-4 hits) but exchanges happen every
-        // ~4 s — a shield line measuring strikes, not a blender. This is what
+        // ~4 s, a shield line measuring strikes, not a blender. This is what
         // stretches a century-vs-century grind to ~1.5-2 minutes.
-        // NOTE: scene-pinned in Battle.unity — change it there too.
+        // NOTE: scene-pinned in Battle.unity, change it there too.
         attackCooldown = 4f,
         strikeRange = 1.7f
     };
@@ -38,10 +45,10 @@ public class BattleSetup : MonoBehaviour
         maxHealth = 22f,
         moveSpeed = 3f,
         // v1.9 pacing: with spread targeting eliminating overkill waste,
-        // cadence governs output — damage back to 10 (4 front arrows per
+        // cadence governs output, damage back to 10 (4 front arrows per
         // kill), cooldown under the 8 s volley interval so every archer is
         // ready each volley (jitter 0.9-1.15 keeps 5.85-7.5 < 8).
-        // NOTE: Battle.unity pins both — change them there too.
+        // NOTE: Battle.unity pins both, change them there too.
         attackDamage = 10f,
         attackCooldown = 6.5f,
         strikeRange = 1.6f,
@@ -51,7 +58,7 @@ public class BattleSetup : MonoBehaviour
         projectileSpeed = 20f         // keeps a 48 m extreme shot readable (~2.4 s flight)
     };
 
-    // V1 overhaul army scale. NOTE: these are NEW field names on purpose —
+    // V1 overhaul army scale. NOTE: these are NEW field names on purpose,
     // Battle.unity serializes the old layout fields (meleeCount=50 etc.) and
     // scene values override C# defaults; new names fall back to the defaults
     // below without editing the scene.
@@ -61,17 +68,17 @@ public class BattleSetup : MonoBehaviour
     public int archerCenturiesPerSide = 2;
     [Tooltip("Melee century frontage (10 wide x 8 deep at 80)")]
     public int centuryColumns = 10;
-    [Tooltip("Archer century frontage — exposed separately so archer lines can go wider/shallower later")]
+    [Tooltip("Archer century frontage, exposed separately so archer lines can go wider/shallower later")]
     public int archerColumns = 10;
-    [Tooltip("Distance between melee soldiers — near shoulder-to-shoulder for a dense, continuous front")]
+    [Tooltip("Distance between melee soldiers, near shoulder-to-shoulder for a dense, continuous front")]
     public float meleeSpacing = 1.15f;
-    [Tooltip("Distance between archers — visibly looser than melee")]
+    [Tooltip("Distance between archers, visibly looser than melee")]
     public float archerSpacing = 1.75f;
     [Tooltip("Guaranteed edge-to-edge gap between neighboring formations, in multiples of the larger of the two intra-formation spacings")]
     public float formationGapFactor = 1.1f;
     public float lineSpacingX = 16f;
     // Line depths (v1.8.1): a melee century is ~9 m deep (8 rows x 1.15) and
-    // an archer century ~13 m (8 rows x 1.75), so the lines need real gaps —
+    // an archer century ~13 m (8 rows x 1.75), so the lines need real gaps,
     // archers clear of the front line's rear rank, reserves clear of the
     // archers' rear rank.
     // Depth gaps must survive the 40-degree camera: a ~1.9 m soldier model
@@ -82,14 +89,14 @@ public class BattleSetup : MonoBehaviour
     [Tooltip("How far behind the front line the archer centuries deploy")]
     public float archerLineOffset = 20f;
 
-    // Battlefield scale (Phase 6). ~410x280 = roughly 11x the old 120x80 area:
+    // Battlefield scale. ~410x280 = roughly 11x the old 120x80 area:
     // room for wings, reserves, and maneuver without empty-travel tedium. At
     // formation march speed 2.6 m/s, two armies separated by armySeparation
     // and advancing on each other meet in armySeparation / 5.2 ≈ 46 s.
-    [Header("V1 battlefield scale (Phase 6)")]
+    [Header("Battlefield scale")]
     public float fieldHalfX = 205f;
     // 170 (was 140): armySeparation 240 + the deeper line offsets put the
-    // reserve rear rank at z=-164.6 — the old 140 left it 16.6 m OFF the
+    // reserve rear rank at z=-164.6, the old 140 left it 16.6 m OFF the
     // ground plane, jamming the rear lines against the map edge.
     public float fieldHalfZ = 170f;
     [Tooltip("Starting anchor-to-anchor separation of the two front lines")]
@@ -101,39 +108,32 @@ public class BattleSetup : MonoBehaviour
     [Tooltip("Pull starting deployment inward from each map edge so rear ranks clear the boundary")]
     public float spawnEdgeInset = 20f;
 
-    // Centralized soldier-spacing tuning (Phase 4). Soldiers read these so
+    // Centralized soldier-spacing tuning. Soldiers read these so
     // the whole contact feel is adjustable in one place; the melee opponent
     // distance itself comes from UnitStats.strikeRange.
-    [Header("V1 spacing & contact (Phase 4)")]
+    [Header("Spacing and contact")]
     [Tooltip("Minimum friendly separation while ordered, as a fraction of formation spacing")]
     public float separationFractionOrdered = 0.85f;
     [Tooltip("Minimum friendly separation while packed into melee/broken, as a fraction of formation spacing")]
     public float separationFractionPacked = 0.72f;
-    [Tooltip("Cap on the local-avoidance push (m/s) — biases movement, never flings")]
+    [Tooltip("Cap on the local-avoidance push (m/s), biases movement, never flings")]
     public float separationMaxPush = 1.2f;
 
-    [Header("Directional combat (front / flank / rear)")]
-    [Tooltip("Damage multiplier when attacking a formation from its front arc")]
-    public float frontDamageMultiplier = 1f;
-    [Tooltip("Damage multiplier when attacking a formation from either side")]
-    public float flankDamageMultiplier = 1.5f;
-    [Tooltip("Damage multiplier when attacking a formation from behind")]
-    public float rearDamageMultiplier = 2f;
-    [Tooltip("Attacks within this many degrees of the defender's forward count as frontal")]
-    public float frontArcHalfAngleDeg = 60f;
-    [Tooltip("Attacks within this many degrees of the defender's rear count as rear attacks")]
-    public float rearArcHalfAngleDeg = 60f;
+    // Combat numbers (damage scale, directional multipliers, arcs) live in the
+    // CombatConfig asset, not here, nothing for Battle.unity to pin.
+    [Header("Combat")]
+    [Tooltip("Assigned in Battle.unity: Assets/AncientArmies/Settings/CombatConfig.asset")]
+    public CombatConfig combatConfig;
 
-    // The battle-length lever. A NEW field on purpose: Battle.unity serializes
-    // the older stat blocks, so per-unit damage/health edits require in-editor
-    // scene stamping — this multiplier is unserialized and the C# default
-    // simply wins. Scaling all damage preserves every relative combat
-    // relationship (skill band, front/flank/rear, charge bonus); only the
-    // attrition rate changes. Consciously retires the "3-4 hits kills a man"
-    // anchor in favor of century-level grinds.
-    [Header("Battle pacing")]
-    [Tooltip("Global multiplier on ALL damage dealt — lower = longer battles; cadence and animations are untouched")]
-    public float globalDamageScale = 0.25f;
+    // The ONLY morale field allowed on BattleSetup (DECISIONS 2026-09-21):
+    // every tunable lives in the MoraleConfig asset, so the scene pins this
+    // reference and nothing else. Null is a loud error, never a silent
+    // fallback to default values.
+    [Header("Morale")]
+    [Tooltip("Assigned in Battle.unity: Assets/AncientArmies/Settings/MoraleConfig.asset")]
+    public MoraleConfig moraleConfig;
+    [Tooltip("Assigned in Battle.unity: Assets/AncientArmies/Settings/OfficerRanks.asset")]
+    public OfficerRanks officerRanks;
 
     private readonly List<Soldier> blue = new List<Soldier>();
     private readonly List<Soldier> red = new List<Soldier>();
@@ -142,7 +142,24 @@ public class BattleSetup : MonoBehaviour
     private void Awake()
     {
         Instance = this;
+        if (GetComponent<RouteLines>() == null) gameObject.AddComponent<RouteLines>();
         Application.runInBackground = true;
+        SimSeed.ApplyIfPending();   // reproducible battles: seed before anything random spawns
+        if (moraleConfig == null)
+            Debug.LogError("[Morale] BattleSetup.moraleConfig is NOT ASSIGNED in Battle.unity, " +
+                           "morale is DISABLED this battle (no fallback to defaults). Assign " +
+                           "Assets/AncientArmies/Settings/MoraleConfig.asset on the BattleSetup object.", this);
+        if (combatConfig == null)
+        {
+            Debug.LogError("[Combat] BattleSetup.combatConfig is NOT ASSIGNED in Battle.unity, this battle runs on " +
+                           "the CombatConfig CLASS DEFAULTS, not your tuned asset. Assign " +
+                           "Assets/AncientArmies/Settings/CombatConfig.asset on the BattleSetup object.", this);
+            combatConfig = ScriptableObject.CreateInstance<CombatConfig>();
+        }
+        if (officerRanks == null)
+            Debug.LogError("[Morale] BattleSetup.officerRanks is NOT ASSIGNED in Battle.unity, " +
+                           "officer grades, the reform anchor and officer death shock are DISABLED this battle. " +
+                           "Assign Assets/AncientArmies/Settings/OfficerRanks.asset on the BattleSetup object.", this);
         EnsureEnvironment();
         float blueLineZ = -armySeparation * 0.5f + spawnEdgeInset;
         SpawnSide(Team.Blue, blueLineZ, 0f, false);
@@ -158,8 +175,8 @@ public class BattleSetup : MonoBehaviour
         if (Instance == this) Instance = null;
     }
 
-    // Spatial partition for all soldier neighbor queries (Phase 6F). Rebuilt
-    // every physics tick — cheap index writes — so separation, targeting, and
+    // Spatial partition for all soldier neighbor queries. Rebuilt
+    // every physics tick, cheap index writes, so separation, targeting, and
     // engagement scans stay O(local density) at 1,280 soldiers.
     private void FixedUpdate()
     {
@@ -167,23 +184,81 @@ public class BattleSetup : MonoBehaviour
         BattleGrid.Rebuild(blue, red);
     }
 
+    // Battles end by LINE COLLAPSE, not annihilation (DECISIONS 2026-09-21):
+    // a team loses the moment collapseFraction of its formations are Routing
+    // or destroyed. Ending the battle right then is the latch, nothing that
+    // happens afterwards can reopen it. The time limit is a stall backstop.
     private void Update()
     {
         if (Phase != BattlePhase.Active) return;
+        BattleTime += Time.deltaTime;
         endCheckTimer -= Time.deltaTime;
         if (endCheckTimer > 0f) return;
         endCheckTimer = 0.5f;
 
-        bool blueAlive = blue.Count > 0;
-        bool redAlive = red.Count > 0;
-        if (blueAlive && redAlive) return;
+        bool blueDown = HasCollapsed(Team.Blue);
+        bool redDown = HasCollapsed(Team.Red);
+        if (blueDown || redDown)
+        {
+            EndBattle(blueDown && redDown ? "DRAW, BOTH LINES COLLAPSED"
+                    : blueDown ? "RED WINS, BLUE LINE COLLAPSED"
+                    : "BLUE WINS, RED LINE COLLAPSED");
+            return;
+        }
+        if (moraleConfig != null && BattleTime >= moraleConfig.battleTimeLimit)
+        {
+            int b = CountIntact(Team.Blue), r = CountIntact(Team.Red);
+            EndBattle(b == r ? "DRAW, TIME"
+                    : b > r ? "BLUE WINS, TIME" : "RED WINS, TIME");
+        }
+    }
 
+    private void EndBattle(string result)
+    {
         Phase = BattlePhase.Ended;
-        ResultText = !blueAlive && !redAlive ? "DRAW"
-                   : blueAlive ? "BLUE WINS" : "RED WINS";
-
+        ResultText = result;
+        BattleRecorder.NoteEnd(this, result);
         var commander = GetComponent<PlayerCommander>();
         if (commander != null) commander.DeselectAll();
+    }
+
+    // Counted from the live formation list, never an assumed roster size.
+    public bool HasCollapsed(Team t)
+    {
+        float fraction = moraleConfig != null ? moraleConfig.collapseFraction : 0.5f;
+        int total = 0, fallen = 0;
+        foreach (var f in formations)
+        {
+            if (f.team != t) continue;
+            total++;
+            if (f.IsRouting || f.soldiers.Count == 0) fallen++;
+        }
+        return total > 0 && fallen >= total * fraction;
+    }
+
+    // Battle power for the HUD tide bar: living men of formations that have not
+    // routed, each formation weighted by its morale (never below tideMoraleFloor).
+    // Presentation reads it; nothing in the simulation does.
+    public float BattlePower(Team t)
+    {
+        float floor = moraleConfig != null ? moraleConfig.tideMoraleFloor : 0.25f;
+        float power = 0f;
+        foreach (var f in formations)
+        {
+            if (f.team != t || f.IsRouting || f.soldiers.Count == 0) continue;
+            float m = f.Morale != null ? f.Morale.Value / 100f : 1f;
+            power += f.soldiers.Count * Mathf.Max(floor, m);
+        }
+        return power;
+    }
+
+    // Intact = alive and not Routing. BrokenRanks counts as intact.
+    public int CountIntact(Team t)
+    {
+        int n = 0;
+        foreach (var f in formations)
+            if (f.team == t && !f.IsRouting && f.soldiers.Count > 0) n++;
+        return n;
     }
 
     public void StartBattle()
@@ -199,7 +274,7 @@ public class BattleSetup : MonoBehaviour
 
     // V1 fixed army structure per side: a four-century primary melee line,
     // two melee reserve centuries behind it, and two archer centuries as a
-    // supporting missile line between the reserves — the default Roman-style
+    // supporting missile line between the reserves, the default Roman-style
     // deployment the commander AI and the player both start from. Composition
     // is fixed (no random rerolls) so both armies are symmetric.
     private void SpawnSide(Team team, float z, float yaw, bool auto)
@@ -263,18 +338,64 @@ public class BattleSetup : MonoBehaviour
 
     // Formation-level directional damage: where is the attacker relative to the
     // defender's canonical forward? Deterministic, anchor-based, tunable above.
-    public float GetDirectionalMultiplier(Formation attacker, Formation defender)
+    // Formed combat resolves at formation level by FACING, never by agent
+    // position (engaged lines interleave, so positions lie). A formed attacker
+    // facing roughly opposite the defender is frontal; roughly the same way,
+    // rear; otherwise a flank, left or right by the side its facing comes from.
+    // Attackers with no formed facing (BrokenRanks, Routing) fall back to the
+    // POSITION of the attacking soldier (hits) or of the attacker's main pack
+    // (surround) relative to the defender's facing.
+    private static bool HasFormedFacing(Formation f) =>
+        f.State != FormationState.BrokenRanks && f.State != FormationState.Routing;
+
+    // 0 front, 1 right flank, 2 left flank, 3 rear
+    private int ZoneIndexByFacing(Formation attacker, Formation defender)
     {
-        if (attacker == null || defender == null || attacker == defender)
-            return frontDamageMultiplier;
-        Vector3 toAttacker = attacker.AnchorPos - defender.AnchorPos;
-        toAttacker.y = 0f;
-        if (toAttacker.sqrMagnitude < 0.04f) return frontDamageMultiplier;
-        float angle = Vector3.Angle(defender.AnchorForward, toAttacker);
-        if (angle <= frontArcHalfAngleDeg) return frontDamageMultiplier;
-        if (angle >= 180f - rearArcHalfAngleDeg) return rearDamageMultiplier;
-        return flankDamageMultiplier;
+        float dot = Vector3.Dot(attacker.AnchorForward, defender.AnchorForward);
+        if (dot <= -Mathf.Cos(combatConfig.frontArcHalfAngleDeg * Mathf.Deg2Rad)) return 0;
+        if (dot >= Mathf.Cos(combatConfig.rearArcHalfAngleDeg * Mathf.Deg2Rad)) return 3;
+        // a flanker on the defender's right faces toward its left, i.e. against defender.right
+        return Vector3.Dot(defender.AnchorRot * Vector3.right, attacker.AnchorForward) < 0f ? 1 : 2;
     }
+
+    private int ZoneIndexByPosition(Formation defender, Vector3 point)
+    {
+        Vector3 to = point - defender.AnchorPos;
+        to.y = 0f;
+        if (to.sqrMagnitude < 0.04f) return 0;
+        float angle = Vector3.Angle(defender.AnchorForward, to);
+        if (angle <= combatConfig.frontArcHalfAngleDeg) return 0;
+        if (angle >= 180f - combatConfig.rearArcHalfAngleDeg) return 3;
+        return Vector3.Dot(defender.AnchorRot * Vector3.right, to) >= 0f ? 1 : 2;
+    }
+
+    private static DamageZone ToZone(int idx) => idx == 0 ? DamageZone.Front : idx == 3 ? DamageZone.Rear : DamageZone.Flank;
+
+    // Zone of ONE HIT: the attacking formation's facing relative to the
+    // defender's; a formless attacker uses the striking soldier's position.
+    public DamageZone GetDirectionalZone(Formation attacker, Formation defender, Vector3 attackerSoldierPos)
+    {
+        if (attacker == null || defender == null || attacker == defender) return DamageZone.Front;
+        return ToZone(HasFormedFacing(attacker) ? ZoneIndexByFacing(attacker, defender)
+                                                : ZoneIndexByPosition(defender, attackerSoldierPos));
+    }
+
+    // Zone an enemy FORMATION occupies around the defender (surround counting).
+    public int ZoneIndexOf(Formation attacker, Formation defender)
+    {
+        if (HasFormedFacing(attacker)) return ZoneIndexByFacing(attacker, defender);
+        return ZoneIndexByPosition(defender, attacker.DominantGroupCount > 0 ? attacker.DominantGroupCenter : attacker.AnchorPos);
+    }
+
+    public DamageZone GetDirectionalZone(Formation attacker, Formation defender) =>
+        attacker == null || defender == null || attacker == defender ? DamageZone.Front : ToZone(ZoneIndexOf(attacker, defender));
+
+    public float ZoneDamageMultiplier(DamageZone zone) =>
+        zone == DamageZone.Rear ? combatConfig.rearDamageMultiplier
+      : zone == DamageZone.Flank ? combatConfig.flankDamageMultiplier : combatConfig.frontDamageMultiplier;
+
+    public float GetDirectionalMultiplier(Formation attacker, Formation defender) =>
+        ZoneDamageMultiplier(GetDirectionalZone(attacker, defender));
 
     public Formation CreateFormation(string name, Team team, UnitStats stats, int count,
                                      int columns, Vector3 pos, float yaw, bool auto)
@@ -293,6 +414,7 @@ public class BattleSetup : MonoBehaviour
         {
             var s = SoldierFactory.Create(f, i, f.GetSlotWorldPos(i));
             s.role = roles[i];
+            if (officerRanks != null) s.ScaleMaxHealth(officerRanks.HealthMultiplier(roles[i]));   // officers are tougher
             f.AddSoldier(s);
             Register(s);
         }
@@ -315,8 +437,8 @@ public class BattleSetup : MonoBehaviour
             var ground = GameObject.CreatePrimitive(PrimitiveType.Plane);
             ground.name = "Ground";
             ground.transform.position = Vector3.zero;
-            // Phase 6: field is parameterized (default 410 x 280, ~11x the old
-            // area) — a Unity plane is 10x10 at scale 1
+            // field is parameterized (default 410 x 280, ~11x the old
+            // area), a Unity plane is 10x10 at scale 1
             ground.transform.localScale = new Vector3(fieldHalfX * 0.2f, 1f, fieldHalfZ * 0.2f);
             BattlefieldDecor.Decorate(ground);      // light tiled grass albedo
         }

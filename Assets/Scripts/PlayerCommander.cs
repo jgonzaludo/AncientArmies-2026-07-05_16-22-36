@@ -6,7 +6,7 @@ using UnityEngine.InputSystem;
 // Mobile-first control grammar (Docs/CURRENT_GAME_SPEC.md):
 //   tap friendly = select that formation EXCLUSIVELY (single taps hop between
 //   centuries; tapping the sole selected century deselects); DOUBLE-tapping a
-//   century adds it to the existing group — keep double-tapping to build it
+//   century adds it to the existing group, keep double-tapping to build it
 //   tap empty ground = clear all selection      tap enemy = inspect
 //   drag from a selected formation = command drag: a move drag previews the
 //   destination slot dots live and a second finger twists the final facing;
@@ -22,7 +22,7 @@ public class PlayerCommander : MonoBehaviour
     public Formation InspectedEnemy { get; private set; }
     public bool RotateMode { get; private set; }
 
-    // Rotate is a group edit now (Phase 2G): available when every live
+    // Rotate is a group edit now: available when every live
     // selected century is eligible (no auto-facing, not broken, not busy).
     public bool CanEnterRotateMode
     {
@@ -40,7 +40,7 @@ public class PlayerCommander : MonoBehaviour
         }
     }
 
-    // rotate-edit session (Phase 2G): pivot, entry facing, and the rigid
+    // rotate-edit session: pivot, entry facing, and the rigid
     // destination arrangement captured when the mode was entered
     private Vector3 rotatePivot;
     private Vector3 rotateInitialDir;
@@ -53,7 +53,7 @@ public class PlayerCommander : MonoBehaviour
     private const float RotateDeadzone = 1.5f;   // meters around the pivot: ignore unstable input
 
     // Arrow ownership (v1.8.2): while a formation participates in the rotate
-    // session, the yellow rotate arrow is THE arrow — FormationArrow and the
+    // session, the yellow rotate arrow is THE arrow, FormationArrow and the
     // destination-preview arrow both consult this and hide.
     public bool IsRotating(Formation f)
     {
@@ -70,7 +70,7 @@ public class PlayerCommander : MonoBehaviour
     private Formation dragEnemyTarget;     // enemy currently under the command drag
 
     // Place-and-twist facing: during a move drag the SECOND finger aims the
-    // group's final facing. Once past the deadzone the facing LOCKS — lifting
+    // group's final facing. Once past the deadzone the facing LOCKS, lifting
     // the second finger keeps it so position can still be adjusted one-handed;
     // only starting a new drag clears the lock. Unlocked moves fall back to
     // facing the direction of travel.
@@ -86,7 +86,7 @@ public class PlayerCommander : MonoBehaviour
         new List<FormationDestinationPreview>();
 
     // Double-tap group building: the FIRST tap on a century acts immediately
-    // (exclusive switch — no laggy delayed selection); a second tap on the
+    // (exclusive switch, no laggy delayed selection); a second tap on the
     // SAME century inside the window upgrades it to a group add by restoring
     // the selection snapshotted before the first tap and keeping the century
     // in it. Two taps on DIFFERENT centuries are just two switches.
@@ -100,7 +100,7 @@ public class PlayerCommander : MonoBehaviour
     private Transform rotatePreviewArrow;
     private float lastPinchDist = -1f;
 
-    // order destination clamps read the parameterized battlefield (Phase 6)
+    // order destination clamps read the parameterized battlefield
     private static float FieldX => BattleSetup.Instance != null
         ? BattleSetup.Instance.fieldHalfX - BattleSetup.Instance.fieldEdgeMargin : 54f;
     private static float FieldZ => BattleSetup.Instance != null
@@ -240,7 +240,7 @@ public class PlayerCommander : MonoBehaviour
     // Formation-level hit test: a direct soldier hit, or the closest formation
     // whose interaction footprint (soldiers + oriented rectangle + generous
     // padding) contains the tapped battlefield point. A formation of 40-50
-    // soldiers is one big touch target — taps between soldiers, on the block's
+    // soldiers is one big touch target, taps between soldiers, on the block's
     // edge, or slightly outside it all resolve to that formation. Overlapping
     // footprints resolve to the closest formation, never a random one.
     private Formation HitFormation(Vector2 screenPos)
@@ -274,10 +274,9 @@ public class PlayerCommander : MonoBehaviour
     private static bool BattleActive =>
         BattleSetup.Instance != null && BattleSetup.Instance.Phase == BattlePhase.Active;
 
-    // Deployment (Pre) allows full command interaction — select, move, rotate
-    // — with physical marching; only ATTACK orders wait for Start Battle.
+    // no commanding until Start Battle is pressed (and none once it has ended)
     private static bool CommandsAllowed =>
-        BattleSetup.Instance != null && BattleSetup.Instance.Phase != BattlePhase.Ended;
+        BattleSetup.Instance != null && BattleSetup.Instance.Phase == BattlePhase.Active;
 
     private static bool Deploying =>
         BattleSetup.Instance != null && BattleSetup.Instance.Phase == BattlePhase.Pre;
@@ -293,10 +292,12 @@ public class PlayerCommander : MonoBehaviour
         }
         if (f.team == Team.Blue)
         {
+            // a routing century cannot be selected or ordered
+            if (f.IsRouting) return;
             // Tap grammar: single tap SWITCHES (exclusive select; tapping the
             // sole selected century deselects it), a true double tap on one
             // century ADDS it to the group that existed before the first tap
-            // — so "select A, then double-tap B, double-tap C" builds
+            // so "select A, then double-tap B, double-tap C" builds
             // {A,B,C}, while single taps just hop between centuries.
             float now = Time.unscaledTime;
             bool doubleTap = f == lastTapFormation && now - lastTapTime < DoubleTapWindow;
@@ -306,7 +307,7 @@ public class PlayerCommander : MonoBehaviour
                 // double-tapping an existing member is a harmless no-op
                 DeselectAll();
                 foreach (var p in preTapSelection)
-                    if (p != null && p.soldiers.Count > 0 && !selection.Contains(p))
+                    if (p != null && p.soldiers.Count > 0 && !p.IsRouting && !selection.Contains(p))
                         ToggleSelect(p);
                 if (!selection.Contains(f)) ToggleSelect(f);
                 lastTapFormation = null;   // consume: a third tap starts fresh
@@ -366,7 +367,8 @@ public class PlayerCommander : MonoBehaviour
     {
         for (int i = selection.Count - 1; i >= 0; i--)
         {
-            if (selection[i] == null || selection[i].soldiers.Count == 0)
+            // dead or routing centuries leave the selection
+            if (selection[i] == null || selection[i].soldiers.Count == 0 || selection[i].IsRouting)
             {
                 if (selection[i] != null) selection[i].SetSelected(false);
                 selection.RemoveAt(i);
@@ -375,7 +377,7 @@ public class PlayerCommander : MonoBehaviour
         if (InspectedEnemy != null && InspectedEnemy.soldiers.Count == 0)
             InspectedEnemy = null;
         // Facing authority: losing rotate eligibility mid-preview (target
-        // acquired, engagement, break ranks, defeat) cancels rotate mode —
+        // acquired, engagement, break ranks, defeat) cancels rotate mode,
         // auto-facing must never fight a queued manual facing.
         if (RotateMode && !CanEnterRotateMode)
             ExitRotateMode();
@@ -394,7 +396,7 @@ public class PlayerCommander : MonoBehaviour
             dragFacingLocked = false;   // the facing lock is per-drag
             if (commandLine == null) commandLine = BattleVisuals.CreateCommandLine();
             // visibility is owned by UpdateCommandDrag: only ATTACK drags show
-            // the line — move drags show the destination slot dots instead
+            // the line, move drags show the destination slot dots instead
         }
         else
         {
@@ -456,13 +458,13 @@ public class PlayerCommander : MonoBehaviour
         if (!GroundPoint(pos, out Vector3 pt)) return;
 
         var over = HitFormation(pos);
-        // no attack orders during deployment — combat starts at Start Battle
-        dragEnemyTarget = (!Deploying && over != null && over.team == Team.Red) ? over : null;
+        // no attack orders during deployment, combat starts at Start Battle
+        dragEnemyTarget = (!Deploying && over != null && over.team == Team.Red && !over.IsRouting) ? over : null;
 
         if (dragEnemyTarget != null)
         {
             // ATTACK drag: red line to the target plus a ring around it. The
-            // slot-dot preview is a move-only readout — an attack has no
+            // slot-dot preview is a move-only readout, an attack has no
             // planned arrival grid to show.
             ClearCandidates();
             commandLine.gameObject.SetActive(true);
@@ -478,7 +480,7 @@ public class PlayerCommander : MonoBehaviour
             return;
         }
 
-        // MOVE drag: no line, no ground disc — the live candidate slot dots
+        // MOVE drag: no line, no ground disc, the live candidate slot dots
         // ARE the preview. Fed through the same arrangement math the release
         // will issue, so the dots never lie.
         commandLine.gameObject.SetActive(false);
@@ -493,14 +495,14 @@ public class PlayerCommander : MonoBehaviour
             var preview = PreviewFor(f);
             if (preview == null) continue;
             preview.SetCandidate(ClampDest(pt + arrange * (f.AnchorPos - pivot), zMin, zMax),
-                                 facing);
+                                 dragFacingLocked ? facing : f.AnchorForward);   // each unit shows its own current facing until twisted
             if (!fedCandidates.Contains(preview)) fedCandidates.Add(preview);
         }
     }
 
     // Second-finger facing (place-and-twist): project the second touch to the
     // ground and aim the group from the candidate destination toward it.
-    // Inside the deadzone the direction is unstable — keep the previous
+    // Inside the deadzone the direction is unstable, keep the previous
     // facing (locked or travel-derived) rather than jitter.
     private void UpdateDragFacing(Vector3 groupDest)
     {
@@ -521,14 +523,14 @@ public class PlayerCommander : MonoBehaviour
         }
     }
 
-    // Single source of truth for the group move pose (Phase 2E math): the
+    // Single source of truth for the group move pose: the
     // live drag preview and the issued order both run THIS, so the dots the
     // player sees are exactly the slots the order fills. Pivot at the
     // selected anchors' center; relative offsets rigidly rotated so the whole
-    // arrangement faces the group facing — the direction of travel, unless
+    // arrangement faces the group facing, the direction of travel, unless
     // the second finger has locked an explicit facing. (Selected centuries
     // with different individual facings are aligned to the common group
-    // facing — documented simplification.)
+    // facing, documented simplification.)
     private bool ComputeGroupArrangement(Vector3 pt, out Vector3 pivot,
                                          out Quaternion arrange, out Vector3 groupFacing)
     {
@@ -551,8 +553,9 @@ public class PlayerCommander : MonoBehaviour
         travel.y = 0f;
         bool fwdOk = avgFwd.sqrMagnitude > 0.01f;
         Vector3 fwd = fwdOk ? new Vector3(avgFwd.x, 0f, avgFwd.z).normalized : Vector3.forward;
-        groupFacing = dragFacingLocked ? dragLockedFacing
-            : travel.sqrMagnitude > 0.04f ? travel.normalized : fwd;
+        // facing is preserved: the group keeps the facing it has now unless the second
+        // finger (twist) locks a new one, it never turns to the direction of travel
+        groupFacing = dragFacingLocked ? dragLockedFacing : fwd;
         // a locked facing is stable by construction; an inferred travel
         // facing needs a meaningful drag distance before it may rotate the
         // arrangement
@@ -562,7 +565,7 @@ public class PlayerCommander : MonoBehaviour
     }
 
     // destination clamps shared by preview and order; deployment destinations
-    // stay inside the friendly zone (Phase 6C)
+    // stay inside the friendly zone
     private void GetDestBoundsZ(out float zMin, out float zMax)
     {
         zMin = -FieldZ;
@@ -601,7 +604,7 @@ public class PlayerCommander : MonoBehaviour
         var origin = dragOrigin;
         var enemy = dragEnemyTarget;
         bool hasPoint = GroundPoint(pos, out Vector3 pt);
-        CancelCommandDrag();   // the facing lock survives — the order below reads it
+        CancelCommandDrag();   // the facing lock survives, the order below reads it
         if (origin == null || origin.soldiers.Count == 0 || !hasPoint) return;
 
         // dragging back onto the origin formation cancels the command
@@ -615,7 +618,7 @@ public class PlayerCommander : MonoBehaviour
         else
         {
             // Group order snapshot: the same arrangement math that drove the
-            // candidate preview all drag long — release issues what was shown.
+            // candidate preview all drag long, release issues what was shown.
             if (!ComputeGroupArrangement(pt, out Vector3 pivot, out Quaternion arrange,
                                          out Vector3 groupFacing)) return;
             GetDestBoundsZ(out float zMin, out float zMax);
@@ -623,11 +626,11 @@ public class PlayerCommander : MonoBehaviour
             {
                 if (f == null || f.soldiers.Count == 0) continue;
                 f.IssueMove(ClampDest(pt + arrange * (f.AnchorPos - pivot), zMin, zMax));
-                f.SetDestinationFacing(groupFacing);
+                if (dragFacingLocked) f.SetDestinationFacing(groupFacing);   // else IssueMove keeps the unit's own facing
             }
             BattleVisuals.SpawnPulse(pt, false);
         }
-        // Selection persists after orders (Phase 2): destination previews
+        // Selection persists after orders: destination previews
         // follow the moving centuries until the player deselects.
     }
 
@@ -640,13 +643,13 @@ public class PlayerCommander : MonoBehaviour
         if (enemyRing != null) enemyRing.SetActive(false);
     }
 
-    // ---------------- free-arrow rotate mode (Phase 2G) ----------------
+    // ---------------- free-arrow rotate mode ----------------
     //
     // The Rotate button toggles an edit session: a freely movable facing arrow
     // anchored to the session pivot. Moving centuries edit their DESTINATION
     // facing (pivot = destination arrangement center; positions rotate rigidly
     // around it on release); stationary centuries pivot in place. Attack
-    // orders never reach here — GetRotateBlock reports AutoFacing and the
+    // orders never reach here, GetRotateBlock reports AutoFacing and the
     // button is greyed out.
 
     public void ToggleRotateMode()
@@ -699,7 +702,7 @@ public class PlayerCommander : MonoBehaviour
         rotateEdited = false;
         if (rotatePreviewArrow == null)
             rotatePreviewArrow = BattleVisuals.CreateArrow("RotatePreview", preview: true);
-        // v1.8.2 color flow: entering rotate mode changes NOTHING visually —
+        // v1.8.2 color flow: entering rotate mode changes NOTHING visually,
         // the arrow stays white at the current facing until the player
         // actually starts dragging a new direction, then it turns yellow.
         BattleVisuals.SetArrowPreviewStyle(rotatePreviewArrow, false);
@@ -790,7 +793,7 @@ public class PlayerCommander : MonoBehaviour
     private bool HandlePinch()
     {
         // an active move drag owns the second finger (place-and-twist facing)
-        // — never steal it for zoom mid-order; two fingers on empty ground
+        // never steal it for zoom mid-order; two fingers on empty ground
         // still pinch-zoom as before
         if (mode == PointerMode.CommandDrag) return false;
         var ts = Touchscreen.current;

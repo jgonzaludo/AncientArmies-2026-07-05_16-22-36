@@ -1,7 +1,7 @@
 using UnityEngine;
 
 // One arrow per formation, shown while selected: sits just ahead of the front
-// rank and points along the formation's authoritative facing (AnchorForward —
+// rank and points along the formation's authoritative facing (AnchorForward,
 // the same value directional damage and slot orientation read).
 public class FormationArrow : MonoBehaviour
 {
@@ -24,7 +24,7 @@ public class FormationArrow : MonoBehaviour
         // Single-arrow ownership (v1.8.2): this white arrow shows ONLY for a
         // selected, stationary, non-rotating formation. While a Move order's
         // yellow destination arrow shows, or the rotate session's yellow arrow
-        // is live, they own the direction readout and this one hides — exactly
+        // is live, they own the direction readout and this one hides, exactly
         // one arrow per formation context. Broken ranks show no arrow at all.
         bool movePreviewOwns = f.CurrentOrderType == OrderType.Move && f.HasMoveDestination;
         bool rotateOwns = commander != null && commander.IsRotating(f);

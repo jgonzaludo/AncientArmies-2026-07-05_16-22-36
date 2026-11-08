@@ -8,12 +8,26 @@ running in `Assets/Scenes/Battle.unity`. Nothing here is aspirational.
 A single symmetric land battle: Blue (player) against Red (autonomous AI).
 The battle runs Pre → Active → Ended. Press **START** to go Active; a
 persistent **RESTART** button reloads the scene at any time before the end.
-The battle ends when one side has no living soldiers, reporting
-`BLUE WINS` / `RED WINS` / `DRAW`.
+The battle ends by **line collapse**: a team loses the moment 75 % of its
+formations (6 of 8) are Routing or destroyed (counted from its actual formations, never
+an assumed 8). That moment is the latch, nothing afterwards reopens it. A
+visible **10:00 countdown** is the stall backstop: small and faint until the
+last 60 s, then bright and large. At 0:00 the side with more intact formations
+(alive and not Routing; BrokenRanks counts) wins, equal is a draw. The result
+states its reason internally (`BLUE WINS, RED LINE COLLAPSED`, `RED WINS,
+TIME`, `DRAW, BOTH LINES COLLAPSED`), but **the end screen shows only the
+winner**: `BLUE WINS`, `RED WINS` or a grey `DRAW`.
+
+A **tide bar** at the top center shows the balance of the battle while it is
+Active: blue fills from the left, red is the rest, a tick marks even. Each side's
+power is the living men of formations that have not routed, each weighted by its
+morale (never below 25 %); the fill eases toward the value rather than jumping.
+The 10:00 countdown sits just under it, clearly readable from the start (shown
+in the pre-battle too) and larger and amber in the final 60 s. `showTideBar` in `MoraleConfig` switches it off.
 
 ## Scale and army composition
 
-Per side, fixed and symmetric — no random rerolls:
+Per side, fixed and symmetric, no random rerolls:
 
 | Element | Value |
 | --- | --- |
@@ -33,17 +47,18 @@ would overlap.
 
 Formations physically march to their deployment positions during the Pre
 phase; combat cannot start because soldiers only fight while the battle is
-Active.
+Active. The player cannot select or order anything before START or after the
+battle has ended (the camera still pans and zooms).
 
 ## Century roles
 
-A century is 80 soldiers **total** — specialists occupy slots, they are not
+A century is 80 soldiers **total**: specialists occupy slots, they are not
 added on top. Roles are reserved in data (`UnitStats.BuildCenturyRoles`):
 
-- **Centurion** — front-right corner slot, melee centuries only. Re-pinned to
+- **Centurion**: front-right corner slot, melee centuries only. Re-pinned to
   that corner after every slot remap. Never promoted or respawned.
-- **Signifer** — right of front centre. **Cornicen** — behind the signifer.
-- **Optio** — rear centre. **Tesserarius** — in the ranks.
+- **Signifer**: right of front centre. **Cornicen**, behind the signifer.
+- **Optio**: rear centre. **Tesserarius**, in the ranks.
 - Remainder: **Legionary** or **Archer**.
 
 All roles currently spawn the generic legionary or archer visual; the
@@ -55,78 +70,168 @@ Mobile-first touch grammar. Mouse input in the editor mirrors it 1:1.
 
 | Input | Result |
 | --- | --- |
-| Tap friendly formation | Select it **exclusively** |
+| Tap friendly formation | Select it **exclusively** (a routing formation cannot be selected) |
 | Tap the sole selected formation | Deselect |
 | **Double**-tap a formation | Add it to the current selection (keep double-tapping to build a group) |
 | Tap empty ground | Clear all selection |
 | Tap enemy formation | Inspect it |
-| Drag from a selected formation | Command drag — move order, with live destination slot dots |
+| Drag from a selected formation | Command drag, move order, with live destination slot dots |
 | Second finger during a move drag | Twist the final facing; it **locks** once past the deadzone |
 | Drag onto an enemy | Attack order (line + ring preview instead of dots) |
 | Drag on empty ground | Pan the camera |
 | Pinch / scroll | Zoom |
 
+A selected formation that routs leaves the selection immediately. Commands only
+work while the battle is Active (not during Pre deployment, not once it has ended).
+
 Touch targets are deliberately forgiving: tap padding and command-grab
 tolerance are zoom-aware and expressed in 1080p-reference pixels, so they stay
 finger-sized regardless of screen density.
 
-HUD command buttons: **CHARGE**, **REFORM**, **ROTATE**, plus persistent
-**RESTART**, **BANNERS** (cycles banner visibility) and **SCENES**.
+HUD command buttons: **CHARGE** and **ROTATE**, plus persistent **RESTART**,
+**BANNERS** (cycles banner visibility) and **SCENES**. There is no Reform
+button: recovery is automatic. A selection of broken centuries shows
+"Regroups when clear of melee" instead of commands.
 
 ## Formation states
 
-`Ordered · Attacking · Engaged · BrokenRanks · Withdrawing · Reforming · Charging`
+`Ordered · Attacking · Engaged · BrokenRanks · Withdrawing · Reforming · Charging · Routing`
 
-- **Ordered** — full slot discipline; the parade state.
-- **Attacking** — closing with an explicit target. Melee closes to contact;
+- **Ordered**: full slot discipline; the parade state.
+- **Attacking**: closing with an explicit target. Melee closes to contact;
   ranged formations stop at their preferred range and wheel to face.
-- **Engaged** — melee contact. Entered automatically when any soldier is
+- **Engaged**: melee contact. Entered automatically when any soldier is
   engaged; exits after 1.5 s with no contact.
-- **Withdrawing** — any move order issued while Engaged is a disengagement
+- **Withdrawing**: any move order issued while Engaged is a disengagement
   attempt; the formation backs away without wheeling through the melee.
-- **BrokenRanks** — zero slot steering. Soldiers act as individuals with a wide
-  acquisition radius, leashed to a rally point. **Reform is the only command
-  available.**
-- **Reforming** — survivors walk back to a rebuilt slot grid at the frozen
+- **BrokenRanks** ("Disordered" in design language), zero slot steering.
+  Soldiers act as individuals with a wide acquisition radius, leashed to a
+  rally point. **It takes no orders.** It stays loose for `pursuitMaxSeconds`
+  (9 s), a charge's pursuit lasts exactly that long. Then it regroups: if at
+  most 15% of its men have an enemy within 3 m (and 2 s have passed since any
+  aborted reform) it reforms by walking back to the standard; if it is still
+  locked in melee it **re-forms in place**: slots rebuilt around the main pack
+  where it stands, planted on the Signifer / senior officer, facing the nearest
+  enemy, and becomes Engaged again, with orders available. Both teams use
+  this one rule. A charge is a commitment, but only for 9 s.
+- **Reforming**: survivors walk back to a rebuilt slot grid at the frozen
   rally anchor. Completes at 75 % in place (or a 25 s timeout); **aborts back
-  to Broken** if 12 % of survivors are melee-engaged. Arrow fire alone never
+  to Broken** if 30 % of survivors are melee-engaged. Arrow fire alone never
   aborts a reform.
-- **Charging** — a committed sprint (1.3× speed) at a nearby enemy within 45 m.
+- **Charging**: a committed sprint (1.3× speed) at a nearby enemy within 45 m.
   Grants a 1.5× impact bonus for 2 s after first contact, then dissolves into
   **pursuit** on the broken-ranks machinery.
+- **Routing**: entered from any state when morale falls below 15.
+  **Permanent.** Soldiers stop acquiring targets and never attack. Each flees
+  away from the nearest enemy formation, bent toward its own army's back
+  edge, at 1.2× move speed, with no leash, and **runs off the map**: a
+  router that crosses the field edge leaves the battle for good (not a
+  casualty). The formation takes **no orders** from the player, the AI, or
+  any HUD button, has no banner, and is never an attack or charge target;
+  enemy soldiers still cut down routers within reach and pursuing packs
+  still hunt them, that is the pursuit. It counts as fallen for the collapse
+  rule. (`routedCanRally` in MoraleConfig re-enables the original rally: routers
+  then stop at the field edge and may rally above 35 morale.)
 
-Break Ranks freezes the rally anchor and facing where the ranks broke. A
-pursuit has no pre-frozen rally — the standard moves with the pack until
-Reform plants it where the men stand.
+A reform plants the standard on the **Signifer** if he is alive in the main
+pack (Romans formed on the standard), else on the highest-grade officer in the
+main pack, else on the pack's center. "Main pack" is the dominant cluster, so
+stragglers never drag the rally point into empty ground.
 
 ## Rotation maneuvers
 
 The Rotate command classifies the shortest signed yaw delta:
 
-- **≤ 20°** — small turn: facing snaps, everyone keeps their slot, soldiers
+- **≤ 20°**: small turn: facing snaps, everyone keeps their slot, soldiers
   pivot in place and redress.
-- **≥ 135°** — about-face: facing snaps and a nearest-slot remap reinterprets
+- **≥ 135°**: about-face: facing snaps and a nearest-slot remap reinterprets
   the ranks in place; the old rear becomes the new front.
-- **Otherwise** — inner-flank wheel: the whole slot grid rotates rigidly around
+- **Otherwise**: inner-flank wheel: the whole slot grid rotates rigidly around
   the inner front corner. The outer flank walks the long arc; nobody crosses
   the block. A wheel pauses while more than 40 % of soldiers are mid-attack.
 
-Rotate is unavailable while auto-facing (chasing or engaged), while broken, or
-while otherwise busy — the button reflects exactly this.
+Rotate is unavailable while auto-facing (chasing or engaged), while broken or
+routing, or while otherwise busy, the button reflects exactly this.
+
+## Morale
+
+Every formation has morale from 0 to 100, ticked 4× per second while the
+battle is Active. All values live in `MoraleConfig.asset`.
+
+- **Base morale** is capped by losses against starting strength. Out of melee
+  the rest ceiling is 100 − 1 × loss%. In melee (any soldier with an enemy
+  within 3 m) the contact ceiling is 100 − 1.1 × loss%, so a frontal grind
+  alone routs a century only near 77% losses. **Routs are meant to come
+  from being surrounded or from sudden shocks, not from grinding.**
+- **Shock debt** is panic. Each casualty adds 3 × its percent of starting
+  strength (3.75 per man in an 80-man century) **times the zone of the killing
+  blow**: front ×0.25 (steady frontal losses are muted), flank ×2, rear ×3; a
+  ranged kill weighs ×0.5 instead. **Burst rule:** once more than 5% of
+  starting strength (4 of 80) has fallen inside a rolling 3 s window, further
+  casualties weigh ×2 whatever their zone (the higher weight applies). All
+  of it is then multiplied by `panicScale` 0.65 and rate-limited to 8 panic
+  per second, the excess queues and lands over the following ticks, never
+  discarded. The debt decays
+  by 5 per second at all times, **divided by (1 + extra enemy formations
+  engaged)**: 2-on-1 halves decay, 3-on-1 thirds it. Losing 10 of 80 men at
+  once in melee routs a fresh century; losing them over a few seconds does
+  not.
+- **Surrounded**: every tick adds 8 panic per second for each engaged zone
+  beyond the first. Zones (front, left flank, right flank, rear) come from
+  the facing of each enemy formation that is actually fighting us, at least
+  10% of our living men in contact with it, so a neighbour brushing the
+  line's edge is not a second side. Unscaled and outside
+  the panic cap. Two zones builds panic steadily (decay is 5/s); three or
+  more breaks a unit within seconds.
+- **Contagion**: when a formation routs, every same-team formation within
+  30 m (anchor to anchor) takes 15 shock. A steady unit shrugs it off; a
+  wavering one goes over.
+- **Officer death**: an officer killed (not one who fled) adds his
+  `deathShock` to his formation on top of the casualty shock, Tesserarius
+  and Cornicen 4, Optio 12, Centurion 24, Signifer 28 (losing the standard
+  hits hardest), unscaled and outside the panic cap. A fresh century never routs from one officer death; a
+  wavering one does from losing its Centurion or standard.
+- **Reported morale** = base − shock debt. Below 15 the formation routs.
+- **Recovery**: +3 base per second, only out of melee and only once 3 s have
+  passed without a casualty.
+- Each panic input has an enable switch in `MoraleConfig`
+  (`enableFlankShock`, `enableOutnumberShock`, `enableContagion`,
+  `enableOfficerShock`, `enableSurroundShock`, `enableArrowShockWeight`,
+  `enableShockCap`) so a problem can be isolated on device without code.
+
+## Officers
+
+Every century spawns a Signifer, Cornicen, Optio and Tesserarius; melee
+centuries also spawn a Centurion (archer centuries have no Centurion). Grades
+live in `OfficerRanks.asset`: Centurion 4, Optio 3, Signifer 2, Tesserarius 1,
+Cornicen 1, line soldiers 0. Officers are tougher: spawn health ×2.0 for the
+Centurion and Signifer, ×1.5 for the Optio. The commanding officer is the highest-grade
+survivor; succession is implicit. Grade numbers are drawn above the officers
+of the selected or inspected formation only.
 
 ## Combat
 
-- **Directional damage** on the formation's canonical facing: front ×1.0,
-  flank ×1.5, rear ×2.0, with 60° front and rear arcs.
-- A **global damage scale of 0.25** stretches battles roughly 4×. It preserves
-  every relative combat relationship — only the attrition rate changes.
+- **Directional damage by facing** (`CombatConfig.asset`): front ×0.5, flank
+  ×1.5, rear ×2.0, with 60° front and rear arcs. The zone of a hit is the
+  attacking formation's facing relative to the defender's, roughly opposite
+  is front, roughly the same way is rear, in between is a flank, never the
+  striking soldier's position (engaged lines interleave). Attackers with no
+  formed facing (BrokenRanks, Routing) use the soldier's position instead.
+  Arrows use the same multipliers, so they do half damage from the front.
+  Head-on fights bleed slowly; flank, rear and the pursuit of routers stay
+  deadly.
+- **Personal space:** every soldier's body collider is 0.5 m radius
+  (`CombatConfig.soldierColliderRadius`), so any two soldiers, friend or
+  enemy, in any state, stay at least 1.0 m apart; visuals are unchanged.
+- A **global damage scale of 0.15** stretches battles. It preserves every
+  relative combat relationship, only the attrition rate changes.
 - **Melee**: 12 damage on a 4 s cadence, 1.7 m reach. Gameplay still chooses
   one of three attack variants (thrust / over-shield / diagonal slash), but
   with placeholder capsules there is no clip to sync to, so damage resolves
   immediately rather than on an authored contact frame. At most 3 attackers
   per target spreads strikes along the contact line.
 - **Ranged**: archers fire as a formation. A volley window opens every 8 s for
-  1.5 s, and each archer looses once inside it at a deterministic offset —
+  1.5 s, and each archer looses once inside it at a deterministic offset,
   readable volleys with lulls, not 80 independent drizzling timers. Volley
   clocks are staggered per century. 10 damage, 48 m max range, 40.8 m
   preferred, 2.5 m minimum (inside that they defend with a sidearm). Target
@@ -136,40 +241,67 @@ while otherwise busy — the button reflects exactly this.
 
 ## Formation cohesion behaviors
 
-- **Auto-close** — ordinary attrition leaves empty slots; the grid rebuilds for
+- **Auto-close**: ordinary attrition leaves empty slots; the grid rebuilds for
   the surviving headcount every 2 s once 2 casualties accumulate. Suspended
   during melee, during a Rotate maneuver, and while a century is firing.
-- **Rank replacement** — during ordered melee, a coherent soldier one row back
+- **Rank replacement**: during ordered melee, a coherent soldier one row back
   is promoted into a vacated front slot. Cascading front-to-back feeds men into
   the fight progressively while the rest stays structured.
-- **Edge engagement** — unengaged soldiers within 6 m of an enemy get loosened
+- **Edge engagement**: unengaged soldiers within 6 m of an enemy get loosened
   slot weight and longer reach, so melee edges bend and wrap without the whole
   formation dissolving.
-- **Defensive pivot** — an engaged formation slowly wheels toward the contact
+- **Defensive pivot**: an engaged formation slowly wheels toward the contact
   after a 1.2 s delay. Heavily engaged formations (≥ 35 % engaged) are
   **pinned**: the tactical flank stays exposed until the formation genuinely
   turns.
-- **Dominant group** — union-find clustering over soldier proximity, with
+- **Dominant group**: union-find clustering over soldier proximity, with
   hysteresis, picks the main body. It anchors the banner and the pursuit
   anchor.
 
 ## Enemy AI
 
 `EnemyCommander` runs the Red side through the same public command API the
-player uses — it has no privileged access. It scores targets and runs separate
+player uses, it has no privileged access. It scores targets and runs separate
 routines for the front line, the archers, and the reserves.
 
 ## Presentation
 
-**The build currently runs on placeholder primitives.** All character art,
-models, and animations were stripped pending Tripo/Blender production:
+**Soldiers are KayKit characters** (free CC0 interim art; the final art
+pipeline is still undecided). The old capsule placeholders remain behind
+`KayKitVisualConfig.useKayKitVisual`.
 
-- Soldiers are **capsules** (melee wider than archers) with a cube weapon that
-  doubles as the facing indicator, tinted by team and unit type. No Animator,
-  no rig, no equipment meshes.
-- The ground is a **flat sand colour** — no texture, no tiling, so nothing
+- Chunky armed soldiers: melee with a sword and a square shield, archers with
+  a bow. Blue and red are told apart by team-coloured armour plates, tabard and
+  shield in the banner blue / red; the helmet and sword stay steel and skin stays
+  natural, with a team-coloured helmet cap, dark eyebrows and four skin tones (default, olive, tan, brown) spread across each
+  century. Officers use the same body for
+  now. Cape and visor are not used.
+- Animation follows state:
+
+  | State | Clip |
+  |---|---|
+  | Idle / standing | Idle_A |
+  | Formed, in contact with the enemy | Melee_Blocking |
+  | Marching | Walking_A (playback scaled by speed) |
+  | Charging, routing | Running_A |
+  | Melee attack | Melee_1H_Attack_Stab / Chop / Slice_Diagonal (the soldier's existing variant roll) |
+  | Hit, formed, front blow | Melee_Block_Hit |
+  | Hit otherwise | Hit_A |
+  | Death | Death_A, then Death_A_Pose (the corpse fade is unchanged) |
+  | Archer idle / aim | Ranged_Bow_Aiming_Idle |
+  | Archer shot | Ranged_Bow_Draw then Ranged_Bow_Release (the arrow leaves at the release) |
+  | Battle won | Cheering, winning side |
+
+  Every soldier starts at a random offset so a century never moves in lockstep.
+- **Zoom detail**: mesh LOD and animation rate drop as the camera zooms out,
+  but every man is still drawn as a soldier until very far out; the
+  merged-billboard impostor blocks take over only below ~18 soldier pixels.
+- **Facing**: the model turns to face its direction of motion (a man recalled,
+  sidestepping or withdrawing never walks backwards); its formation / combat
+  facing is unchanged for gameplay. In melee contact only real travel turns it.
+- The ground is a **flat sand colour**: no texture, no tiling, so nothing
   repeats at max zoom-out.
-- Arrows are small dark spheres.
+- Arrows are the KayKit arrow model, turned along their flight path.
 
 Everything else is unchanged:
 
@@ -179,9 +311,67 @@ Everything else is unchanged:
   group.
 - Ground arrows and live destination-slot previews for orders.
 - A merged-billboard **impostor LOD** hides individual soldier visuals at far
-  zoom. Simulation is untouched — only presentation goes dormant.
+  zoom. Simulation is untouched, only presentation goes dormant.
+- **Wavering halo**: an additive 4× glow plus a thick ring behind the badge,
+  shown below 50 morale and hidden again above 53, #FFD400 → #FF2A00, pulsing
+  1.5 → 3 Hz in both alpha (0.7–1) and scale (1–1.4) as morale falls toward
+  15, with a one-time flash when a formation first enters the band. Never
+  dimmed by banner dimming; the badge itself is untouched. Both teams.
+  Routing formations show no banner at all.
+- **Officer grade markers** above the officers of the selected or inspected
+  formation.
+- **Debug morale overlay** (tuning only, `showDebugMorale`): each formation's
+  morale and state near its banner.
+
+- **Victory screen** (gold-bevel frames, from the player's side): VICTORY / DEFEAT / DRAW on a
+  ribbon, why it ended (which line collapsed and how many formations routed or were destroyed,
+  or the time-out comparison), and for each army its soldiers still standing per formation
+  (`62 / 80` and a bar, with the unit's banner icon; wiped-out formations are dimmed). No
+  morale or other stats. REMATCH restarts.
+- **Target stickiness**: a soldier keeps a new target for at least 1.5 s (and
+  out to twice the acquire radius while held); a melee man with a live target
+  never runs back to his slot, and a recall latches until he is within 1 m of
+  it (starts beyond 3 m). Archers always return to their slots.
+- **Route smoothing**: planned routes have their corners rounded into gentle
+  curves, and the unit steers along the same curve that is drawn.
+- **Edge contact swing-in** exists but is **off** (`CombatConfig.swingIn`): in
+  the edge test it pushed the unit into surround shock and a rout.
+
+## Terrain
+
+The field is no longer flat. A hand-painted **terrain map** (one pixel per 2 m
+cell, one colour per type) decides what each spot is. The first two maps are
+`Map_Default` (a meandering river across the whole field with a bridge on the
+road, a wide ford and a narrower ford, muddy banks, forests and rock outcrops)
+and `Map_Stirling` (after Stirling Bridge 1297: one narrow bridge on a looping
+river, a marsh on the far bank, forest on the flanks; a chokepoint test map).
+Both deployment zones (|z| 50 to 150, |x| up to 130) are always clear grass or road.
+
+| Type | Effect |
+| --- | --- |
+| Grass | normal speed |
+| Road | speed x 1.15 |
+| Forest | speed x 0.7, concealed (a flag fog of war can use later); trees are scenery, not obstacles |
+| Mud | speed x 0.6 |
+| Ford | speed x 0.5 |
+| Bridge | normal speed, the way across deep water |
+| Deep water, rock | blocked: nothing walks there |
+
+- Speed changes ease in over about half a second at a border and apply to marching
+  and charging, not to fleeing.
+- Routes go around blocked ground and use bridges and fords; both the player and the
+  enemy plan through the same code. An order onto water, rock or an unreachable
+  island snaps to the nearest reachable dry spot, and the ground marker shows
+  where it really went. A formation never steps into blocked ground; at a bank it
+  slides along it.
+- Trees within a short distance of one of the player's formations turn see-through
+  so a unit in a forest stays visible and selectable (trees have no colliders).
+- Maps are authored by painting a PNG in `Assets/Resources/Terrain` (colour key in
+  `TerrainMap`); a generated map is not in scope yet. Hills and height are out.
+- Look: painted ground textures blended by the map, painted 2d tree, rock, bush and
+  bridge sprites with cast shadows, all drawn for the fixed orthographic camera.
 
 ## Deliberately not in this build
 
-Morale, terrain, progression, multiplayer, and advanced enemy tactics are all
-out of scope. Do not add them without explicit approval.
+Progression, multiplayer, fog of war, hills, and advanced enemy tactics are all out of
+scope. Do not add them without explicit approval.

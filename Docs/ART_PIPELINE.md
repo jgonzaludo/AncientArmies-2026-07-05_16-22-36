@@ -1,6 +1,6 @@
 # Art pipeline
 
-The active production pipeline. Adopted 2026-07-24 — see
+The active production pipeline. Adopted 2026-07-24, see
 [DECISIONS.md](DECISIONS.md).
 
 ## The chain
@@ -104,9 +104,9 @@ explicit approval.
 
 Two gates, both human:
 
-1. **Tripo output approval** — before a generation moves from
+1. **Tripo output approval**: before a generation moves from
    `Tripo/RawExports` to `Tripo/ApprovedExports` and into Blender.
-2. **Model and animation approval** — before FBX export into `Assets/`.
+2. **Model and animation approval**: before FBX export into `Assets/`.
 
 Automation may prepare, validate, convert, and report at any point. It may not
 pass either gate.

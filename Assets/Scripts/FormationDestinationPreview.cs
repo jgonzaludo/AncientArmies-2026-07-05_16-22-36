@@ -2,10 +2,10 @@ using UnityEngine;
 using UnityEngine.Rendering;
 
 // Pooled destination preview, one per formation: while the formation is
-// selected with a pending Move order — or while PlayerCommander feeds a live
-// drag CANDIDATE pose — every planned destination slot is shown as a small
+// selected with a pending Move order, or while PlayerCommander feeds a live
+// drag CANDIDATE pose, every planned destination slot is shown as a small
 // ground circle plus one facing arrow at the destination pose.
-// Circles are one combined world-space mesh — a triangle-fan disc per slot —
+// Circles are one combined world-space mesh, a triangle-fan disc per slot,
 // on an ordinary MeshRenderer with one shared transparent material, the same
 // non-instanced runtime-material path the arrows and command discs use.
 // Instancing is deliberately avoided: runtime-generated materials have no
@@ -34,7 +34,7 @@ public class FormationDestinationPreview : MonoBehaviour
     private PlayerCommander commander;
 
     // Combined circle mesh with world-space vertices. Its GameObject lives at
-    // the scene root at identity — parenting it to the formation would drag
+    // the scene root at identity, parenting it to the formation would drag
     // the world-space discs along with the moving formation transform.
     private GameObject circlesGo;
     private Mesh circlesMesh;
@@ -53,7 +53,7 @@ public class FormationDestinationPreview : MonoBehaviour
 
     // Candidate pose: fed every frame by PlayerCommander while a move drag is
     // in progress, before any order exists. While set, it overrides the
-    // selection/order gates — the player must see the exact grid the release
+    // selection/order gates, the player must see the exact grid the release
     // will issue, even though the formation has no Move order yet.
     private bool hasCandidate;
     private Vector3 candidateDest;
@@ -127,7 +127,7 @@ public class FormationDestinationPreview : MonoBehaviour
                     (f.IsSelected && f.CurrentOrderType == OrderType.Move &&
                      f.HasMoveDestination && f.soldiers.Count > 0);
         // Single-arrow ownership: while the rotate session edits this
-        // formation, its yellow arrow IS the direction readout — hide this
+        // formation, its yellow arrow IS the direction readout, hide this
         // one. The slot circles stay and rotate live under the drag.
         bool arrowShown = show && !(commander != null && commander.IsRotating(f));
         if (arrow.gameObject.activeSelf != arrowShown) arrow.gameObject.SetActive(arrowShown);

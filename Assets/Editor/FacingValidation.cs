@@ -5,7 +5,7 @@ using UnityEngine;
 // soldiers deviate from its canonical AnchorForward. Menu-driven, never runs
 // per frame, safe outside Play Mode.
 //
-// The former controller/prefab rig audits were dropped with the Roman art —
+// The former controller/prefab rig audits were dropped with the Roman art,
 // placeholder capsules carry no Animator, rig, or axis-conversion nodes.
 public static class FacingValidation
 {

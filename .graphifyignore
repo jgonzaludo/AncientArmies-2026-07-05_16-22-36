@@ -1,0 +1,33 @@
+# Allowlist: only C# under Assets/, Docs/*.md and CLAUDE.md reach the graph.
+# Art and Unity YAML must never go through the LLM semantic pass.
+/*
+!/Assets/
+!/Docs/
+!/CLAUDE.md
+Assets/**
+!Assets/**/
+!Assets/**/*.cs
+Docs/**
+!Docs/*.md
+# belt and braces
+Library/
+Temp/
+Logs/
+builds/
+UserSettings/
+ProjectSettings/
+Packages/
+ThirdPartyPackages/
+ArtSource/
+graphify-out/
+*.meta
+*.png
+*.jpg
+*.psd
+*.fbx
+*.anim
+*.mat
+*.prefab
+*.unity
+*.asset
+*.controller

@@ -1,39 +1,48 @@
 using System.Collections.Generic;
 using UnityEngine;
 
-// Phase 7: a Roman-inspired coordinated commander for the 8-century red army
+// a Roman-inspired coordinated commander for the 8-century red army
 // (6 melee + 2 archers). Two layers replace the flat V1.1 target-scorer:
 //
 //   Battle phases:  Advance -> Engagement.
-//     Advance    — the army marches as a structure to a phase line short of
+//     Advance, the army marches as a structure to a phase line short of
 //                  the middle: 4 melee centuries abreast (the main line),
 //                  2 melee held back as reserves, archers tucked behind.
-//     Engagement — per-century tasking on a decision cadence.
+//     Engagement, per-century tasking on a decision cadence.
 //
 //   Roles (classified once at battle start):
-//     MainLine — lane-based target scoring (the V1.1 score plus a
+//     MainLine, lane-based target scoring (the V1.1 score plus a
 //                lane-alignment bonus so centuries fight what is in front of
 //                them instead of crossing the field), with switchMargin
 //                hysteresis so orders stay sticky.
-//     Archer   — explicit range bands: withdraw behind the main line when
+//     Archer, explicit range bands: withdraw behind the main line when
 //                threatened, shoot what is in range, otherwise reposition to
 //                a supporting spot behind the line. Never ordered into melee
 //                and never given targets beyond bow range (so an attack
 //                order can never march them past the main line).
-//     Reserve  — hold position untasked until a commitment trigger (a
+//     Reserve, hold position untasked until a commitment trigger (a
 //                main-line century breaking or dropping under strength, a
 //                blue formation rounding a flank, or blue reaching the
 //                archers), then commit ONE reserve and lock it for a
 //                cooldown; a committed reserve behaves like main line.
 //
 // The commander only speaks the public Formation API the player has
-// (IssueMove / IssueAttack / IssueCharge / IssueReform) — the formation state
+// (IssueMove / IssueAttack / IssueCharge), the formation state
 // machine executes everything, no soldier or transform is ever touched, and no
 // hidden information or stat cheats are used.
 public class EnemyCommander : MonoBehaviour
 {
     private enum CommanderPhase { Advance, Engagement }
     private enum Role { MainLine, Reserve, Archer }
+
+    public enum AiPlan { Random, Frontal, FlankOne, DoubleFlank }
+    [Header("Plan")]
+    [Tooltip("Chosen at battle start. Frontal: the existing line. FlankOne / DoubleFlank: the outermost main-line century (centuries) march a wide route to a staging point beside the enemy line, then attack the nearest enemy block from the side. Random picks one with the battle seed")]
+    public AiPlan plan = AiPlan.Random;
+    [Tooltip("Flankers stage this far outside the enemy line's outermost block (world units)")]
+    public float flankStageOutside = 28f;
+    [Tooltip("Staging z is this far toward our own side of the enemy line's average z (world units). Small = abreast of the enemy line, so the final attack arrives from the side")]
+    public float flankStageZ = 8f;
 
     [Header("Cadence")]
     [Tooltip("Seconds between strategic passes")]
@@ -60,7 +69,7 @@ public class EnemyCommander : MonoBehaviour
     public float attackingMeBonus = 15f;
     [Tooltip("Max bonus for finishing a nearly-dead target (scaled by missing health)")]
     public float finishBonus = 10f;
-    [Tooltip("Lane discipline: score lost per meter of lateral (x) offset between a century and a candidate target — keeps the line fighting straight ahead")]
+    [Tooltip("Lane discipline: score lost per meter of lateral (x) offset between a century and a candidate target, keeps the line fighting straight ahead")]
     public float laneWeight = 0.6f;
     [Tooltip("A new target must beat the current one's score by this margin before switching")]
     public float switchMargin = 25f;
@@ -82,8 +91,9 @@ public class EnemyCommander : MonoBehaviour
     public float commitCooldown = 12f;
 
     [Header("Reform")]
-    [Tooltip("A broken red century reforms only when no blue formation is within this distance of it")]
-    public float reformSafeRadius = 20f;
+
+    private readonly List<Formation> flankers = new List<Formation>();
+    public AiPlan ChosenPlan { get; private set; }
 
     private CommanderPhase phase = CommanderPhase.Advance;
     private bool classified;
@@ -160,7 +170,7 @@ public class EnemyCommander : MonoBehaviour
     // Advance as a structure: the main line moves abreast to evenly spread
     // lane positions on the phase line (preserving left-to-right order and
     // roughly its current frontage), reserves and archers to posts behind it.
-    // No attack targets are picked from spawn — targeting starts at contact.
+    // No attack targets are picked from spawn, targeting starts at contact.
     private void IssueAdvanceOrders()
     {
         float lineZ = PhaseLineZ();
@@ -182,11 +192,62 @@ public class EnemyCommander : MonoBehaviour
             }
         }
 
+        ChoosePlan();
+
         // Reserves and archers keep their own lateral station behind the line.
         foreach (var f in reserves)
             f.IssueMove(ClampToField(new Vector3(f.AnchorPos.x, 0f, lineZ + reserveBackset)));
         foreach (var f in archers)
             f.IssueMove(ClampToField(new Vector3(f.AnchorPos.x, 0f, lineZ + archerBackset)));
+    }
+
+    // Flank plans. Flankers leave the main-line roster (so the lane scorer does
+    // not retask them), march by RoutePlanner to a staging point outside the
+    // enemy line, and then join the ordinary line logic with an attack on the
+    // nearest enemy block. They are released early if caught in melee or routing.
+    private void ChoosePlan()
+    {
+        flankers.Clear();
+        AiPlan p = plan == AiPlan.Random ? (AiPlan)Random.Range(1, 4) : plan;
+        ChosenPlan = p;
+        if (p == AiPlan.Frontal || mainLine.Count < 3) return;   // keep a real line behind the flankers
+        float bx = 0f, bz = 0f; int bn = 0;
+        foreach (var f in BattleSetup.Instance.formations)
+        {
+            if (f.team != Team.Blue || f.stats.isRanged) continue;
+            bx = Mathf.Max(bx, Mathf.Abs(f.AnchorPos.x)); bz += f.AnchorPos.z; bn++;
+        }
+        float stageZ = (bn > 0 ? bz / bn : 0f) + flankStageZ;
+        float stageX = bx + flankStageOutside;
+        var left = mainLine[0]; var right = mainLine[mainLine.Count - 1];
+        bool pickLeft = p == AiPlan.DoubleFlank || Random.value < 0.5f;
+        bool pickRight = p == AiPlan.DoubleFlank || !pickLeft;
+        if (pickLeft) { flankers.Add(left); left.IssueMove(ClampToField(new Vector3(-stageX, 0f, stageZ))); }
+        if (pickRight) { flankers.Add(right); right.IssueMove(ClampToField(new Vector3(stageX, 0f, stageZ))); }
+        foreach (var f in flankers) mainLine.Remove(f);
+    }
+
+    private void RunFlankers()
+    {
+        for (int i = flankers.Count - 1; i >= 0; i--)
+        {
+            var f = flankers[i];
+            bool gone = f == null || f.soldiers.Count == 0 || f.IsRouting;
+            if (!gone && f.State == FormationState.Ordered && !f.HasMoveDestination)
+            {
+                // staged: attack the nearest enemy block, then the main-line scorer owns it
+                Formation nearest = null; float bd = float.MaxValue;
+                foreach (var t in blues)
+                {
+                    float d = (t.AnchorPos - f.AnchorPos).sqrMagnitude;
+                    if (d < bd) { bd = d; nearest = t; }
+                }
+                if (nearest != null) IssueAttackOrCharge(f, nearest);
+                gone = true;
+            }
+            else if (!gone && f.State == FormationState.Engaged) gone = true;   // caught early: fight like the line
+            if (gone) { if (f != null && f.soldiers.Count > 0 && !f.IsRouting) mainLine.Add(f); flankers.RemoveAt(i); }
+        }
     }
 
     // Red spawns at +z facing -z, so its phase line sits at positive z, a
@@ -212,9 +273,10 @@ public class EnemyCommander : MonoBehaviour
         RefreshRosters();
         if (blues.Count == 0) return;
 
+        RunFlankers();
+
         // Broken red centuries pull themselves together whenever it is safe,
-        // regardless of battle phase — reforming is defensive housekeeping.
-        TryReformBroken();
+        // regardless of battle phase, reforming is defensive housekeeping.
 
         if (phase == CommanderPhase.Advance)
         {
@@ -238,7 +300,7 @@ public class EnemyCommander : MonoBehaviour
         {
             if (f.soldiers.Count == 0) continue;
             if (f.team == Team.Red) reds.Add(f);
-            else blues.Add(f);
+            else if (!f.IsRouting) blues.Add(f);   // routers are never targets
         }
         for (int i = mainLine.Count - 1; i >= 0; i--)
             if (mainLine[i].soldiers.Count == 0) mainLine.RemoveAt(i);
@@ -315,14 +377,14 @@ public class EnemyCommander : MonoBehaviour
             else if (best != current && bestScore > Score(f, current) + switchMargin)
             {
                 // only a clearly better plan (e.g. an archer emergency)
-                // interrupts a valid existing order — no thrashing
+                // interrupts a valid existing order, no thrashing
                 IssueAttackOrCharge(f, best);
             }
         }
     }
 
     // Discipline is a resource: a century charges only a target that is
-    // already beaten — badly under strength or broken — and inside charge
+    // already beaten, badly under strength or broken, and inside charge
     // reach. Everything else gets the controlled attack.
     private void IssueAttackOrCharge(Formation f, Formation t)
     {
@@ -394,14 +456,14 @@ public class EnemyCommander : MonoBehaviour
     // ---------------- archers ----------------
 
     // Explicit range bands, checked in priority order:
-    //   1. danger  — a blue formation inside dangerRadius: withdraw to a spot
+    //   1. danger, a blue formation inside dangerRadius: withdraw to a spot
     //                behind the main line (own x, average line z + backset).
     //                Archers never receive melee attack orders.
-    //   2. shoot   — a blue target inside rangedRange: IssueAttack; the
+    //   2. shoot, a blue target inside rangedRange: IssueAttack; the
     //                formation's own movement already holds preferred range.
     //                Because the target is already in bow range, the order
     //                can never march the century past the main line.
-    //   3. support — nothing shootable: walk to the supporting post behind
+    //   3. support, nothing shootable: walk to the supporting post behind
     //                the line rather than chasing targets across the field.
     private void RunArchers()
     {
@@ -471,7 +533,7 @@ public class EnemyCommander : MonoBehaviour
         Vector3 crisisPoint = default;
         bool hasCrisis = false;
 
-        // Trigger 1: a main-line century breaking or under strength — commit
+        // Trigger 1: a main-line century breaking or under strength, commit
         // at its attacker if it has one, otherwise just move to shore it up.
         foreach (var f in mainLine)
         {
@@ -563,17 +625,6 @@ public class EnemyCommander : MonoBehaviour
         return best;
     }
 
-    // ---------------- reform ----------------
-
-    // A broken red century reforms itself once the fight has moved on: no
-    // blue formation within reformSafeRadius and the formation reports it can.
-    private void TryReformBroken()
-    {
-        foreach (var f in reds)
-        {
-            if (f.State != FormationState.BrokenRanks || !f.CanReform) continue;
-            if (FindNearestBlue(f.AnchorPos, reformSafeRadius) != null) continue;
-            f.IssueReform();
-        }
-    }
+    // Reform is automatic in Formation (CanStartReform) for both teams,
+    // the AI issues no reform orders.
 }

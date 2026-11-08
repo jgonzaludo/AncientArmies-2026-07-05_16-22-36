@@ -7,7 +7,7 @@ using UnityEngine;
 // AnchorForward facing, health, selection) and the shared
 // FormationBannerManager (detail level, visibility mode, info hold, overlap
 // lift) and never owns simulation logic. The whole hierarchy is created once
-// and blended between presentations — nothing is rebuilt on zoom changes, and
+// and blended between presentations, nothing is rebuilt on zoom changes, and
 // nothing here carries a collider, so troop tapping is untouched.
 public class FormationBannerController : MonoBehaviour
 {
@@ -32,10 +32,10 @@ public class FormationBannerController : MonoBehaviour
     [SerializeField] private float maxZoomCompensation = 1.35f;
     [SerializeField] private float selectedScaleMultiplier = 1.08f;
     [SerializeField] private int selectedSortingBoost = 100;
-    // v1.8.1 selection language: no outline — while anything is selected,
+    // v1.8.1 selection language: no outline, while anything is selected,
     // every OTHER banner dims to this alpha and the selected ones stay full.
     [Tooltip("Alpha applied to unselected banners while a selection exists")]
-    [SerializeField] private float unselectedDimFactor = 0.4f;
+    [SerializeField] private float unselectedDimFactor = 0.75f;
 
     [Header("Order feedback")]
     [Tooltip("A hidden close-zoom banner appears this long after an order")]
@@ -43,7 +43,7 @@ public class FormationBannerController : MonoBehaviour
 
     [Header("Info elements")]
     [SerializeField] private float barWidth = 3.1f;
-    [SerializeField] private float barHeight = 0.45f;
+    [SerializeField] private float barHeight = 0.5f;
 
     private static readonly Color HealthHigh = new Color(0.38f, 0.86f, 0.38f);
     private static readonly Color HealthLow = new Color(0.95f, 0.7f, 0.15f);
@@ -52,7 +52,7 @@ public class FormationBannerController : MonoBehaviour
     private static readonly Color BrokenBadgeTint = new Color(0.75f, 0.7f, 0.7f);
 
     // Data-driven badge selection: future classes (cavalry, spears, siege...)
-    // extend this table — never parse display strings for faction/class.
+    // extend this table, never parse display strings for faction/class.
     private static readonly Dictionary<(Team, bool), string> BadgeSprites =
         new Dictionary<(Team, bool), string>
         {
@@ -63,7 +63,7 @@ public class FormationBannerController : MonoBehaviour
         };
 
     private static readonly Dictionary<string, Sprite> spriteCache = new Dictionary<string, Sprite>();
-    private static Sprite whiteSprite;
+    private static Sprite whiteSprite, haloSprite, ringSprite;
     private static Sprite iconMoving, iconEngaged, iconBroken, iconReforming;
 
     private Formation f;
@@ -71,7 +71,18 @@ public class FormationBannerController : MonoBehaviour
     private Camera cam;
 
     private Transform root, scaleContainer;
-    private SpriteRenderer baseSR, stateIconSR, healthBgSR, healthFillSR;
+    private SpriteRenderer baseSR, stateIconSR, healthBgSR, healthFillSR, haloSR, ringSR;
+    private bool haloOn;                 // hysteresis: enters below haloEnter, exits above haloExit
+    private const float HaloGlowScale = 4f;    // soft glow, badge sizes
+    private const float HaloRingScale = 1.25f; // thick ring just outside the badge edge
+    private const float HaloPulseMinAlpha = 0.7f;
+    private const float HaloPulseMaxScale = 1.4f;
+    private const float HaloMinHz = 1.5f, HaloMaxHz = 3f;
+    private const float HaloFlashSeconds = 0.6f;   // one-time flash on first entering the wavering band
+    private float haloFlashStart = -10f;
+    private static Material haloMaterial;          // additive: glows instead of painting
+    private static readonly Color HaloYellow = new Color(1f, 0.831f, 0f);      // #FFD400
+    private static readonly Color HaloRed = new Color(1f, 0.165f, 0f);         // #FF2A00
 
     private float shownAlpha;            // 0..1 master visibility blend
     private float currentScale = 1f;
@@ -125,7 +136,8 @@ public class FormationBannerController : MonoBehaviour
                         f.State == FormationState.Reforming;
         var level = mgr.CurrentLevel;
 
-        bool wantShown = alive && ResolveVisibility(mgr, level, selected, targeted, critical);
+        // a routing formation has no banner at all (DECISIONS 2026-09-21)
+        bool wantShown = alive && !f.IsRouting && ResolveVisibility(mgr, level, selected, targeted, critical);
 
         // master blend: opacity + a little scale, never a hierarchy rebuild
         float blendStep = Time.unscaledDeltaTime / Mathf.Max(0.05f, transitionSeconds);
@@ -137,7 +149,7 @@ public class FormationBannerController : MonoBehaviour
         // anchor: structured formations sit slightly to the rear of the block;
         // combat deformation follows the dominant cluster. While broken or
         // reforming the banner is a fixed rally flag at the point where ranks
-        // broke — it must not chase the scattering soldiers, or the player
+        // broke, it must not chase the scattering soldiers, or the player
         // loses the reference point the formation will reform around. A
         // PURSUING pack is the exception: the standard moved with the men, so
         // the banner rides the dominant cluster until Reform plants it.
@@ -202,7 +214,7 @@ public class FormationBannerController : MonoBehaviour
     // Child-element visibility per detail level: Close (selected marker) shows
     // badge + selection only; Compact and Expanded add health bar,
     // state icon, and the strength readout. Selection also forces the strength
-    // readout at Close — a selected formation always answers "how many left".
+    // readout at Close, a selected formation always answers "how many left".
     private void ApplyPresentation(FormationBannerDetailLevel level, bool selected, float alpha)
     {
         bool bars = level != FormationBannerDetailLevel.Close;
@@ -215,19 +227,72 @@ public class FormationBannerController : MonoBehaviour
         float hp = Mathf.Clamp01(f.TotalHealth / Mathf.Max(1f, f.TotalMaxHealth));
         SetSpriteAlpha(healthFillSR, Color.Lerp(HealthLow, HealthHigh, hp), bars ? alpha : 0f);
         healthFillSR.transform.localScale = new Vector3(barWidth * hp, barHeight, 1f);
-        healthFillSR.transform.localPosition = new Vector3(-barWidth * 0.5f * (1f - hp), -1.95f, -0.02f);
+        healthFillSR.transform.localPosition = new Vector3(-barWidth * 0.5f * (1f - hp), 2.35f, -0.02f);
 
         bool icon = bars && stateIconSR.sprite != null;
         SetSpriteAlpha(stateIconSR, Color.white, icon ? alpha : 0f);
 
         int order = 10 + (selected ? selectedSortingBoost : (int)(Priority * 10f));
+        ApplyHalo(alpha, order - 1);
         baseSR.sortingOrder = order;
         healthBgSR.sortingOrder = order + 1;
         healthFillSR.sortingOrder = order + 2;
         stateIconSR.sortingOrder = order + 2;
     }
 
-    // Interval refresh: only the state icon needs polling now — strength is
+    // Wavering halo: a peripheral warning that a unit is close to
+    // breaking, behind the badge so the faction color stays untouched. The
+    // PULSE carries the signal (rate 1 → 2.5 Hz as morale falls toward the
+    // rout threshold); color yellow → red is secondary, so it reads for
+    // colorblind players and beside red banners. Both teams.
+    // Two layers: a soft glow (3x badge) and a bright thin ring just outside
+    // the badge edge, the ring still reads at sizes where a glow washes out.
+    // A warning is never dimmed: `alpha` (the banner's selection dimming) is
+    // deliberately ignored; only the pulse sets opacity, and the scale pulses
+    // in sync because motion is what catches the eye.
+    private void ApplyHalo(float alpha, int order)
+    {
+        haloSR.sortingOrder = order - 1;
+        ringSR.sortingOrder = order;
+        var cfg = BattleSetup.Instance != null ? BattleSetup.Instance.moraleConfig : null;
+        if (cfg == null) { HideHalo(); return; }
+        float t;
+        if (cfg.forceHaloForTesting) t = 0.5f;
+        else
+        {
+            if (f.Morale == null) { HideHalo(); return; }
+            float m = f.Morale.Value;
+            if (haloOn) { if (m > cfg.haloExit) haloOn = false; }
+            else if (m < cfg.haloEnter) { haloOn = true; haloFlashStart = Time.time; }
+            if (!haloOn) { HideHalo(); return; }
+            t = Mathf.Clamp01((cfg.haloEnter - m) / Mathf.Max(0.01f, cfg.haloEnter - cfg.routeThreshold));
+        }
+        float hz = Mathf.Lerp(HaloMinHz, HaloMaxHz, t);
+        float p = 0.5f + 0.5f * Mathf.Sin(2f * Mathf.PI * hz * Time.time);
+        float pulseAlpha = Mathf.Lerp(HaloPulseMinAlpha, 1f, p);
+        float pulseScale = Mathf.Lerp(1f, HaloPulseMaxScale, p);
+        Color c = Color.Lerp(HaloYellow, HaloRed, t);
+        // one-time bright flash: starts white, full alpha and double size, eases into the pulse
+        float flash = 1f - Mathf.Clamp01((Time.time - haloFlashStart) / HaloFlashSeconds);
+        if (flash > 0f)
+        {
+            c = Color.Lerp(c, Color.white, flash);
+            pulseAlpha = Mathf.Lerp(pulseAlpha, 1f, flash);
+            pulseScale *= 1f + flash;
+        }
+        SetSpriteAlpha(haloSR, c, pulseAlpha);
+        SetSpriteAlpha(ringSR, c, pulseAlpha);
+        haloSR.transform.localScale = Vector3.one * (HaloGlowScale * pulseScale);
+        ringSR.transform.localScale = Vector3.one * (HaloRingScale * pulseScale);
+    }
+
+    private void HideHalo()
+    {
+        SetSpriteAlpha(haloSR, Color.white, 0f);
+        SetSpriteAlpha(ringSR, Color.white, 0f);
+    }
+
+    // Interval refresh: only the state icon needs polling now, strength is
     // communicated entirely by the health bar (v0.9.1: count text removed).
     private void RefreshValues(FormationBannerDetailLevel level)
     {
@@ -273,12 +338,15 @@ public class FormationBannerController : MonoBehaviour
         scaleContainer = new GameObject("BannerScaleContainer").transform;
         scaleContainer.SetParent(root, false);
 
+        haloSR = MakeSprite("WaveringHaloGlow", haloSprite, new Vector3(0f, 0f, 0.02f), Vector3.one * HaloGlowScale);
+        ringSR = MakeSprite("WaveringHaloRing", ringSprite, new Vector3(0f, 0f, 0.01f), Vector3.one * HaloRingScale);
+        if (haloMaterial != null) { haloSR.sharedMaterial = haloMaterial; ringSR.sharedMaterial = haloMaterial; }
         baseSR = MakeSprite("BaseBannerImage", badge, Vector3.zero, Vector3.one);
-        healthBgSR = MakeSprite("HealthBarBg", whiteSprite, new Vector3(0f, -1.95f, -0.01f),
-                                new Vector3(barWidth + 0.1f, barHeight + 0.1f, 1f));
-        healthFillSR = MakeSprite("HealthBarFill", whiteSprite, new Vector3(0f, -1.95f, -0.02f),
+        healthBgSR = MakeSprite("HealthBarBg", whiteSprite, new Vector3(0f, 2.35f, -0.01f),
+                                new Vector3(barWidth + 0.24f, barHeight + 0.2f, 1f));
+        healthFillSR = MakeSprite("HealthBarFill", whiteSprite, new Vector3(0f, 2.35f, -0.02f),
                                   new Vector3(barWidth, barHeight, 1f));
-        stateIconSR = MakeSprite("StateIcon", null, new Vector3(0f, 2.6f, -0.02f),
+        stateIconSR = MakeSprite("StateIcon", null, new Vector3(0f, 3.2f, -0.02f),
                                  Vector3.one * 0.9f);
 
         root.gameObject.SetActive(false);
@@ -316,6 +384,10 @@ public class FormationBannerController : MonoBehaviour
         tex.SetPixels32(fill);
         tex.Apply();
         whiteSprite = Sprite.Create(tex, new Rect(0, 0, 4, 4), new Vector2(0.5f, 0.5f), 4f);
+        haloSprite = DrawRadial(96);
+        ringSprite = DrawRing(128);
+        var haloShader = Resources.Load<Shader>("HaloAdditive");
+        if (haloShader != null) haloMaterial = new Material(haloShader);
 
         iconMoving = DrawIcon(48, (x, y) =>
         {
@@ -337,6 +409,47 @@ public class FormationBannerController : MonoBehaviour
             Mathf.Abs(y) < 0.14f && Mathf.Abs(x) is > 0.15f and < 0.75f ||   // two inward arrows
             (Mathf.Abs(x) is > 0.15f and < 0.45f &&
              Mathf.Abs(Mathf.Abs(y) - (0.45f - Mathf.Abs(x)) * 0.9f) < 0.12f));
+    }
+
+    // Soft disc: opaque center falling off to nothing at the rim. Sized so a
+    // unit-scale sprite spans the badge; the halo renderer scales it 2x.
+    private static Sprite DrawRadial(int size)
+    {
+        var tex = new Texture2D(size, size, TextureFormat.RGBA32, false);
+        for (int y = 0; y < size; y++)
+            for (int x = 0; x < size; x++)
+            {
+                float nx = (x + 0.5f - size * 0.5f) / (size * 0.5f);
+                float ny = (y + 0.5f - size * 0.5f) / (size * 0.5f);
+                float r = Mathf.Sqrt(nx * nx + ny * ny);
+                float a = Mathf.Clamp01(1f - r);
+                tex.SetPixel(x, y, new Color(1f, 1f, 1f, a * a));
+            }
+        tex.filterMode = FilterMode.Bilinear;
+        tex.wrapMode = TextureWrapMode.Clamp;
+        tex.Apply();
+        return Sprite.Create(tex, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f), size / 1.2f);
+    }
+
+    // Thick bright ring: solid between 66 % and 96 % of the radius with a
+    // one-texel soft edge either side, nothing inside or outside.
+    private static Sprite DrawRing(int size)
+    {
+        var tex = new Texture2D(size, size, TextureFormat.RGBA32, false);
+        float texel = 2f / size;
+        for (int y = 0; y < size; y++)
+            for (int x = 0; x < size; x++)
+            {
+                float nx = (x + 0.5f - size * 0.5f) / (size * 0.5f);
+                float ny = (y + 0.5f - size * 0.5f) / (size * 0.5f);
+                float r = Mathf.Sqrt(nx * nx + ny * ny);
+                float a = Mathf.Clamp01((r - 0.66f) / texel) * Mathf.Clamp01((0.96f - r) / texel);
+                tex.SetPixel(x, y, new Color(1f, 1f, 1f, a));
+            }
+        tex.filterMode = FilterMode.Bilinear;
+        tex.wrapMode = TextureWrapMode.Clamp;
+        tex.Apply();
+        return Sprite.Create(tex, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f), size / 1.2f);
     }
 
     private static Sprite DrawIcon(int size, System.Func<float, float, bool> inside)

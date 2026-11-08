@@ -1,4 +1,4 @@
-# Ancient Armies — agent working rules
+# Ancient Armies: agent working rules
 
 Unity 6 (6000.4.8f1), URP, mobile-first landscape, fixed isometric-style
 orthographic camera. Mobile-first real-time tactical game.
@@ -7,11 +7,12 @@ orthographic camera. Mobile-first real-time tactical game.
 
 Read these before substantial work; they override any assumption:
 
-- `Docs/CURRENT_GAME_SPEC.md` — implemented gameplay, controls, states
-- `Docs/TECHNICAL_ARCHITECTURE.md` — systems and responsibilities
-- `Docs/ART_DIRECTION.md` — visual target
-- `Docs/ART_PIPELINE.md` — the active art pipeline and its approval gates
-- `Docs/DECISIONS.md` — recorded decisions and their dates
+- `Docs/CURRENT_GAME_SPEC.md`: implemented gameplay, controls, states
+- `Docs/TECHNICAL_ARCHITECTURE.md`: systems and responsibilities
+- `Docs/ART_DIRECTION.md`: visual target
+- `Docs/ART_PIPELINE.md`: the active art pipeline and its approval gates
+- `Docs/DECISIONS.md`: recorded decisions and their dates
+- `CONTRIBUTING.md`: commit, branch and naming conventions, and the style rules
 
 Do not expand scope beyond the current spec without explicit approval.
 
@@ -24,7 +25,7 @@ Assets/Scenes/        Battle.unity is the only scene in Build Settings
 Assets/Art/           current runtime art actually referenced by the game
 Assets/Settings/      URP pipeline assets and volume profiles
 Assets/AncientArmies/ clean destination tree for NEW production work
-ArtSource/            art production source, outside Assets/ — never shipped
+ArtSource/            art production source, outside Assets/, never shipped
 ThirdPartyPackages/   local Unity packages (Tripo Unity DCC Bridge)
 ```
 
@@ -37,7 +38,11 @@ These are design law, not preferences:
 - Formations are a behavioral and tactical harness, not a rendering trick.
 - Ordered formations are predictable; combat creates local disorder.
 - Breaking ranks increases individual freedom and chaos.
-- Reforming requires sufficient disengagement from melee.
+- Reforming is automatic: the game reforms formations; the player never
+  orders it. Walking back to the standard requires sufficient disengagement
+  from melee; a loose century still locked in melee after
+  `pursuitMaxSeconds` re-forms in place instead (it cannot walk away).
+- A routing formation cannot be ordered, by the player or the AI.
 - Dead soldiers are removed; survivors close ranks when reforming.
 - Outcomes are understandable, not dominated by invisible randomness.
 
@@ -46,7 +51,7 @@ These are design law, not preferences:
 - `Formation` owns the state machine, the anchor (position + facing), and the
   slot grid. It is the only writer of `AnchorPos` / `AnchorRot`.
 - `Soldier` owns individual movement and combat. It reads formation state
-  through `GetSlotWeight` / `GetAcquireRadius` — it never drives the formation.
+  through `GetSlotWeight` / `GetAcquireRadius`: it never drives the formation.
 - `PlayerCommander` and `EnemyCommander` only ever call the public `Issue*`
   command methods. They never mutate formation internals directly.
 - `BattleSetup` owns spawning, the battle lifecycle, and the team registries.
@@ -64,9 +69,12 @@ Do not rewrite these systems to add a feature. Extend at the seams.
 - Behavior: **Play mode in `Assets/Scenes/Battle.unity`.** Verify in Unity
   rather than assuming code works.
 - **`Battle.unity` serializes values that override C# field defaults.** Before
-  changing a default in a `MonoBehaviour`, grep the scene for the field — if
+  changing a default in a `MonoBehaviour`, grep the scene for the field, if
   it is pinned there, editing the C# default alone changes nothing. Adding a
   *new* field is the reliable way to make a C# default win.
+- **Morale tunables live in the `MoraleConfig` ScriptableObject**, never as
+  new fields on `BattleSetup`: that sidesteps scene pinning entirely.
+  `BattleSetup` holds only the reference to the asset.
 
 ## Naming conventions
 
@@ -75,7 +83,7 @@ Do not rewrite these systems to add a feature. Extend at the seams.
   `UI_*` (sprites), `TEX_*` (textures), `MAT_*` (materials), `AC_*` (Animator
   Controllers).
 - Anything loaded via `Resources.Load` must sit in a `Resources/` folder and
-  keep its exact name — renaming silently breaks runtime loading. Current
+  keep its exact name, renaming silently breaks runtime loading. Current
   string loads live in `SoldierFactory`, `Projectile`, `BattlefieldDecor`, and
   `FormationBannerController`.
 
@@ -84,7 +92,7 @@ Do not rewrite these systems to add a feature. Extend at the seams.
 - Every asset has exactly one `.meta`. Delete or move an asset and its `.meta`
   **together**, never one alone.
 - Never leave an orphaned `.meta`, and never delete a `.meta` while keeping the
-  asset — both break GUID references in scenes and prefabs.
+  asset, both break GUID references in scenes and prefabs.
 - Before deleting anything under `Assets/`, confirm it is unreferenced: grep
   its GUID across scenes, prefabs, materials, controllers, and ScriptableObjects.
 - Never hand-edit a GUID in an existing `.meta`.
@@ -100,33 +108,52 @@ Do not rewrite these systems to add a feature. Extend at the seams.
   approval.** The Tripo Unity Bridge drops assets in for preview and testing
   only; approved production art is placed deliberately.
 - Never put raw Tripo exports, reference images, Blender working files, Mixamo
-  downloads, or review renders under `Assets/` — they belong in `ArtSource/`.
+  downloads, or review renders under `Assets/`: they belong in `ArtSource/`.
 - **Do not revive Meshy or AssetHub as the active pipeline without an explicit
   decision** recorded in `Docs/DECISIONS.md`.
 
 ## Do not modify casually
 
-- `ProjectSettings/` — especially input, graphics, and quality settings
+- `ProjectSettings/`: especially input, graphics, and quality settings
 - `Packages/manifest.json` and `Packages/packages-lock.json`
-- `Assets/Settings/` — URP renderer and pipeline assets
-- `ThirdPartyPackages/` — vendored third-party code; do not edit its source
-- `Assets/Scenes/Battle.unity` — serialized tuning lives here
+- `Assets/Settings/`: URP renderer and pipeline assets
+- `ThirdPartyPackages/`: vendored third-party code; do not edit its source
+- `Assets/Scenes/Battle.unity`: serialized tuning lives here
 
 ## Git and the test gate
 
-Work on `dev`. Versions are `0.MINOR.PATCH` git tags on `main`. Commits follow
-Conventional Commits with game scopes.
+Work on short-lived `<type>/<short-name>` branches (for example
+`feat/route-planning`) and merge into `main` by pull request with a merge
+commit, not a squash. Versions are `0.MINOR.PATCH` git tags on `main`. Commits
+and PR titles follow Conventional Commits with game scopes. Name work by the
+feature, never by milestone or phase numbers. Full rules are in
+`CONTRIBUTING.md`.
 
 **Never commit, push, merge, or tag a gameplay change until the owner has
 manually tested it in Play mode and explicitly approved it.** Ask first even
 for docs-only changes.
 
-## Knowledge graph
+## Context recovery (new session or after compaction)
 
-`graphify-out/` (local-only, not committed) holds a prebuilt knowledge graph of
-this codebase. Query it before grepping broadly:
+1. If there are uncommitted edits since the last commit, run `graphify update .` first.
+2. Run `graphify reflect --if-stale`; read `graphify-out/reflections/LESSONS.md` if it exists.
+3. Read only the latest `Docs/DECISIONS.md` entry.
+4. For the task, use `graphify query` / `explain` / `path` instead of reading whole
+   files or `GRAPH_REPORT.md`. Read raw source only for the exact lines you are
+   about to edit, or when a query comes back empty.
+5. Treat INFERRED and AMBIGUOUS edges as hints: verify in source before relying on them.
+6. After solving something non-obvious, record it with `graphify save-result`
+   (`--outcome useful`, `dead_end`, or `corrected`). Skip this for routine work.
 
-- `graphify query "<question>"` — traversal answer
-- `graphify-out/GRAPH_REPORT.md` — communities, god nodes, audit trail
+`.graphifyignore` is an allowlist (`Assets/**/*.cs`, `Docs/*.md`, `CLAUDE.md`), art
+and Unity YAML never reach the graph. `graphify-out/` is committed except `cost.json`.
 
-Refresh after substantial code changes: `graphify . --update`.
+## graphify
+
+This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
+
+Rules:
+- For codebase questions, first run `graphify query "<question>"` when graphify-out/graph.json exists. Use `graphify path "<A>" "<B>"` for relationships and `graphify explain "<concept>"` for focused concepts. These return a scoped subgraph, usually much smaller than GRAPH_REPORT.md or raw grep output.
+- If graphify-out/wiki/index.md exists, use it for broad navigation instead of raw source browsing.
+- Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when query/path/explain do not surface enough context.
+- After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).
