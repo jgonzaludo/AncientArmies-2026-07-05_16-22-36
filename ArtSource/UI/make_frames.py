@@ -48,6 +48,7 @@ draw('UI_Ribbon',     512, 128, ('poly', [(0, 0), (512, 0), (462, 64), (512, 128
 draw('UI_PlateDanger', 256, 88, ('cham', 16), 2, 5, 3, hexc('6E2A22'), hexc('45190F'), rim_hi=GOLD_MID, rim_lo=GOLD_LO)
 draw('UI_PlateDisabled', 256, 88, ('cham', 16), 2, 5, 3, hexc('2A2620'), hexc('1E1B17'), rim_hi=hexc('8A8576'), rim_lo=hexc('5E5A4E'))
 draw('UI_Pill', 256, 88, ('round', 44), 0, 0, 0, hexc('FFFFFF'), hexc('FFFFFF'))
+draw('UI_Cham', 256, 64, ('cham', 9), 0, 0, 0, hexc('FFFFFF'), hexc('FFFFFF'))   # mask for fills inside a chamfered row, matches its inner edge
 
 OUT = 'ArtSource/UI/generated'
 # ---- icons: white strokes on transparent, drawn at 4x and downsampled ----

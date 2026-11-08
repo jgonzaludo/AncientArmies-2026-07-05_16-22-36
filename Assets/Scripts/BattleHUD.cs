@@ -378,14 +378,14 @@ public class BattleHUD : MonoBehaviour
 
     private void BuildTop(Transform parent)
     {
-        float m = UiTheme.Margin, barW = P(520f), barH = UiTheme.BtnH, inset = P(5f);
+        float m = UiTheme.Margin, barW = P(520f), barH = UiTheme.BtnH, inset = P(4f);
         var tide = new GameObject("TideBar", typeof(RectTransform));
         tide.transform.SetParent(parent, false);
         tideRoot = tide.GetComponent<RectTransform>();
         UiKit.Place(tideRoot, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -m), new Vector2(barW, barH));
         var frame = UiKit.Img(tide.transform, "Frame", UiKit.Spr("UI_Row"), Color.white, barH); UiKit.Fill(frame.rectTransform);
-        var track = UiKit.Img(tide.transform, "Track", UiKit.Spr("UI_Pill"), Color.white, barH - inset * 2f); UiKit.Fill(track.rectTransform, inset, inset, inset, inset);
-        track.gameObject.AddComponent<Mask>().showMaskGraphic = false;   // clips both fills to the pill shape
+        var track = UiKit.Img(tide.transform, "Track", UiKit.Spr("UI_Cham"), Color.white, barH - inset * 2f); UiKit.Fill(track.rectTransform, inset, inset, inset, inset);
+        track.gameObject.AddComponent<Mask>().showMaskGraphic = false;   // clips both fills to the frame's chamfered inner edge, so they reach the rim
         var red = UiKit.Img(track.transform, "Red", null, UiTheme.BannerRed); UiKit.Fill(red.rectTransform);
         var blue = UiKit.Img(track.transform, "Blue", null, UiTheme.BannerBlue);
         tideBlue = blue.rectTransform; tideBlue.anchorMin = Vector2.zero; tideBlue.anchorMax = new Vector2(0.5f, 1f); tideBlue.offsetMin = tideBlue.offsetMax = Vector2.zero;
