@@ -14,6 +14,10 @@ public static class BattlefieldDecor
         var r = ground.GetComponent<Renderer>();
         if (r == null) return;
 
+        // a painted terrain map replaces the flat sand
+        var map = TerrainMap.Active;
+        if (map != null) { TerrainView.Build(map, ground); return; }
+
         var mat = new Material(Shader.Find("Universal Render Pipeline/Lit"));
         mat.name = "MAT_Battlefield_Sand";
         mat.SetColor("_BaseColor", Sand);

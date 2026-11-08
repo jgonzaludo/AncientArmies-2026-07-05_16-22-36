@@ -1,0 +1,62 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!21 &2100000
+Material:
+  serializedVersion: 8
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_Name: MAT_TerrainGround
+  m_Shader: {fileID: 4800000, guid: 8fefa24235cf7476f81b4e4523217197, type: 3}
+  m_Parent: {fileID: 0}
+  m_ModifiedSerializedProperties: 0
+  m_ValidKeywords: []
+  m_InvalidKeywords: []
+  m_LightmapFlags: 4
+  m_EnableInstancingVariants: 0
+  m_DoubleSidedGI: 0
+  m_CustomRenderQueue: -1
+  stringTagMap: {}
+  disabledShaderPasses: []
+  m_LockedProperties: 
+  m_SavedProperties:
+    serializedVersion: 3
+    m_TexEnvs:
+    - _Control:
+        m_Texture: {fileID: 0}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _Control2:
+        m_Texture: {fileID: 0}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _Forest:
+        m_Texture: {fileID: 2800000, guid: 5e3bb6718073a4a3c95d428373a93d04, type: 3}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _Grass:
+        m_Texture: {fileID: 2800000, guid: c39eeeb454437465cbe29de200429e88, type: 3}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _Mud:
+        m_Texture: {fileID: 2800000, guid: 16057a067385d4329800c2e407f5f25c, type: 3}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _Road:
+        m_Texture: {fileID: 2800000, guid: ceb26659d3f9d4fe4aa549a1f2a93c7f, type: 3}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _Water:
+        m_Texture: {fileID: 2800000, guid: 7e9690547da674d1388c9b8d7d97a7d1, type: 3}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    m_Ints: []
+    m_Floats: []
+    m_Colors:
+    - _Field: {r: 205, g: 170, b: 44, a: 71}
+    - _FordTint: {r: 0.7, g: 0.86, b: 0.86, a: 1}
+    - _RockTint: {r: 0.74, g: 0.72, b: 0.68, a: 1}
+    - _SandColor: {r: 0.78999996, g: 0.7, b: 0.49, a: 1}
+  m_BuildTextureStacks: []
+  m_AllowLocking: 1

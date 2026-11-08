@@ -228,6 +228,35 @@ public class Formation : MonoBehaviour
     public float SpeedMultiplier =>
         State == FormationState.Charging ? chargeSpeedFactor : 1f;
 
+    // how the ground under the anchor changes marching speed (mud slow, road fast). eased, read-only elsewhere
+    public float TerrainSpeed { get; private set; } = 1f;
+
+    // how many steps into water or rock were refused (a test counter; the planner should keep this near zero)
+    public static int TerrainRefusals;
+    private static readonly float[] SlideAngles = { 35f, -35f, 70f, -70f, 110f, -110f };
+    // the anchor never steps into water or rock (one already stranded on it may still walk out)
+    private void StepTo(Vector3 next)
+    {
+        var m = TerrainMap.Active;
+        if (m != null && m.Blocked(next) && !m.Blocked(AnchorPos))
+        {
+            // slide along the bank instead of pressing into it: try the same step turned aside
+            Vector3 step = next - AnchorPos;
+            foreach (float ang in SlideAngles)
+            {
+                Vector3 alt = AnchorPos + Quaternion.Euler(0f, ang, 0f) * step;
+                if (!m.Blocked(alt)) { AnchorPos = alt; return; }
+            }
+            TerrainRefusals++; return;
+        }
+        AnchorPos = next;
+    }
+    private void UpdateTerrainSpeed()
+    {
+        var m = TerrainMap.Active;
+        TerrainSpeed = TerrainRules.Smooth(TerrainSpeed, m != null ? m.SpeedAt(AnchorPos) : 1f, Time.deltaTime);
+    }
+
     // Impact bonus lives only inside the rush's contact window. Archers may
     // charge as a last resort but get no bonus, their sidearm's damage
     // discount already prices that desperation.
@@ -417,6 +446,9 @@ public class Formation : MonoBehaviour
         dest.y = 0f;
         var dcc = BattleSetup.Instance != null ? BattleSetup.Instance.combatConfig : null;
         if ((dcc == null || dcc.destinationFix) && State != FormationState.Engaged && State != FormationState.Withdrawing) dest = NearestFreeSpot(dest);
+        // never ordered onto water or rock, or onto an island nothing can walk to: snap to the nearest reachable dry spot
+        // snap onto reachable dry ground; a nudge away from friends above may have landed in water, so this runs after it
+        if (TerrainMap.Active != null) dest = TerrainGridPlanner.NearestReachable(AnchorPos, dest);
         Vector3 travel = dest - AnchorPos;
         travel.y = 0f;
         if (State == FormationState.Engaged)
@@ -487,6 +519,7 @@ public class Formation : MonoBehaviour
         if (!hasDestination ||
             (CurrentOrderType != OrderType.Move && CurrentOrderType != OrderType.Withdraw)) return;
         dest.y = 0f;
+        if (TerrainMap.Active != null) dest = TerrainGridPlanner.NearestReachable(AnchorPos, dest);   // dragging the facing arrow onto water must not pin the unit at the bank
         destination = dest;
         SetDestinationFacing(facing);
     }
@@ -1207,13 +1240,14 @@ public class Formation : MonoBehaviour
             return;
         }
         Vector3 dir = to / dist;
+        UpdateTerrainSpeed();
         if (State != FormationState.Withdrawing && !charging)
             dir = SteerAlongRoute(dir, dist);
 
         if (State == FormationState.Withdrawing)
         {
             // back away without wheeling the whole grid through the melee
-            AnchorPos += dir * Mathf.Min(moveSpeed * 0.85f * Time.deltaTime, dist);
+            StepTo(AnchorPos + dir * Mathf.Min(moveSpeed * 0.85f * TerrainSpeed * Time.deltaTime, dist));   // a retreat through mud or a ford is slow too
             return;
         }
 
@@ -1221,8 +1255,8 @@ public class Formation : MonoBehaviour
         AnchorRot = Quaternion.RotateTowards(AnchorRot, want, rotateSpeedDeg * Time.deltaTime);
         float align = Vector3.Dot(AnchorForward, dir);
         if (align > 0.3f)
-            AnchorPos += AnchorForward *
-                         Mathf.Min(moveSpeed * SpeedMultiplier * align * Time.deltaTime, dist);
+            StepTo(AnchorPos + AnchorForward *
+                   Mathf.Min(moveSpeed * SpeedMultiplier * TerrainSpeed * align * Time.deltaTime, dist));
     }
 
     // ---- route following (RoutePlanner) ----

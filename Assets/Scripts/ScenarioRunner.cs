@@ -104,6 +104,10 @@ public class ScenarioRunner : MonoBehaviour
             else if (scenario == "shieldfit") yield return ShieldFitScenario(bs);
             else if (scenario == "turntable") yield return TurntableScenario(bs);
             else if (scenario == "hudshot") yield return HudShotScenario(bs);
+            else if (scenario == "terrainshot") yield return TerrainShotScenario(bs);
+            else if (scenario == "terrainspeed") yield return TerrainSpeedScenario(bs);
+            else if (scenario == "terrainroute") yield return TerrainRouteScenario(bs);
+            else if (scenario == "terrainfade") yield return TerrainFadeScenario(bs);
             else if (scenario == "animsheetarcher") yield return AnimSheetScenario(bs, true);
             else if (scenario == "shotsclose") yield return ShotsScenario(bs, new[] { 5.5f });
             else if (scenario == "b2fred") yield return BackToFrontScenario(bs, true);
@@ -112,7 +116,15 @@ public class ScenarioRunner : MonoBehaviour
             else
             {
                 float aiEnd = bs.BattleTime + 240f;   // AI runs can stall; cap them
-                while (bs != null && bs.Phase != BattlePhase.Ended && (!aiScenario || bs.BattleTime < aiEnd)) yield return null;
+                var tmap = TerrainMap.Active; int wetFrames = 0; Formation.TerrainRefusals = 0;
+                while (bs != null && bs.Phase != BattlePhase.Ended && (!aiScenario || bs.BattleTime < aiEnd))
+                {
+                    yield return null;
+                    if (tmap != null && aiScenario) foreach (var f in bs.formations) if (f.soldiers.Count > 0 && !f.IsRouting && tmap.Blocked(f.AnchorPos)) { wetFrames++; break; }
+                }
+                if (tmap != null && aiScenario)
+                    System.IO.File.WriteAllText(System.IO.Path.Combine(Application.dataPath, "..", "Temp", "terrain_ai.txt"),
+                        "ended=" + (bs.Phase == BattlePhase.Ended) + " battleTime=" + bs.BattleTime.ToString("F0") + " frames with an anchor on water or rock=" + wetFrames + " refused steps=" + Formation.TerrainRefusals);
                 if (aiScenario && bs != null && bs.Phase != BattlePhase.Ended) BattleRecorder.NoteEnd(bs, "SCENARIO END, ai plan " + bs.GetComponent<EnemyCommander>().ChosenPlan);
             }
             yield return null;
@@ -534,6 +546,149 @@ public class ScenarioRunner : MonoBehaviour
         System.IO.File.WriteAllBytes(System.IO.Path.Combine(Application.dataPath, "..", "Temp", archer ? "play_sheet_archer.png" : "play_sheet.png"), sheet.EncodeToPNG());
         BattleRecorder.Note("animsheet states: " + string.Join(", ", states));
         BattleRecorder.NoteEnd(bs, "SCENARIO END, animsheet");
+    }
+
+    // Terrain look: the normal view, then the whole field zoomed out, both saved to Temp.
+    private IEnumerator TerrainShotScenario(BattleSetup bs)
+    {
+        string dir = System.IO.Path.Combine(Application.dataPath, "..", "Temp");
+        var cam = Camera.main; var rig = cam != null ? cam.GetComponent<BattleCamera>() : null;
+        for (int i = 0; i < 120; i++) yield return null;
+        ScreenCapture.CaptureScreenshot(System.IO.Path.Combine(dir, "terrain_shot.png"));
+        for (int i = 0; i < 10; i++) yield return null;
+        if (rig != null) { rig.ZoomBy(110f / cam.orthographicSize); rig.PanBy(new Vector3(0f, 0f, 100f)); }
+        for (int i = 0; i < 90; i++) yield return null;
+        ScreenCapture.CaptureScreenshot(System.IO.Path.Combine(dir, "terrain_shot_far.png"));
+        for (int i = 0; i < 10; i++) yield return null;
+        if (rig != null) { rig.ZoomBy(40f / cam.orthographicSize); rig.PanBy(new Vector3(-150f, 0f, 0f)); }
+        for (int i = 0; i < 90; i++) yield return null;
+        ScreenCapture.CaptureScreenshot(System.IO.Path.Combine(dir, "terrain_shot_forest.png"));
+        for (int i = 0; i < 10; i++) yield return null;
+        if (rig != null) rig.PanBy(new Vector3(100f, 0f, 0f));
+        for (int i = 0; i < 90; i++) yield return null;
+        ScreenCapture.CaptureScreenshot(System.IO.Path.Combine(dir, "terrain_shot_bridge.png"));
+        for (int i = 0; i < 10; i++) yield return null;
+        BattleRecorder.NoteEnd(bs, "SCENARIO END — terrainshot");
+    }
+
+    // Terrain speed: one blue century marches grass, then mud, then road, and its measured speed on each is
+    // compared. Writes Temp/terrain_speed.txt, PASS only if mud is about 0.6x grass and road about 1.15x.
+    private IEnumerator TerrainSpeedScenario(BattleSetup bs)
+    {
+        var m = TerrainMap.Active;
+        string file = System.IO.Path.Combine(Application.dataPath, "..", "Temp", "terrain_speed.txt");
+        if (m == null) { System.IO.File.WriteAllText(file, "FAIL no terrain map"); yield break; }
+        var c = Find(bs, "Blue Century 3");
+        var sum = new Dictionary<TerrainType, float>(); var cnt = new Dictionary<TerrainType, int>();
+        // the longest east-west run of mud south of the river (walking along it gives steady samples), then two points down the road: found from the map, so any map works
+        Vector3 mudStart = Vector3.zero, mudEnd = Vector3.zero, roadA = Vector3.zero, roadB = Vector3.zero; int bestRun = 0; float bestRoadA = 1e9f, bestRoadB = 1e9f;
+        for (int z = 0; z < m.Height; z++)
+        {
+            int run = 0;
+            for (int x = 0; x <= m.Width; x++)
+            {
+                bool isMud = x < m.Width && m.AtCell(x, z) == TerrainType.Mud && m.CellCenter(x, z).z < -10f;
+                if (isMud) { run++; continue; }
+                if (run > bestRun) { bestRun = run; mudStart = m.CellCenter(x - run, z); mudEnd = m.CellCenter(x - 1, z); }
+                run = 0;
+            }
+            for (int x = 0; x < m.Width; x++)
+            {
+                if (m.AtCell(x, z) != TerrainType.Road) continue;
+                Vector3 cc = m.CellCenter(x, z);
+                if (cc.z > -10f) continue;
+                if (Mathf.Abs(cc.z + 60f) < bestRoadA) { bestRoadA = Mathf.Abs(cc.z + 60f); roadA = cc; }
+                if (Mathf.Abs(cc.z + 135f) < bestRoadB) { bestRoadB = Mathf.Abs(cc.z + 135f); roadB = cc; }
+            }
+        }
+        Vector3 beforeMud = mudStart + (mudStart - mudEnd).normalized * 6f;   // on the grass just before the run
+        Vector3[] legs = { beforeMud, mudEnd, roadA, roadB }; int mudFrames = 0; string diag = "";
+        foreach (var dest in legs)
+        {
+            c.IssueMove(dest);
+            Vector3 last = c.AnchorPos; float lastT = Time.time, until = Time.time + 90f; diag += "leg to " + dest + " from " + c.AnchorPos + " order dest " + c.CurrentDestination + "; ";
+            while (Time.time < until && (c.AnchorPos - dest).sqrMagnitude > 2.5f)
+            {
+                yield return null;
+                if (m.At(c.AnchorPos) == TerrainType.Mud) mudFrames++;
+                if (Time.time - lastT < 0.5f) continue;
+                var a = m.At(last); var b = m.At(c.AnchorPos);
+                float sp = Vector3.Distance(last, c.AnchorPos) / (Time.time - lastT);
+                // keep only windows fully on one terrain with the eased speed settled (so not turning or crossing a border)
+                if (a == b && sp > 0.5f && Mathf.Abs(c.TerrainSpeed - m.SpeedAt(c.AnchorPos)) < 0.03f)
+                { sum[a] = (sum.TryGetValue(a, out var v) ? v : 0f) + sp; cnt[a] = (cnt.TryGetValue(a, out var n) ? n : 0) + 1; }
+                last = c.AnchorPos; lastT = Time.time;
+            }
+        }
+        var sb = new System.Text.StringBuilder();
+        System.Func<TerrainType, float> avg = t => cnt.TryGetValue(t, out var n) && n > 0 ? sum[t] / n : -1f;
+        float g = avg(TerrainType.Grass), mud = avg(TerrainType.Mud), road = avg(TerrainType.Road);
+        sb.AppendLine("speeds m/s: grass " + g.ToString("F2") + " (" + (cnt.TryGetValue(TerrainType.Grass, out var gn) ? gn : 0) + " samples), mud " + mud.ToString("F2") + ", road " + road.ToString("F2"));
+        bool ok = g > 0f && mud > 0f && road > 0f && mud / g > 0.5f && mud / g < 0.72f && road / g > 1.05f && road / g < 1.25f;
+        sb.AppendLine(diag); sb.AppendLine("frames on mud " + mudFrames + ", mud run " + mudStart + " to " + mudEnd + " (" + bestRun + " cells), roadA " + roadA + " roadB " + roadB);
+        sb.AppendLine("mud/grass " + (mud / g).ToString("F2") + " road/grass " + (road / g).ToString("F2"));
+        System.IO.File.WriteAllText(file, (ok ? "PASS\n" : "FAIL\n") + sb);
+        BattleRecorder.NoteEnd(bs, "SCENARIO END — terrainspeed");
+    }
+
+    // Terrain routing: one blue century is ordered across the river and onto a point in deep water. It must cross
+    // by a bridge or ford, never stand in water or rock, and the water order must snap to dry ground.
+    // Writes Temp/terrain_route.txt, PASS or FAIL with the reason.
+    private IEnumerator TerrainRouteScenario(BattleSetup bs)
+    {
+        var m = TerrainMap.Active;
+        string file = System.IO.Path.Combine(Application.dataPath, "..", "Temp", "terrain_route.txt");
+        if (m == null) { System.IO.File.WriteAllText(file, "FAIL no terrain map"); yield break; }
+        var c = Find(bs, "Blue Century 3");
+        Formation.TerrainRefusals = 0;
+        Vector3 goal = new Vector3(c.AnchorPos.x, 0f, 85f);
+        c.IssueMove(goal);
+        bool entered = false, crossed = false; float until = Time.time + 150f;
+        while (Time.time < until && (c.AnchorPos - c.CurrentDestination).sqrMagnitude > 16f)
+        {
+            yield return null;
+            var t = m.At(c.AnchorPos);
+            if (TerrainRules.Blocked(t)) entered = true;
+            if (t == TerrainType.Bridge || t == TerrainType.Ford) crossed = true;
+        }
+        float left = Vector3.Distance(c.AnchorPos, c.CurrentDestination);
+        // now an order onto deep water
+        Vector3 deep = Vector3.zero; bool haveDeep = false;
+        for (int z = 0; z < m.Height && !haveDeep; z++) for (int x = 0; x < m.Width && !haveDeep; x++) if (m.AtCell(x, z) == TerrainType.Deep && Mathf.Abs(m.CellCenter(x, z).x) < 10f) { deep = m.CellCenter(x, z); haveDeep = true; }
+        c.IssueMove(deep);
+        bool snapped = haveDeep && !m.Blocked(c.CurrentDestination);
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine("arrived within " + left.ToString("F1") + " m, crossed by bridge or ford: " + crossed + ", entered blocked ground: " + entered + ", refused steps: " + Formation.TerrainRefusals + ", water order snapped to dry: " + snapped);
+        bool ok = left < 6f && crossed && !entered && snapped;
+        System.IO.File.WriteAllText(file, (ok ? "PASS\n" : "FAIL\n") + sb);
+        BattleRecorder.NoteEnd(bs, "SCENARIO END — terrainroute");
+    }
+
+    // Forest fade: a blue century marches into the west forest. Trees near it must thin out (and thicken again once it
+    // is far away). Writes Temp/terrain_fade.txt and a screenshot Temp/terrain_fade.png.
+    private IEnumerator TerrainFadeScenario(BattleSetup bs)
+    {
+        string dir = System.IO.Path.Combine(Application.dataPath, "..", "Temp");
+        var cam = Camera.main; var rig = cam != null ? cam.GetComponent<BattleCamera>() : null;
+        var c = Find(bs, "Blue Century 3");
+        for (int i = 0; i < 90; i++) yield return null;
+        int before = TerrainSprites.FadedTrees;
+        c.IssueMove(new Vector3(-170f, 0f, 5f));
+        float until = Time.time + 150f;
+        while (Time.time < until && (c.AnchorPos - c.CurrentDestination).sqrMagnitude > 25f) yield return null;
+        for (int i = 0; i < 60; i++) yield return null;
+        int inside = TerrainSprites.FadedTrees;
+        if (rig != null && cam != null)
+        {
+            var plane = new Plane(Vector3.up, Vector3.zero); var ray = cam.ViewportPointToRay(new Vector3(0.5f, 0.5f, 0f));
+            if (plane.Raycast(ray, out float dist)) { Vector3 focus = ray.GetPoint(dist); rig.ZoomBy(26f / cam.orthographicSize); rig.PanBy(c.AnchorPos - focus); }
+        }
+        for (int i = 0; i < 60; i++) yield return null;
+        ScreenCapture.CaptureScreenshot(System.IO.Path.Combine(dir, "terrain_fade.png"));
+        for (int i = 0; i < 10; i++) yield return null;
+        bool ok = before == 0 && inside >= 5;
+        System.IO.File.WriteAllText(System.IO.Path.Combine(dir, "terrain_fade.txt"), (ok ? "PASS\n" : "FAIL\n") + "faded trees before the march " + before + ", with the century inside the forest " + inside);
+        BattleRecorder.NoteEnd(bs, "SCENARIO END — terrainfade");
     }
 
     // Style check: real in-game captures of both armies at a close and a normal zoom, no fighting.

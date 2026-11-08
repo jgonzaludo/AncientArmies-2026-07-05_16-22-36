@@ -27,7 +27,30 @@ public static class RoutePlanner
     private const float MaxDetourFactor = 2.6f;
     private const float MaxDetourExtra = 30f;
 
+    // terrain first: a grid route that keeps off water and rock, then the circle planner bends each leg around other
+    // formations. a circle detour that would cross blocked ground is dropped for the plain leg. no terrain route at
+    // all (or no map) falls back to the old behaviour, so a move order is never refused
     public static List<Vector3> Plan(Formation self, Vector3 from, Vector3 to, Formation ignore, bool keepFromEnemies)
+    {
+        var map = TerrainMap.Active;
+        if (map == null) return PlanCircles(self, from, to, ignore, keepFromEnemies);
+        float clr = Mathf.Min(5f, 0.6f * Mathf.Max(self.FootprintHalfExtents.x, self.FootprintHalfExtents.y));
+        var grid = new List<Vector3>(8);
+        if (!TerrainGridPlanner.TryPlan(from, to, clr, grid, map)) return PlanCircles(self, from, to, ignore, keepFromEnemies);
+        var result = new List<Vector3>(8);
+        Vector3 a = from;
+        foreach (var wp in grid)
+        {
+            var leg = PlanCircles(self, a, wp, ignore, keepFromEnemies);
+            bool ok = true; Vector3 p = a;
+            foreach (var q in leg) { if (!TerrainGridPlanner.SegmentClear(p, q, map)) { ok = false; break; } p = q; }
+            if (ok) result.AddRange(leg); else result.Add(wp);
+            a = wp;
+        }
+        return result;
+    }
+
+    private static List<Vector3> PlanCircles(Formation self, Vector3 from, Vector3 to, Formation ignore, bool keepFromEnemies)
     {
         var result = new List<Vector3>(4);
         var bs = BattleSetup.Instance;
@@ -103,6 +126,8 @@ public static class RoutePlanner
     {
         var bs = BattleSetup.Instance;
         if (bs == null || pts.Count == 0) return true;
+        var tmap = TerrainMap.Active;
+        if (tmap != null) { Vector3 tp = from; foreach (var q in pts) { if (!TerrainGridPlanner.SegmentClear(tp, q, tmap)) return false; tp = q; } }
         var obs = BuildObstacles(self, from, pts[pts.Count - 1], ignore, keepFromEnemies, Tiers[Tiers.GetLength(0) - 1, 0], Tiers[Tiers.GetLength(0) - 1, 1], bs);
         Vector3 a = from;
         foreach (var b in pts) { if (!Clear(a, b, obs)) return false; a = b; }

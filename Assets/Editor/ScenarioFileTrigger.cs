@@ -56,6 +56,9 @@ public static class ScenarioFileTrigger
                 var kv = pending.Split('\n').Select(l => l.Split(new[] { '=' }, 2)).Where(p => p.Length == 2)
                                 .ToDictionary(p => p[0].Trim(), p => p[1].Trim());
                 string Get(string k, string d) => kv.TryGetValue(k, out var v) ? v : d;
+                var mapKey = Get("map", "Map_Default");   // map=off runs on the old flat ground, map=Map_Stirling the bridge test map
+                TerrainMap.Active = mapKey == "off" ? null : Resources.Load<TerrainMap>("Terrain/" + mapKey);
+                if (mapKey != "off" && TerrainMap.Active == null) UnityEngine.Debug.LogWarning("scenario map not found: " + mapKey + " (running on flat ground)");
                 ScenarioRunner.Run(Get("presets", "P0:"), int.Parse(Get("seed", "12345")),
                                    float.Parse(Get("speed", "2"), System.Globalization.CultureInfo.InvariantCulture),
                                    Get("renderOff", "true") == "true", Get("aiOn", "true") == "true", Get("scenario", ""));
