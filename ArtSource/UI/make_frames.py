@@ -6,14 +6,17 @@ from PIL import Image, ImageDraw
 from scipy.ndimage import distance_transform_edt as edt
 S = 4
 def hexc(h): h = h.lstrip('#'); return np.array([int(h[i:i+2], 16) for i in (0, 2, 4)], dtype=np.float32)
-GOLD_HI, GOLD_MID, GOLD_LO, OUTLINE = hexc('F4CD6E'), hexc('DFAB4B'), hexc('B07A22'), hexc('4A2E0C')
+GOLD_HI, GOLD_MID, GOLD_LO, OUTLINE = hexc('E6C77E'), hexc('C79A4A'), hexc('7A5420'), hexc('24160A')   # bronze, not bright gold
 def grad(h, w, top, bot):
     t = np.linspace(0, 1, h, dtype=np.float32)[:, None, None]
     return np.broadcast_to(top * (1 - t) + bot * t, (h, w, 3))
 def draw(name, w, h, shape, outline, rim, shadow, fill_top, fill_bot, gloss=0.0, rim_hi=GOLD_HI, rim_lo=GOLD_LO):
     W, H = w * S, h * S
     img = Image.new('L', (W, H), 0); d = ImageDraw.Draw(img)
-    if shape[0] == 'round': d.rounded_rectangle((0, 0, W - 1, H - 1), radius=shape[1] * S, fill=255)
+    if shape[0] == 'cham':
+        c = shape[1]; pts = [(c, 0), (w - c, 0), (w, c), (w, h - c), (w - c, h), (c, h), (0, h - c), (0, c)]
+        d.polygon([(x * S, y * S) for x, y in pts], fill=255)
+    elif shape[0] == 'round': d.rounded_rectangle((0, 0, W - 1, H - 1), radius=shape[1] * S, fill=255)
     else: d.polygon([(x * S, y * S) for x, y in shape[1]], fill=255)
     m0 = np.array(img) > 127
     dist = edt(np.pad(m0, 1))[1:-1, 1:-1]            # distance to the edge, inside the shape (padded so the image border counts as an edge)
@@ -33,17 +36,17 @@ def draw(name, w, h, shape, outline, rim, shadow, fill_top, fill_bot, gloss=0.0,
     out = np.dstack([rgb, a]).astype(np.uint8)
     im = Image.fromarray(out, 'RGBA').resize((w, h), Image.LANCZOS)
     im.save(f'ArtSource/UI/generated/{name}.png'); print(name, im.size)
-NAVY_T, NAVY_B = hexc('2A3756'), hexc('1B2540')
-draw('UI_Plate',      256,  88, ('round', 44), 2, 5, 3, NAVY_T, NAVY_B)
-draw('UI_PlateBlue',  256,  88, ('round', 44), 2, 5, 3, hexc('3E7FDC'), hexc('1F56B4'), gloss=0.28)
-draw('UI_PlateRed',   256,  88, ('round', 44), 2, 5, 3, hexc('D8453B'), hexc('A32219'), gloss=0.28)
-draw('UI_Row',        256,  64, ('round', 32), 2, 3, 2, hexc('25314E'), hexc('18213A'), rim_hi=GOLD_MID, rim_lo=GOLD_LO)
-draw('UI_Panel',      512, 512, ('round', 60), 3, 9, 6, hexc('243050'), hexc('171F36'))
-draw('UI_Ribbon',     512, 128, ('poly', [(0, 0), (512, 0), (462, 64), (512, 128), (0, 128), (50, 64)]), 2, 6, 3, hexc('FFFFFF'), hexc('D9DEEA'))
+NAVY_T, NAVY_B = hexc('3A2E24'), hexc('241B14')   # warm umber stone
+draw('UI_Plate',      256,  88, ('cham', 16), 2, 5, 3, NAVY_T, NAVY_B)
+draw('UI_PlateBlue',  256,  88, ('cham', 16), 2, 5, 3, hexc('3C68A8'), hexc('1F3B6E'), gloss=0.12)
+draw('UI_PlateBronze', 256, 88, ('cham', 16), 2, 5, 3, hexc('9A7634'), hexc('5E4219'), gloss=0.10)   # primary actions: dark bronze, cream text
+draw('UI_PlateRed',   256,  88, ('cham', 16), 2, 5, 3, hexc('B83A2E'), hexc('7A1D16'), gloss=0.12)
+draw('UI_Row',        256,  64, ('cham', 10), 2, 3, 2, hexc('2E241B'), hexc('1E1711'), rim_hi=GOLD_MID, rim_lo=GOLD_LO)
+draw('UI_Panel',      512, 512, ('cham', 40), 3, 9, 6, hexc('2E241B'), hexc('1B1410'))
+draw('UI_Ribbon',     512, 128, ('poly', [(0, 0), (512, 0), (462, 64), (512, 128), (0, 128), (50, 64)]), 2, 6, 3, hexc('EBDDBA'), hexc('C9B386'), rim_hi=GOLD_MID, rim_lo=GOLD_LO)
 
-# muted danger plate for destructive buttons, and a plain pill (no rim) used to clip bar fills
-draw('UI_PlateDanger', 256, 88, ('round', 44), 2, 5, 3, hexc('7A2E2A'), hexc('52201D'), rim_hi=GOLD_MID, rim_lo=GOLD_LO)
-draw('UI_PlateDisabled', 256, 88, ('round', 44), 2, 5, 3, hexc('2A3047'), hexc('1E2336'), rim_hi=hexc('8A91AA'), rim_lo=hexc('5E657D'))
+draw('UI_PlateDanger', 256, 88, ('cham', 16), 2, 5, 3, hexc('6E2A22'), hexc('45190F'), rim_hi=GOLD_MID, rim_lo=GOLD_LO)
+draw('UI_PlateDisabled', 256, 88, ('cham', 16), 2, 5, 3, hexc('2A2620'), hexc('1E1B17'), rim_hi=hexc('8A8576'), rim_lo=hexc('5E5A4E'))
 draw('UI_Pill', 256, 88, ('round', 44), 0, 0, 0, hexc('FFFFFF'), hexc('FFFFFF'))
 
 OUT = 'ArtSource/UI/generated'
@@ -56,7 +59,7 @@ def icon(name, fn, size=64):
     fn(d, size * S, 5.5 * S)
     img = big.resize((size, size), Image.LANCZOS)
     img.save(os.path.join(OUT, name + '.png'))
-W_ = (255, 253, 248, 255)
+W_ = (242, 232, 208, 255)
 def arc_arrow(d, cx, cy, r, a0, a1, w, head=1):
     d.arc([cx - r, cy - r, cx + r, cy + r], a0, a1, fill=W_, width=int(w))
     a = math.radians(a1)
@@ -92,7 +95,7 @@ def ring(size=128, radius=30):
     glow = gaussian_filter(line, 7 * S) * 2.2
     a = np.clip(np.maximum(line, glow * 0.55), 0, 1)
     rgb = np.zeros((n, n, 4), float)
-    rgb[..., 0], rgb[..., 1], rgb[..., 2] = 0.957, 0.804, 0.431
+    rgb[..., 0], rgb[..., 1], rgb[..., 2] = 0.90, 0.78, 0.49
     rgb[..., 3] = a
     Image.fromarray((rgb * 255).astype(np.uint8), 'RGBA').resize((size, size), Image.LANCZOS).save(os.path.join(OUT, 'UI_Ring.png'))
 ring()

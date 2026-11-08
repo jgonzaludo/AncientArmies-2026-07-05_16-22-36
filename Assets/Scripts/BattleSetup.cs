@@ -266,6 +266,9 @@ public class BattleSetup : MonoBehaviour
         if (Phase == BattlePhase.Pre) Phase = BattlePhase.Active;
     }
 
+    // admin tool: end the battle now with a chosen result line (same path as a real finish)
+    public void AdminEnd(string result) { if (Phase != BattlePhase.Ended) EndBattle(result); }
+
     // Scene reload is the simplest reliable full reset back to the Pre state.
     public void RestartBattle()
     {

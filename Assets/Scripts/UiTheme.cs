@@ -17,30 +17,30 @@ public static class UiTheme
 
     // palette
     static Color H(string hex) { ColorUtility.TryParseHtmlString(hex, out var c); return c; }
-    public static readonly Color Ink = H("#FFFDF8");
-    public static readonly Color InkMuted = H("#B8C3DC");
-    public static readonly Color Gold = H("#DFAB4B");
-    public static readonly Color GoldHi = H("#F4CD6E");
-    public static readonly Color BannerBlue = H("#2259A8");
-    public static readonly Color BannerBlueHi = H("#3E7FDC");
-    public static readonly Color BannerRed = H("#B32920");
-    public static readonly Color BannerRedHi = H("#D8453B");
-    public static readonly Color PanelNavy = H("#171F36");
-    public static readonly Color TrackDark = H("#0E1424");
+    public static readonly Color Ink = H("#F2E8D0");
+    public static readonly Color InkMuted = H("#B9AA8A");
+    public static readonly Color Gold = H("#C79A4A");
+    public static readonly Color GoldHi = H("#E6C77E");
+    public static readonly Color BannerBlue = H("#2C4F8A");
+    public static readonly Color BannerBlueHi = H("#4A7BC4");
+    public static readonly Color BannerRed = H("#9E2A22");
+    public static readonly Color BannerRedHi = H("#C4463A");
+    public static readonly Color PanelNavy = H("#1E1712");
+    public static readonly Color TrackDark = H("#120D09");
     public static readonly Color HealthGreen = H("#5FC96E");
     public static readonly Color HealthAmber = H("#E2B040");
-    public static readonly Color HealthRed = H("#D8453B");
-    public static readonly Color EnemyTint = H("#F08A80");
+    public static readonly Color HealthRed = H("#C4463A");
+    public static readonly Color EnemyTint = H("#E8877B");
 
-    // fonts: barlow semi condensed for everything, cinzel only for unit names and VICTORY
+    // fonts: marcellus (trajan-style roman capitals) for labels and body, cinzel bold for titles, unit names and numbers
     static TMP_FontAsset med, semi, bold, cinzel;
-    public static TMP_FontAsset Medium { get { return med ? med : med = Resources.Load<TMP_FontAsset>("BarlowSemiCondensed-Medium SDF"); } }
-    public static TMP_FontAsset SemiBold { get { return semi ? semi : semi = Resources.Load<TMP_FontAsset>("BarlowSemiCondensed-SemiBold SDF"); } }
-    public static TMP_FontAsset Bold { get { return bold ? bold : bold = Resources.Load<TMP_FontAsset>("BarlowSemiCondensed-Bold SDF"); } }
+    public static TMP_FontAsset Medium { get { return med ? med : med = Resources.Load<TMP_FontAsset>("Marcellus-Regular SDF"); } }
+    public static TMP_FontAsset SemiBold { get { return semi ? semi : semi = Resources.Load<TMP_FontAsset>("Marcellus-Regular SDF"); } }
+    public static TMP_FontAsset Bold { get { return bold ? bold : bold = Resources.Load<TMP_FontAsset>("Cinzel-Bold SDF"); } }
     public static TMP_FontAsset Cinzel { get { return cinzel ? cinzel : cinzel = Resources.Load<TMP_FontAsset>("Cinzel-Bold SDF"); } }
 
     // tabular digits: wrap changing numbers so they do not jitter
-    public static string Tab(object n) { return "<mspace=0.56em>" + n + "</mspace>"; }
+    public static string Tab(object n) { return "<mspace=0.62em>" + n + "</mspace>"; }
 
     private static Texture2D plateTex; private static bool plateTried;
 

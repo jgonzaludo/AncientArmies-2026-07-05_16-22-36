@@ -1661,6 +1661,9 @@ public class Formation : MonoBehaviour
     // returns 0), ignore the leash and flee (GetFleeVelocity); the anchor
     // follows the pack (UpdateAnchorMovement). Enemies keep targeting them
     // normally, that is the pursuit.
+    // admin tool: break this formation on the spot (the normal rout path, nothing special)
+    public void AdminRout() { if (soldiers.Count > 0 && State != FormationState.Routing) EnterRouting(); }
+
     private void EnterRouting()
     {
         State = FormationState.Routing;
