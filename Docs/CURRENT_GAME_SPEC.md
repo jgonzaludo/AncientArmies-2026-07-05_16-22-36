@@ -8,8 +8,8 @@ running in `Assets/Scenes/Battle.unity`. Nothing here is aspirational.
 A single symmetric land battle: Blue (player) against Red (autonomous AI).
 The battle runs Pre → Active → Ended. Press **START** to go Active; a
 persistent **RESTART** button reloads the scene at any time before the end.
-The battle ends by **line collapse**: a team loses the moment 50 % of its
-formations are Routing or destroyed (counted from its actual formations, never
+The battle ends by **line collapse**: a team loses the moment 75 % of its
+formations (6 of 8) are Routing or destroyed (counted from its actual formations, never
 an assumed 8). That moment is the latch, nothing afterwards reopens it. A
 visible **10:00 countdown** is the stall backstop: small and faint until the
 last 60 s, then bright and large. At 0:00 the side with more intact formations
@@ -47,7 +47,8 @@ would overlap.
 
 Formations physically march to their deployment positions during the Pre
 phase; combat cannot start because soldiers only fight while the battle is
-Active.
+Active. The player cannot select or order anything before START or after the
+battle has ended (the camera still pans and zooms).
 
 ## Century roles
 
@@ -80,7 +81,8 @@ Mobile-first touch grammar. Mouse input in the editor mirrors it 1:1.
 | Drag on empty ground | Pan the camera |
 | Pinch / scroll | Zoom |
 
-A selected formation that routs leaves the selection immediately.
+A selected formation that routs leaves the selection immediately. Commands only
+work while the battle is Active (not during Pre deployment, not once it has ended).
 
 Touch targets are deliberately forgiving: tap padding and command-grab
 tolerance are zoom-aware and expressed in 1080p-reference pixels, so they stay
@@ -335,7 +337,41 @@ Everything else is unchanged:
 - **Edge contact swing-in** exists but is **off** (`CombatConfig.swingIn`): in
   the edge test it pushed the unit into surround shock and a rout.
 
+## Terrain
+
+The field is no longer flat. A hand-painted **terrain map** (one pixel per 2 m
+cell, one colour per type) decides what each spot is. The first two maps are
+`Map_Default` (a meandering river across the whole field with a bridge on the
+road, a wide ford and a narrower ford, muddy banks, forests and rock outcrops)
+and `Map_Stirling` (after Stirling Bridge 1297: one narrow bridge on a looping
+river, a marsh on the far bank, forest on the flanks; a chokepoint test map).
+Both deployment zones (|z| 50 to 150, |x| up to 130) are always clear grass or road.
+
+| Type | Effect |
+| --- | --- |
+| Grass | normal speed |
+| Road | speed x 1.15 |
+| Forest | speed x 0.7, concealed (a flag fog of war can use later); trees are scenery, not obstacles |
+| Mud | speed x 0.6 |
+| Ford | speed x 0.5 |
+| Bridge | normal speed, the way across deep water |
+| Deep water, rock | blocked: nothing walks there |
+
+- Speed changes ease in over about half a second at a border and apply to marching
+  and charging, not to fleeing.
+- Routes go around blocked ground and use bridges and fords; both the player and the
+  enemy plan through the same code. An order onto water, rock or an unreachable
+  island snaps to the nearest reachable dry spot, and the ground marker shows
+  where it really went. A formation never steps into blocked ground; at a bank it
+  slides along it.
+- Trees within a short distance of one of the player's formations turn see-through
+  so a unit in a forest stays visible and selectable (trees have no colliders).
+- Maps are authored by painting a PNG in `Assets/Resources/Terrain` (colour key in
+  `TerrainMap`); a generated map is not in scope yet. Hills and height are out.
+- Look: painted ground textures blended by the map, painted 2d tree, rock, bush and
+  bridge sprites with cast shadows, all drawn for the fixed orthographic camera.
+
 ## Deliberately not in this build
 
-Terrain, progression, multiplayer, and advanced enemy tactics are all out of
+Progression, multiplayer, fog of war, hills, and advanced enemy tactics are all out of
 scope. Do not add them without explicit approval.

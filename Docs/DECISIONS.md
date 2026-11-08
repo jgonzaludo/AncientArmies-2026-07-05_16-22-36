@@ -5,6 +5,32 @@ stays in force until a later entry supersedes it.
 
 ---
 
+## 2026-11-08: Line collapse needs 6 of 8 formations, not 4 of 8
+
+**Decision (owner):** a team now loses when 75 % of its formations (6 of 8) are Routing or
+destroyed, instead of 50 % (4 of 8). The value is `collapseFraction` in
+`Assets/AncientArmies/Settings/MoraleConfig.asset` (the C# default in `MoraleConfig.cs` is still
+0.5, the asset overrides it). Expect longer battles; the 10:00 timer remains the backstop and
+still decides by intact formations. Not yet re-measured: how often battles now run to the timer.
+
+---
+
+## 2026-11-07: Terrain: painted maps, 2d painted art, no hills
+
+**Decision (owner):** the field gets terrain. Maps are hand-painted images (a hybrid with
+generated dressing comes later); forests are a speed and concealment zone with scenery trees,
+rivers and rock block movement with bridges and fords as the way across; fog of war, hills,
+weather and a backend are out for now. Terrain art is **2d**: the camera is fixed and
+orthographic, so ground is painted tile textures blended by the map and props (trees, rocks,
+bushes, the bridge) are painted sprites. The free KayKit Forest Nature Pack (CC0) was tried
+first and rejected by the owner as too plain; it was removed again (the zip is still
+in the owner's Downloads if it is ever wanted). The painted art was generated with
+Higgsfield from approved mockups, so it carries the same generated-asset gate as other art.
+Measured in the editor at 2x, mid zoom: 45 fps with terrain vs 43 without (about 1015 batches).
+Not yet done: phone measurements, a generated-map mode, soldier-level avoidance of rocks and water.
+
+---
+
 ## 2026-10-08: Interim soldier art: KayKit characters (CC0)
 
 **Decision (owner, via the KayKit device-test brief):** replace the capsule

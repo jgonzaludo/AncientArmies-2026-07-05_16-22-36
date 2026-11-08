@@ -220,6 +220,32 @@ formation internals. Its Blue roster excludes Routing formations, so nothing
 it does targets a router, and it issues no reform orders, reform is
 automatic in `Formation`.
 
+### Terrain: `TerrainMap`, `TerrainRules`, `TerrainGridPlanner`, `TerrainView`
+
+- `TerrainMap` (ScriptableObject): a painted PNG becomes a grid (`At`, `SpeedAt`, `Blocked`,
+  `ConcealedAt`, `CellCenter`). `TerrainMap.Active` loads `Resources/Terrain/Map_Default`
+  unless a scenario sets another (`map=` key in the file trigger; `map=off` is the old flat
+  field). `TerrainRules` is the one table of speed, blocked, concealed and route cost per type.
+- `TerrainGridPlanner`: A* over the grid with per-type costs and a soft cost near blocked ground,
+  then a line-of-sight pull. `NearestReachable` snaps a target to dry ground the mover can reach.
+- `RoutePlanner.Plan` asks the grid planner first, then bends each leg around other formations
+  with the existing circle planner; a circle detour that would cross blocked ground is dropped.
+  No terrain route (or no map) falls back to the old behaviour, so an order is never refused.
+- `Formation` stays the only writer of the anchor: `IssueMove` snaps the destination,
+  `UpdateTerrainSpeed` eases `TerrainSpeed` into the march and charge speed, and `StepTo`
+  refuses steps into blocked ground (sliding along the bank instead).
+- `TerrainView` (presentation only, built by `BattlefieldDecor`): bakes two weight maps from the
+  map (blurred, warped, so zone edges are soft) for the `AncientArmies/TerrainSplat` shader, which
+  blends five painted tile textures. `TerrainSprites` draws the painted props from one atlas as
+  camera-facing quads (and the bridge flat on the ground) in a few chunk meshes, plus sheared
+  silhouette shadows; trees near the player's formations fade through vertex colour.
+  `Battle.unity` is untouched: everything is created from code at battle start.
+- Art: `Assets/Resources/Terrain/Ground` (tile textures), `Assets/Resources/Terrain/Sprites`
+  (atlas + json), sources in `ArtSource/Terrain`. Generated with Higgsfield from the mockups in
+  `ArtSource/References/terrain_mockups`. `TerrainTasks` (editor) paints the maps and builds the
+  materials; its `Run*Tests` tasks and the `terrainspeed`, `terrainroute`, `terrainfade` and
+  `terrainshot` scenarios are the tests.
+
 ### UI: `BattleHUD`
 
 Builds the entire uGUI canvas from code: selection info panels, the CHARGE /
