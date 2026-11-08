@@ -697,10 +697,23 @@ public class ScenarioRunner : MonoBehaviour
         }
         for (int i = 0; i < 60; i++) yield return null;
         ScreenCapture.CaptureScreenshot(System.IO.Path.Combine(dir, "terrain_fade.png"));
+        if (cam != null) CaptureCamera(cam, System.IO.Path.Combine(dir, "terrain_fade_cam.png"));
         for (int i = 0; i < 10; i++) yield return null;
         bool ok = before == 0 && inside >= 5;
         System.IO.File.WriteAllText(System.IO.Path.Combine(dir, "terrain_fade.txt"), (ok ? "PASS\n" : "FAIL\n") + "faded trees before the march " + before + ", with the century inside the forest " + inside);
         BattleRecorder.NoteEnd(bs, "SCENARIO END — terrainfade");
+    }
+
+    // renders the camera (post-processing included, hud excluded) straight into a png; works with the editor in the background
+    private static void CaptureCamera(Camera cam, string path, int w = 1573, int h = 860)
+    {
+        var rt = new RenderTexture(w, h, 24, RenderTextureFormat.ARGB32);
+        var old = cam.targetTexture; cam.targetTexture = rt; cam.Render(); cam.targetTexture = old;
+        var prev = RenderTexture.active; RenderTexture.active = rt;
+        var tex = new Texture2D(w, h, TextureFormat.RGB24, false); tex.ReadPixels(new Rect(0, 0, w, h), 0, 0); tex.Apply();
+        RenderTexture.active = prev;
+        System.IO.File.WriteAllBytes(path, tex.EncodeToPNG());
+        Object.Destroy(tex); rt.Release(); Object.Destroy(rt);
     }
 
     // Style check: real in-game captures of both armies at a close and a normal zoom, no fighting.

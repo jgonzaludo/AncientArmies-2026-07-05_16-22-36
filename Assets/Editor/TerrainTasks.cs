@@ -219,10 +219,24 @@ public static class TerrainTasks
         imp.isReadable = false; imp.mipmapEnabled = true; imp.filterMode = FilterMode.Bilinear; imp.wrapMode = TextureWrapMode.Clamp;
         imp.maxTextureSize = 2048; imp.textureCompression = TextureImporterCompression.CompressedHQ; imp.sRGBTexture = true;
         imp.SaveAndReimport();
+        // the normal atlas: same layout, linear data, read by the lit sprite shader
+        string npng = dir + "/terrain_atlas_n.png";
+        AssetDatabase.ImportAsset(npng, ImportAssetOptions.ForceUpdate);
+        var nimp = (TextureImporter)AssetImporter.GetAtPath(npng);
+        if (nimp != null)
+        {
+            nimp.textureType = TextureImporterType.Default; nimp.sRGBTexture = false; nimp.alphaSource = TextureImporterAlphaSource.FromInput;
+            nimp.mipmapEnabled = true; nimp.filterMode = FilterMode.Bilinear; nimp.wrapMode = TextureWrapMode.Clamp;
+            nimp.maxTextureSize = 2048; nimp.textureCompression = TextureImporterCompression.CompressedHQ;
+            nimp.SaveAndReimport();
+        }
         string matPath = dir + "/MAT_TerrainSprites.mat";
         var mat = AssetDatabase.LoadAssetAtPath<Material>(matPath);
-        if (mat == null) { mat = new Material(Shader.Find("Sprites/Default")); AssetDatabase.CreateAsset(mat, matPath); }
+        var lit = Shader.Find("AncientArmies/LitSprite");
+        if (mat == null) { mat = new Material(lit != null ? lit : Shader.Find("Sprites/Default")); AssetDatabase.CreateAsset(mat, matPath); }
+        if (lit != null) mat.shader = lit;
         mat.mainTexture = AssetDatabase.LoadAssetAtPath<Texture2D>(png);
+        if (mat.HasProperty("_NormalTex")) mat.SetTexture("_NormalTex", AssetDatabase.LoadAssetAtPath<Texture2D>(npng));
         EditorUtility.SetDirty(mat); AssetDatabase.SaveAssets();
         return "imported sprite atlas, shader " + mat.shader.name;
     }
@@ -231,14 +245,14 @@ public static class TerrainTasks
     public static string BuildGroundMaterial()
     {
         const string dir = "Assets/Resources/Terrain/Ground";
-        foreach (var n in new[] { "grass", "road", "mud", "forest", "water" })
+        foreach (var n in new[] { "grass", "dry", "road", "mud", "forest", "water", "macro" })
         {
             string p = dir + "/" + n + ".png";
             AssetDatabase.ImportAsset(p, ImportAssetOptions.ForceUpdate);
             var imp = (TextureImporter)AssetImporter.GetAtPath(p);
             if (imp == null) return "MISSING " + p;
             imp.textureType = TextureImporterType.Default; imp.wrapMode = TextureWrapMode.Repeat; imp.filterMode = FilterMode.Trilinear;
-            imp.mipmapEnabled = true; imp.anisoLevel = 4; imp.sRGBTexture = true; imp.maxTextureSize = 1024;
+            imp.mipmapEnabled = true; imp.anisoLevel = 4; imp.sRGBTexture = n != "macro"; imp.maxTextureSize = 1024;   // macro holds masks, not colour
             imp.textureCompression = TextureImporterCompression.CompressedHQ; imp.alphaSource = TextureImporterAlphaSource.None;
             imp.SaveAndReimport();
         }
@@ -249,6 +263,8 @@ public static class TerrainTasks
         if (mat == null) { mat = new Material(shader); AssetDatabase.CreateAsset(mat, matPath); }
         mat.shader = shader;
         mat.SetTexture("_Grass", AssetDatabase.LoadAssetAtPath<Texture2D>(dir + "/grass.png"));
+        mat.SetTexture("_Dry", AssetDatabase.LoadAssetAtPath<Texture2D>(dir + "/dry.png"));
+        mat.SetTexture("_Macro", AssetDatabase.LoadAssetAtPath<Texture2D>(dir + "/macro.png"));
         mat.SetTexture("_Road", AssetDatabase.LoadAssetAtPath<Texture2D>(dir + "/road.png"));
         mat.SetTexture("_Mud", AssetDatabase.LoadAssetAtPath<Texture2D>(dir + "/mud.png"));
         mat.SetTexture("_Forest", AssetDatabase.LoadAssetAtPath<Texture2D>(dir + "/forest.png"));

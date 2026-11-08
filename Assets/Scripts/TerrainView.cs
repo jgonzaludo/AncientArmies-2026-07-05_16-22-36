@@ -13,6 +13,9 @@ public static class TerrainView
     private static readonly Color DeepC = new Color(0.25f, 0.50f, 0.64f), RockC = new Color(0.60f, 0.58f, 0.52f), ForestC = new Color(0.44f, 0.54f, 0.32f), SandC = new Color(0.79f, 0.70f, 0.49f);
 
     // props in a deployment zone would sit under the armies, so open ground there stays clear
+    // painted light on the ground: cloud shade multiplier, sunlit multiplier, warm add
+    public static Vector4 MoodLight = new Vector4(0.6f, 1.24f, 0.05f, 0f);
+
     private static bool InDeployment(float x, float z) => Mathf.Abs(z) >= 42f && Mathf.Abs(x) <= 138f;
 
     public static void Build(TerrainMap map, GameObject ground)
@@ -28,7 +31,8 @@ public static class TerrainView
                 mat = new Material(splat) { name = "MAT_Battlefield_Terrain" };
                 Splat(map, out Texture2D c1, out Texture2D c2);
                 mat.SetTexture("_Control", c1); mat.SetTexture("_Control2", c2);
-                mat.SetVector("_Field", new Vector4(map.halfX, map.halfZ, 44f, 71f));
+                mat.SetVector("_Field", new Vector4(map.halfX, map.halfZ, 16f, 23f));   // tile repeats in metres: small enough that blades and tufts read up close
+                mat.SetVector("_Light", MoodLight);
             }
             else
             {
@@ -48,6 +52,7 @@ public static class TerrainView
         BuildCrossings(map, root.transform);
         root.AddComponent<ZoomLod>().hide = FarHidden.ToArray();
         TuneLight();
+        MoodPresentation.Ensure();   // grade, haze and depth blur on the main camera
     }
 
     // ---------------- ground ----------------
@@ -249,6 +254,18 @@ public static class TerrainView
         {
             if (names.Length > 0) list.Add(new TerrainSprites.Placement { sprite = names[rng.Next(names.Length)], pos = pos, size = size, byWidth = byWidth });
         };
+        // bank woods use their own random stream, so adding them never moves any other prop
+        var bank = new System.Random(4242);
+        System.Action<System.Random, Vector3> BankWoods = (r, pos) =>
+        {
+            double q = r.NextDouble();
+            if (q < 0.15)
+            {
+                bool pineTree = r.NextDouble() >= 0.7; var names = pineTree ? pine : broad;
+                if (names.Length > 0) main.Add(new TerrainSprites.Placement { sprite = names[r.Next(names.Length)], pos = pos, size = pineTree ? 7f + (float)r.NextDouble() * 2f : 6f + (float)r.NextDouble() * 2f, byWidth = false });
+            }
+            else if (q < 0.28 && bush.Length > 0) main.Add(new TerrainSprites.Placement { sprite = bush[r.Next(bush.Length)], pos = pos, size = 2.2f + (float)r.NextDouble(), byWidth = false });
+        };
         for (int z = 0; z < m.Height; z++)
             for (int x = 0; x < m.Width; x++)
             {
@@ -265,11 +282,17 @@ public static class TerrainView
                         if (rng.NextDouble() < 0.10) add(main, rock, c, Rf(rng, 3.4f, 5.8f), true);
                         break;
                     case TerrainType.Mud:
-                        if (rng.NextDouble() < 0.006) add(main, dead, c, Rf(rng, 4.5f, 6.0f), false);
+                    {
+                        double dq = rng.NextDouble();   // drawn first either way, so the main layout never shifts
+                        if (NearWater(m, c, 7f) && !NearCrossing(m, c, 14f) && !InDeployment(c.x, c.z)) BankWoods(bank, c);
+                        if (dq < 0.006) add(main, dead, c, Rf(rng, 4.5f, 6.0f), false);
                         break;
+                    }
                     case TerrainType.Grass:
                         if (InDeployment(c.x, c.z)) break;
                         double p = rng.NextDouble();
+                        // riverbank woods: trees and bushes line the banks (not at crossings), and mirror in the water
+                        if (NearWater(m, c, 7f) && !NearCrossing(m, c, 14f)) BankWoods(bank, c);   // and the original lone props still follow
                         if (p < 0.0025) add(lone, broad, c, Rf(rng, 6.0f, 7.6f), false);
                         else if (p < 0.0040) add(lone, bush, c, Rf(rng, 2.2f, 3.0f), false);
                         else if (p < 0.0052) add(lone, rock, c, Rf(rng, 2.6f, 4.0f), true);
@@ -278,6 +301,54 @@ public static class TerrainView
             }
         spr.Build("Trees", root, main, true, true);
         FarHidden.Add(spr.Build("FieldClutter", root, lone));   // single trees and boulders in the open, hidden when zoomed far out
+        Reflections(m, spr, root, main, lone);
+    }
+
+    // water reflections: a tree on a north bank is mirrored onto the water south of it. the camera never turns, so the
+    // mirror image is the same picture flipped and laid flat, 1/sin(pitch) deep to read at its true height, and cut where
+    // the water ends so it never lies on land. darker and fading out with distance from the bank.
+    private static void Reflections(TerrainMap m, TerrainSprites spr, Transform root, params List<TerrainSprites.Placement>[] lists)
+    {
+        bool Wet(Vector3 p) { var t = m.At(p); return t == TerrainType.Deep || t == TerrainType.Ford; }
+        var decals = new List<TerrainSprites.Decal>();
+        float depthPerMetre = 1f / Mathf.Sin(40f * Mathf.Deg2Rad);
+        foreach (var list in lists)
+            foreach (var pl in list)
+            {
+                if (pl.byWidth) continue;   // rocks sit low; only standing trees and bushes reflect
+                float start = -1f;
+                for (float d = 0.5f; d <= 18f; d += 0.5f) if (Wet(pl.pos - Vector3.forward * d)) { start = d; break; }
+                if (start < 0f) continue;
+                // the mirror image runs from the tree's base, so the stretch over the dry gap is hidden: show from there on
+                float full = pl.size * depthPerMetre;
+                if (start >= full - 1f) continue;
+                float len = 0f;
+                while (start + len < full && Wet(pl.pos - Vector3.forward * (start + len + 0.5f))) len += 0.5f;
+                if (len < 1f) continue;
+                float z1 = pl.pos.z - start, from = start / full, to = (start + len) / full;
+                byte a0 = (byte)(225f * (1f - from * 0.5f)), a1 = (byte)(225f * (1f - to * 0.8f) + 25f);
+                decals.Add(new TerrainSprites.Decal
+                {
+                    sprite = pl.sprite, centerX = pl.pos.x, width = pl.size * spr.Aspect(pl.sprite), z1 = z1, z0 = z1 - len,
+                    flipV = true, vFrom = from, vFrac = to, near = new Color32(96, 108, 96, a0), far = new Color32(96, 108, 96, a1)
+                });
+            }
+        if (decals.Count > 0) spr.BuildDecals("WaterReflections", root, decals);
+    }
+
+    private static bool Wet(TerrainType t) => t == TerrainType.Deep || t == TerrainType.Ford;
+
+    private static bool NearWater(TerrainMap m, Vector3 c, float r)
+    {
+        for (int k = 0; k < 8; k++) { float a = k * Mathf.PI / 4f; if (Wet(m.At(c + new Vector3(Mathf.Cos(a), 0f, Mathf.Sin(a)) * r))) return true; }
+        return false;
+    }
+
+    private static bool NearCrossing(TerrainMap m, Vector3 c, float r)
+    {
+        for (float dx = -r; dx <= r; dx += 3f) for (float dz = -r; dz <= r; dz += 3f)
+        { var t = m.At(c + new Vector3(dx, 0f, dz)); if (t == TerrainType.Ford || t == TerrainType.Bridge || t == TerrainType.Road) return true; }
+        return false;
     }
 
     private static readonly List<GameObject> FarHidden = new List<GameObject>();
@@ -396,20 +467,24 @@ public static class TerrainView
                 }
             }
         }
-        var stone = Flat(new Color(0.56f, 0.52f, 0.45f));
-        var stones = new GameObject("FordStones").transform; stones.SetParent(cross, false); FarHidden.Add(stones.gameObject);
+        // ford stepping stones: painted stones from the atlas, standing small and low in the shallows
+        var stoneArt = TerrainSprites.Load();
+        var stones = new List<TerrainSprites.Placement>();
         var rng = new System.Random(77);
-        foreach (var b in Patches(m, TerrainType.Ford))
-        {
-            Vector3 lo = m.CellCenter(b.x0, b.z0), hi = m.CellCenter(b.x1, b.z1);
-            for (float x = lo.x; x <= hi.x; x += 2.6f)
-                for (float z = lo.z; z <= hi.z; z += 2.4f)
-                {
-                    var p = new Vector3(x + Rf(rng, -0.5f, 0.5f), 0.06f, z + Rf(rng, -0.5f, 0.5f));
-                    if (m.At(p) != TerrainType.Ford) continue;
-                    Cube(PrimitiveType.Cylinder, stones, p, new Vector3(Rf(rng, 1.3f, 1.9f), 0.12f, Rf(rng, 1.1f, 1.6f)), stone, (float)rng.NextDouble() * 180f);
-                }
-        }
+        string[] stoneNames = stoneArt != null ? stoneArt.Names("ford_") : new string[0];
+        if (stoneNames.Length > 0)
+            foreach (var b in Patches(m, TerrainType.Ford))
+            {
+                Vector3 lo = m.CellCenter(b.x0, b.z0), hi = m.CellCenter(b.x1, b.z1);
+                for (float x = lo.x; x <= hi.x; x += 2.6f)
+                    for (float z = lo.z; z <= hi.z; z += 2.4f)
+                    {
+                        var p = new Vector3(x + Rf(rng, -0.5f, 0.5f), 0f, z + Rf(rng, -0.5f, 0.5f));
+                        if (m.At(p) != TerrainType.Ford) continue;
+                        stones.Add(new TerrainSprites.Placement { sprite = stoneNames[rng.Next(stoneNames.Length)], pos = p, size = Rf(rng, 1.5f, 2.1f), byWidth = true });
+                    }
+            }
+        if (stones.Count > 0) FarHidden.Add(stoneArt.Build("FordStones", cross, stones, false));
         if (Application.isPlaying) StaticBatchingUtility.Combine(cross.gameObject);
     }
 
@@ -427,9 +502,10 @@ public static class TerrainView
         if (sun == null)
             foreach (var l in Object.FindObjectsByType<Light>(FindObjectsSortMode.None)) if (l.type == LightType.Directional) { sun = l; break; }
         if (sun == null) return;
-        sun.color = new Color(1f, 0.94f, 0.84f);   // warm low sun
-        sun.intensity = 1.4f;
-        sun.transform.rotation = Quaternion.Euler(52f, -38f, 0f);
+        sun.color = new Color(1f, 0.88f, 0.68f);   // warm low late-afternoon sun
+        sun.intensity = 1.35f;
+        // from the upper left of the screen, the same side the props are painted lit from; their cast shadows fall the other way
+        sun.transform.rotation = Quaternion.Euler(36f, 135f, 0f);
         sun.shadows = LightShadows.None;           // blob shadows instead, to keep the frame cheap on a phone
     }
 }

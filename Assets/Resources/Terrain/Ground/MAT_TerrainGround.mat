@@ -31,12 +31,20 @@ Material:
         m_Texture: {fileID: 0}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
+    - _Dry:
+        m_Texture: {fileID: 2800000, guid: 933c541d18d624c368677222c90f2afe, type: 3}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
     - _Forest:
         m_Texture: {fileID: 2800000, guid: 5e3bb6718073a4a3c95d428373a93d04, type: 3}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     - _Grass:
         m_Texture: {fileID: 2800000, guid: c39eeeb454437465cbe29de200429e88, type: 3}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _Macro:
+        m_Texture: {fileID: 2800000, guid: 8e5909c9f9f0345bea2536335e27ee85, type: 3}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     - _Mud:
@@ -52,10 +60,12 @@ Material:
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     m_Ints: []
-    m_Floats: []
+    m_Floats:
+    - _MacroTile: 140
     m_Colors:
     - _Field: {r: 205, g: 170, b: 44, a: 71}
     - _FordTint: {r: 0.7, g: 0.86, b: 0.86, a: 1}
+    - _Light: {r: 0.8, g: 1.1, b: 0.06, a: 0}
     - _RockTint: {r: 0.74, g: 0.72, b: 0.68, a: 1}
     - _SandColor: {r: 0.78999996, g: 0.7, b: 0.49, a: 1}
   m_BuildTextureStacks: []

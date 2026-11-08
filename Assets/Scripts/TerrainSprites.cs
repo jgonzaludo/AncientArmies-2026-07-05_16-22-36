@@ -9,7 +9,9 @@ public sealed class TerrainSprites
 {
     public struct Placement { public string sprite; public Vector3 pos; public float size; public bool byWidth; }
     // a sprite laid flat on the ground over a rectangle (a bridge): it must be flat, not standing, so soldiers on it show
-    public struct Decal { public string sprite; public float centerX, z0, z1, width; }
+    // flipV mirrors it (a reflection: the picture's base at z1, its top toward z0) and shows only vFrac of it; near/far
+    // tint the z1 and z0 ends (alpha 0 means plain white)
+    public struct Decal { public string sprite; public float centerX, z0, z1, width; public bool flipV; public float vFrom, vFrac; public Color32 near, far; }
 
     [System.Serializable] private class Entry { public string name; public int x, y, w, h; }
     [System.Serializable] private class Data { public int width, height; public Entry[] sprites; }
@@ -17,6 +19,8 @@ public sealed class TerrainSprites
     // BattleSetup puts the camera at this pitch and never rotates it
     private const float CameraPitch = 40f;
     private const float ChunkSize = 60f;
+    // sunlight on the painted props: brightness of the side away from the sun, and of the side facing it
+    public static float SpriteShade = 0.66f, SpriteLit = 1.32f;
 
     private readonly Dictionary<string, Entry> byName = new Dictionary<string, Entry>();
     private Data data;
@@ -30,12 +34,17 @@ public sealed class TerrainSprites
         if (atlas == null || json == null || mat == null) return null;
         var t = new TerrainSprites { data = JsonUtility.FromJson<Data>(json.text) };
         foreach (var e in t.data.sprites) t.byName[e.name] = e;
-        t.sprites = mat;
-        t.shadows = new Material(mat) { name = "MAT_TerrainShadows" };
+        t.sprites = new Material(mat) { name = "MAT_TerrainSpritesLit" };
+        t.sprites.SetFloat("_Shade", SpriteShade); t.sprites.SetFloat("_Lit", SpriteLit); t.sprites.SetFloat("_Wrap", 0.5f);
+        // cast shadows are flat dark silhouettes, never lit
+        var unlit = Shader.Find("Sprites/Default");
+        t.shadows = unlit != null ? new Material(unlit) { name = "MAT_TerrainShadows", mainTexture = atlas } : new Material(mat) { name = "MAT_TerrainShadows" };
         return t;
     }
 
     public bool Has(string name) => byName.ContainsKey(name);
+
+    public float Aspect(string name) => byName.TryGetValue(name, out var e) ? (float)e.w / e.h : 1f;
 
     // flat quads on the ground, one mesh. the picture is already drawn as seen from the game camera, so stretching it
     // over a ground rectangle that is 1/sin(pitch) deeper makes it read the same from that camera
@@ -48,10 +57,13 @@ public sealed class TerrainSprites
             if (!byName.TryGetValue(d.sprite, out var e)) continue;
             float u0 = (float)e.x / data.width, u1 = (float)(e.x + e.w) / data.width;
             float v0 = 1f - (float)(e.y + e.h) / data.height, v1 = 1f - (float)e.y / data.height;
+            float vz0 = v0, vz1 = v1;
+            if (d.flipV) { vz1 = v0 + (v1 - v0) * d.vFrom; vz0 = v0 + (v1 - v0) * (d.vFrac > 0f ? d.vFrac : 1f); }
             int i = v.Count; float x0 = d.centerX - d.width * 0.5f, x1 = d.centerX + d.width * 0.5f; const float y = 0.06f;
             v.Add(new Vector3(x0, y, d.z0)); v.Add(new Vector3(x1, y, d.z0)); v.Add(new Vector3(x1, y, d.z1)); v.Add(new Vector3(x0, y, d.z1));
-            uv.Add(new Vector2(u0, v0)); uv.Add(new Vector2(u1, v0)); uv.Add(new Vector2(u1, v1)); uv.Add(new Vector2(u0, v1));
-            for (int k = 0; k < 4; k++) col.Add(new Color32(255, 255, 255, 255));
+            uv.Add(new Vector2(u0, vz0)); uv.Add(new Vector2(u1, vz0)); uv.Add(new Vector2(u1, vz1)); uv.Add(new Vector2(u0, vz1));
+            Color32 white = new Color32(255, 255, 255, 255), cn = d.near.a > 0 ? d.near : white, cf = d.far.a > 0 || d.near.a > 0 ? d.far : white;
+            col.Add(cf); col.Add(cf); col.Add(cn); col.Add(cn);
             tri.Add(i); tri.Add(i + 2); tri.Add(i + 1); tri.Add(i); tri.Add(i + 3); tri.Add(i + 2);
         }
         if (v.Count == 0) return go;
@@ -100,7 +112,9 @@ public sealed class TerrainSprites
     private FadeChunk Mesh(Transform parent, string name, List<Placement> list, Vector3 right, Vector3 up, bool shadow, Material mat, int order, bool fadeTrees = false)
     {
         var v = new List<Vector3>(list.Count * 4); var uv = new List<Vector2>(list.Count * 4); var col = new List<Color32>(list.Count * 4); var tri = new List<int>(list.Count * 6);
-        Color32 white = new Color32(255, 255, 255, 255), dark = new Color32(14, 22, 8, 96);
+        Color32 white = new Color32(255, 255, 255, 255), dark = new Color32(16, 20, 8, 170);
+        // a little darker toward the base: the ground and the plant's own mass hide the lower trunk from the sky
+        Color32 top = new Color32(255, 255, 255, 255), baseCol = new Color32(196, 194, 186, 255);
         foreach (var p in list)
         {
             var e = byName[p.sprite];
@@ -117,12 +131,13 @@ public sealed class TerrainSprites
             else
             {
                 // the silhouette laid on the ground, leaning away from a sun that is up and to the left
-                Vector3 s = new Vector3(0.85f, 0f, -0.5f).normalized * (h * 0.62f);
+                Vector3 s = new Vector3(0.85f, 0f, -0.5f).normalized * (h * 1.05f);   // a long low-sun shadow
                 Vector3 bl = p.pos + Vector3.up * 0.05f - Vector3.right * (w * 0.5f);
                 v.Add(bl); v.Add(bl + Vector3.right * w); v.Add(bl + Vector3.right * w + s); v.Add(bl + s);
             }
             uv.Add(new Vector2(u0, v0)); uv.Add(new Vector2(u1, v0)); uv.Add(new Vector2(u1, v1)); uv.Add(new Vector2(u0, v1));
-            for (int k = 0; k < 4; k++) col.Add(shadow ? dark : white);
+            if (shadow) for (int k = 0; k < 4; k++) col.Add(dark);
+            else { col.Add(baseCol); col.Add(baseCol); col.Add(top); col.Add(top); }   // bl, br, tr, tl: the sun itself comes from the lit shader
             tri.Add(i); tri.Add(i + 2); tri.Add(i + 1); tri.Add(i); tri.Add(i + 3); tri.Add(i + 2);
         }
         var mesh = new Mesh { name = name, indexFormat = UnityEngine.Rendering.IndexFormat.UInt32 };
