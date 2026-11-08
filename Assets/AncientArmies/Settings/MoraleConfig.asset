@@ -28,7 +28,7 @@ MonoBehaviour:
   fleeSpeedMultiplier: 1.2
   fleeBackBias: 0.6
   routedCanRally: 0
-  collapseFraction: 0.5
+  collapseFraction: 0.75
   battleTimeLimit: 600
   timerWarningSeconds: 60
   enableFlankShock: 1
