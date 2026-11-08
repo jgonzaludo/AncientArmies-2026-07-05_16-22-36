@@ -25,7 +25,7 @@ public static class UiFontTasks
     public static string Build()
     {
         var sb = new StringBuilder();
-        foreach (var name in new[] { "BarlowSemiCondensed-Medium", "BarlowSemiCondensed-SemiBold", "BarlowSemiCondensed-Bold", "Cinzel-Bold" })
+        foreach (var name in new[] { "Marcellus-Regular" })
         {
             string ttf = Dir + name + ".ttf", asset = Dir + name + " SDF.asset";
             AssetDatabase.ImportAsset(ttf);

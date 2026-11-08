@@ -491,7 +491,7 @@ public class BattleHUD : MonoBehaviour
         rotateBtn = MakeBtn(pt, "RotateButton", "ROTATE", "UI_Plate", P(170f), bh, "UI_Icon_Rotate");
         UiKit.Place(rotateBtn.bg.rectTransform, new Vector2(1f, 0f), new Vector2(1f, 0f), new Vector2(-m, m), new Vector2(P(170f), bh));
         rotateBtn.button.onClick.AddListener(OnRotateClicked);
-        chargeBtn = MakeBtn(pt, "ChargeButton", "CHARGE", "UI_PlateBlue", P(230f), bh, null, true);
+        chargeBtn = MakeBtn(pt, "ChargeButton", "CHARGE", "UI_PlateBronze", P(230f), bh, null, true);
         UiKit.Place(chargeBtn.bg.rectTransform, new Vector2(1f, 0f), new Vector2(1f, 0f), new Vector2(-m - P(170f) - gap, m), new Vector2(P(230f), bh));
         chargeBtn.button.onClick.AddListener(OnChargeClicked);
         panelGO.SetActive(false);
@@ -531,15 +531,56 @@ public class BattleHUD : MonoBehaviour
         });
         devSpeedGO = speed.bg.gameObject;
         devSpeedGO.SetActive(ShowDevButtons);
+        BuildAdminPanel(parent);
 #endif
     }
+
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+    // admin panel: an ADMIN toggle under the top-right buttons opens a column of instant test actions
+    private GameObject adminColumn;
+
+    private void BuildAdminPanel(Transform parent)
+    {
+        float m = UiTheme.Margin, w = P(190f), h = UiTheme.BtnH * 0.85f, gap = P(8f);
+        var toggle = MakeBtn(parent, "AdminToggle", "ADMIN", "UI_Plate", w, h, null, false, P(17f), 5f);
+        UiKit.Place(toggle.bg.rectTransform, new Vector2(1f, 1f), new Vector2(1f, 1f), new Vector2(-m, -(m + UiTheme.BtnH + UiTheme.GapIn)), new Vector2(w, h));
+        adminColumn = new GameObject("AdminColumn", typeof(RectTransform));
+        adminColumn.transform.SetParent(parent, false);
+        UiKit.Place(adminColumn.GetComponent<RectTransform>(), new Vector2(1f, 1f), new Vector2(1f, 1f), new Vector2(-m, -(m + UiTheme.BtnH + UiTheme.GapIn + h + gap)), new Vector2(w, 11 * (h + gap)));
+        var items = new (string, string, System.Action)[]
+        {
+            ("START", "UI_PlateBronze", () => { if (BattleSetup.Instance != null) BattleSetup.Instance.StartBattle(); }),
+            ("WIN NOW", "UI_PlateBronze", AdminCommands.Win),
+            ("LOSE NOW", "UI_PlateDanger", AdminCommands.Lose),
+            ("DRAW NOW", "UI_Plate", AdminCommands.Draw),
+            ("ROUT ENEMY 5", "UI_Plate", () => AdminCommands.Rout(Team.Red, 5)),
+            ("ROUT ENEMY ALL", "UI_Plate", () => AdminCommands.Rout(Team.Red, 8)),
+            ("ROUT MINE 5", "UI_Plate", () => AdminCommands.Rout(Team.Blue, 5)),
+            ("WIPE ENEMY", "UI_PlateDanger", () => AdminCommands.Wipe(Team.Red)),
+            ("WIPE MINE", "UI_PlateDanger", () => AdminCommands.Wipe(Team.Blue)),
+            ("NORMAL SPEED", "UI_Plate", () => AdminCommands.Speed(1f)),
+            ("DOUBLE SPEED", "UI_Plate", () => AdminCommands.Speed(2f)),
+        };
+        for (int i = 0; i < items.Length; i++)
+        {
+            var it = items[i];
+            var b = MakeBtn(adminColumn.transform, "Admin_" + it.Item1, it.Item1, it.Item2, w, h, null, false, P(16f), 4f);
+            b.bg.rectTransform.anchoredPosition = new Vector2(0f, -i * (h + gap));
+            b.bg.rectTransform.anchorMin = b.bg.rectTransform.anchorMax = new Vector2(0f, 1f);
+            var act = it.Item3;
+            b.button.onClick.AddListener(() => act());
+        }
+        adminColumn.SetActive(false);
+        toggle.button.onClick.AddListener(() => adminColumn.SetActive(!adminColumn.activeSelf));
+    }
+#endif
 
     private void BuildStartUI(Transform parent)
     {
         startRoot = new GameObject("StartUI", typeof(RectTransform));
         startRoot.transform.SetParent(parent, false);
         UiKit.Place(startRoot.GetComponent<RectTransform>(), new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0f, UiTheme.Margin), new Vector2(P(260f), P(76f)));
-        var start = MakeBtn(startRoot.transform, "StartButton", "START", "UI_PlateBlue", P(260f), P(76f), null, false, P(26f), 9f);
+        var start = MakeBtn(startRoot.transform, "StartButton", "START", "UI_PlateBronze", P(260f), P(76f), null, false, P(26f), 9f);
         start.bg.rectTransform.anchoredPosition = Vector2.zero;
         start.button.onClick.AddListener(() => { if (BattleSetup.Instance != null) BattleSetup.Instance.StartBattle(); });
     }
@@ -586,13 +627,13 @@ public class BattleHUD : MonoBehaviour
                 UiKit.Place(endRowName[k].rectTransform, new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), new Vector2(P(46f), 0f), new Vector2(P(170f), rowH));
                 var tr = UiKit.Img(plate.transform, "BarTrack", UiKit.Spr("UI_Pill"), UiTheme.TrackDark, P(8f));
                 UiKit.Place(tr.rectTransform, new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), new Vector2(P(233f), 0f), new Vector2(P(150f), P(8f)));
-                endRowFill[k] = UiKit.Img(plate.transform, "BarFill", UiKit.Spr("UI_Pill"), side == 0 ? UiTheme.BannerBlueHi : UiTheme.BannerRedHi, P(8f));
+                endRowFill[k] = UiKit.Img(plate.transform, "BarFill", UiKit.Spr("UI_Pill"), side == 0 ? Color.Lerp(UiTheme.BannerBlue, UiTheme.BannerBlueHi, 0.55f) : Color.Lerp(UiTheme.BannerRed, UiTheme.BannerRedHi, 0.55f), P(8f));
                 UiKit.Place(endRowFill[k].rectTransform, new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), new Vector2(P(233f), 0f), new Vector2(P(150f), P(8f)));
-                endRowCount[k] = UiKit.Tmp(plate.transform, "Count", "", UiTheme.SemiBold, P(20f), UiTheme.Ink, TextAlignmentOptions.MidlineRight);
+                endRowCount[k] = UiKit.Tmp(plate.transform, "Count", "", UiTheme.Bold, P(19f), UiTheme.Ink, TextAlignmentOptions.MidlineRight);
                 UiKit.Place(endRowCount[k].rectTransform, new Vector2(1f, 0.5f), new Vector2(1f, 0.5f), new Vector2(-P(18f), 0f), new Vector2(P(84f), rowH));
             }
         }
-        var rematch = MakeBtn(et, "RestartButton", "REMATCH", "UI_PlateBlue", P(230f), P(60f), "UI_Icon_Restart", false, P(21f), 8f);
+        var rematch = MakeBtn(et, "RestartButton", "REMATCH", "UI_PlateBronze", P(230f), P(60f), "UI_Icon_Restart", false, P(21f), 8f);
         UiKit.Place(rematch.bg.rectTransform, top, top, new Vector2(0f, -(P(116f) + panelH - P(26f) - P(60f))), new Vector2(P(230f), P(60f)));
         rematch.button.onClick.AddListener(() => { if (BattleSetup.Instance != null) BattleSetup.Instance.RestartBattle(); });
         // the rect pivot is top-left for buttons, so centre it

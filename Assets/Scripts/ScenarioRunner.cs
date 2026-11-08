@@ -419,6 +419,18 @@ public class ScenarioRunner : MonoBehaviour
         for (int i = 0; i < 240; i++) yield return null;
         ScreenCapture.CaptureScreenshot(System.IO.Path.Combine(dir, "hud_active.png"));
         for (int i = 0; i < 10; i++) yield return null;
+        // admin column open, then a forced win so the result screen can be checked too
+        var hud = Object.FindAnyObjectByType<BattleHUD>();
+        var colField = typeof(BattleHUD).GetField("adminColumn", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+        if (hud != null && colField != null) ((GameObject)colField.GetValue(hud)).SetActive(true);
+        for (int i = 0; i < 4; i++) yield return null;
+        ScreenCapture.CaptureScreenshot(System.IO.Path.Combine(dir, "hud_admin.png"));
+        for (int i = 0; i < 10; i++) yield return null;
+        if (hud != null && colField != null) ((GameObject)colField.GetValue(hud)).SetActive(false);
+        AdminCommands.Win();
+        for (int i = 0; i < 6; i++) yield return null;
+        ScreenCapture.CaptureScreenshot(System.IO.Path.Combine(dir, "hud_end.png"));
+        for (int i = 0; i < 20; i++) yield return null;
         BattleRecorder.NoteEnd(bs, "SCENARIO END — hudshot");
     }
 
