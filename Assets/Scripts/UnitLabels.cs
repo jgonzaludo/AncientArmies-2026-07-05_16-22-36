@@ -85,16 +85,22 @@ public class UnitLabels : MonoBehaviour
         foreach (var f in order)
         {
             var e = map[f];
-            e.state.text = Formation.StateLabel(f.State);
+            // the enemy's state is hidden: their pill shows only the head count
+            bool showState = f.team == Team.Blue;
+            e.state.gameObject.SetActive(showState); e.divider.gameObject.SetActive(showState);
+            e.state.text = showState ? Formation.StateLabel(f.State) : "";
             e.count.text = UiTheme.Tab(f.soldiers.Count);
             float h = UiTheme.P(32f), pad = UiTheme.P(14f), gap = UiTheme.P(8f), ic = UiTheme.P(15f);
-            float sw = e.state.preferredWidth, cw = e.count.preferredWidth;
-            float w = pad + sw + gap + 1.5f + gap + ic + UiTheme.P(4f) + cw + pad;
+            float sw = showState ? e.state.preferredWidth : 0f, cw = e.count.preferredWidth;
+            float w = pad + (showState ? sw + gap + 1.5f + gap : 0f) + ic + UiTheme.P(4f) + cw + pad;
             e.size = new Vector2(w, h);
             e.pill.sizeDelta = e.size;
             float x = pad;
-            At(e.state.rectTransform, x, sw + 2f, h); x += sw + gap;
-            At(e.divider.rectTransform, x, 1.5f, h * 0.5f); x += 1.5f + gap;
+            if (showState)
+            {
+                At(e.state.rectTransform, x, sw + 2f, h); x += sw + gap;
+                At(e.divider.rectTransform, x, 1.5f, h * 0.5f); x += 1.5f + gap;
+            }
             At(e.icon.rectTransform, x, ic, ic); x += ic + UiTheme.P(4f);
             At(e.count.rectTransform, x, cw + 2f, h);
 
